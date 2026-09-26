@@ -67,8 +67,7 @@ No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for conf
 state, curves, receipts, or unsigned transaction preparation. Configuration and
 public metadata are validated without RPC for `/config`. Live operations still
 verify contract identity. RPC calls have a five-second limit without hidden
-retries; API work has an eight-second response deadline. Slow reads return JSON
-503 and share their in-flight work with later polls, including completed results
+retries; API work has an eight-second response deadline. Slow reads return JSON 503. State polls share their in-flight work, including completed results
 for up to 30 seconds. At most 32 read jobs are retained per process. Setup errors
 remain explicit failures, not empty calendars.
 Each process shares one in-memory canonical index. Requests advance it in bounded

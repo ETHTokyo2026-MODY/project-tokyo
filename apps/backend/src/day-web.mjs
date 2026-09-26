@@ -122,7 +122,7 @@ export function createDayWebHandler(liveHandler = lazyDayWeb(), waitMs = 8000) {
         client: null,
         index: null,
       })(request);
-    if (request.method !== 'GET')
+    if (request.method !== 'GET' || url.pathname !== '/state')
       return withinDeadline(liveHandler(request), waitMs);
     const key = url.pathname + url.search;
     let job = reads.get(key);
