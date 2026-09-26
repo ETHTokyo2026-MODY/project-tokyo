@@ -6,6 +6,7 @@ import { Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { normalizeAssetId } from '@/lib/chain/model';
 import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
+import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { useDemo } from '@/lib/demo/store';
@@ -55,6 +56,12 @@ function AssetInner() {
       </h1>
       <div className="muted">
         Provided by {who.name} · {asset.location}
+        {asset.ensName ? (
+          <>
+            {' · '}
+            <EnsName name={asset.ensName} address={asset.id} />
+          </>
+        ) : null}
       </div>
       <p>
         Fixed 365-day JST calendar. Select a day or range to publish sales, edit

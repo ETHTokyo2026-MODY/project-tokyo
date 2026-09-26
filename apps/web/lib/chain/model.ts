@@ -45,6 +45,8 @@ export type ChainCalendar = {
   discounts: { minDays: number; discountBps: number }[];
   discountVersion: string;
   days: ChainDay[];
+  ensLabel?: string;
+  ensName?: string;
 };
 export type ChainTrade = {
   asset: string;
@@ -150,6 +152,8 @@ export function chainState(snapshot: ChainSnapshot, wallet: string): DemoState {
       discounts: {},
       discountLadder: calendar.discounts,
       days,
+      ensLabel: calendar.ensLabel,
+      ensName: calendar.ensName,
     };
   });
   return {
