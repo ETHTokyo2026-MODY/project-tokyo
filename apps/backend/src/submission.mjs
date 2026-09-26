@@ -50,7 +50,7 @@ export class StoredSubmission {
       !walletClient?.account?.address ||
       !Number.isSafeInteger(chainId) ||
       chainId <= 0 ||
-      !['ordinary', 'conversion', 'collective'].includes(kind)
+      !['ordinary', 'conversion'].includes(kind)
     )
       throw new Error('Invalid submission dependencies');
     ensureSubmissions(db);
