@@ -39,7 +39,17 @@ function ProfileInner() {
     [state, account, today],
   );
 
-  if (!ready || !state || !p) return <Loading />;
+  if (!state) return <Loading />;
+  if (!p)
+    return (
+      <main className="page">
+        <h1>Profile</h1>
+        <p className="muted">
+          Connect a wallet from the navigation to view your portfolio. You can
+          browse assets and calendars without connecting.
+        </p>
+      </main>
+    );
 
   return (
     <main className="page">

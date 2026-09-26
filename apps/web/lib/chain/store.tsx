@@ -137,7 +137,7 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
           ? ''
           : 'Wallet connection changed. Reconnect or select Sepolia.',
       });
-      walletRefresh = account ? refreshChain() : Promise.resolve();
+      walletRefresh = refreshChain();
     });
     await walletRefresh;
   } catch (error) {
@@ -185,6 +185,7 @@ export async function disconnectWallet(): Promise<void> {
   try {
     await previous.disconnect();
   } finally {
+    await refreshChain();
     emit({ busy: false });
   }
 }

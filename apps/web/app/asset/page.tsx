@@ -32,7 +32,7 @@ function AssetInner() {
       : 'Asset · ProjectTokyo';
   }, [asset]);
 
-  if (!ready || !state) return <Loading />;
+  if (!state) return <Loading />;
   if (!asset || !who) {
     return (
       <main className="page">
