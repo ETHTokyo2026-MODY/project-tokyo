@@ -83,7 +83,15 @@ export class SupplyBook {
       throw new Error('supply RPC chain mismatch');
   }
 
-  async publish({ schedule, signature }) {
+  async publish(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      throw new SupplyInputError('invalid supply envelope');
+    const { schedule, signature } = payload;
+    if (
+      typeof signature !== 'string' ||
+      !/^0x(?:[0-9a-fA-F]{2})*$/.test(signature)
+    )
+      throw new SupplyInputError('invalid supplier signature');
     await this.verifyChain();
     if (
       !schedule ||
