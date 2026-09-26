@@ -6,6 +6,7 @@ import { ChainIndex } from './chain.mjs';
 import { OrderBook, OrderInputError } from './orders.mjs';
 import { routerAbi } from './protocol.mjs';
 import { Store } from './store.mjs';
+import { SupplyBook, SupplyInputError } from './supply.mjs';
 
 const BODY_LIMIT = 64 * 1024;
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -48,7 +49,7 @@ async function readJson(request) {
   }
 }
 
-export function createServer({ book, index }) {
+export function createServer({ book, index, supply }) {
   if (!book || !index) throw new Error('Order book and chain index required');
   const health = { lastSuccessAt: null, lastErrorAt: null };
   const server = createHttpServer(async (request, response) => {
@@ -65,6 +66,40 @@ export function createServer({ book, index }) {
           stale,
           lastSyncAt: health.lastSuccessAt,
         });
+      }
+      if (supply && request.method === 'POST' && url.pathname === '/supply') {
+        try {
+          return json(
+            response,
+            201,
+            await supply.publish(await readJson(request)),
+          );
+        } catch (error) {
+          return json(
+            response,
+            error.status === 413
+              ? 413
+              : error.status === 400 || error instanceof SupplyInputError
+                ? 400
+                : 503,
+            {
+              error:
+                error.status || error instanceof SupplyInputError
+                  ? 'supply publication rejected'
+                  : 'supply verification unavailable',
+            },
+          );
+        }
+      }
+      const supplyMatch = /^\/supply\/(0x[0-9a-fA-F]{64})$/.exec(url.pathname);
+      if (supply && request.method === 'GET' && supplyMatch) {
+        try {
+          return json(response, 200, await supply.reconcile(supplyMatch[1]));
+        } catch {
+          return json(response, 503, {
+            error: 'supply reconciliation unavailable',
+          });
+        }
       }
       if (request.method === 'POST' && url.pathname === '/orders') {
         let payload;
@@ -184,7 +219,13 @@ async function main() {
   try {
     const book = new OrderBook(store, client, config);
     const index = new ChainIndex(store, client, { ...config, startBlock });
-    server = createServer({ book, index });
+    const supply = process.env.INVENTORY_ADDRESS
+      ? new SupplyBook(store, client, {
+          chainId,
+          inventory: process.env.INVENTORY_ADDRESS,
+        })
+      : undefined;
+    server = createServer({ book, index, supply });
     let syncTask = null;
     const sync = () => {
       if (syncTask) return syncTask;

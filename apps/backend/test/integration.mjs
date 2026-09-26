@@ -16,6 +16,7 @@ import {
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { Store } from '../src/store.mjs';
+import { SupplyBook, supplyDomain, scheduleTypes } from '../src/supply.mjs';
 import { OrderBook } from '../src/orders.mjs';
 import { ChainIndex } from '../src/chain.mjs';
 import { Matcher } from '../src/matcher.mjs';
@@ -133,7 +134,9 @@ test(
       book = new OrderBook(store, client, config);
     t.after(() => store.close());
     let index = new ChainIndex(store, client, config);
-    const api = createServer({ book, index });
+    const supplyConfig = { chainId: foundry.id, inventory: inventory.address };
+    const supply = new SupplyBook(store, client, supplyConfig);
+    const api = createServer({ book, index, supply });
     await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
     t.after(
       () => api.listening && new Promise((resolve) => api.close(resolve)),
@@ -149,7 +152,52 @@ test(
       day + 7,
       1,
     ]);
-    await send(seller, inventory, 'issue', [pool, day, day + 7, terms, 1]);
+    const schedule = {
+      supplier: seller.account.address,
+      pool,
+      terms,
+      startDay: day,
+      endDay: day + 7,
+      weekdays: 127,
+      target: 1,
+    };
+    const signature = await seller.signTypedData({
+      domain: supplyDomain(supplyConfig),
+      types: scheduleTypes,
+      primaryType: 'Schedule',
+      message: schedule,
+    });
+    const publicationResponse = await fetch(`${apiUrl}/supply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schedule, signature }),
+    });
+    assert.equal(publicationResponse.status, 201);
+    const publication = await publicationResponse.json();
+    const plannedSupply = await supply.reconcile(publication.hash);
+    assert.equal(plannedSupply.slots.length, 7);
+    for (const slot of plannedSupply.slots) {
+      const hash = await seller.sendTransaction({
+        ...slot.transaction,
+        account: seller.account,
+      });
+      assert.equal(
+        (await client.waitForTransactionReceipt({ hash })).status,
+        'success',
+      );
+    }
+    // Replaying the exact unsigned transaction does not mint a second entitlement.
+    await client.waitForTransactionReceipt({
+      hash: await seller.sendTransaction({
+        ...plannedSupply.slots[0].transaction,
+        account: seller.account,
+      }),
+    });
+    assert.ok(
+      (await supply.reconcile(publication.hash)).slots.every(
+        (slot) => slot.issued === '1' && slot.transaction === null,
+      ),
+    );
     await send(seller, inventory, 'setApprovalForAll', [router.address, true]);
     await send(seller, usd, 'mint', [buyer.account.address, 10_000_000n]);
     await send(buyer, usd, 'approve', [aqua.address, 10_000_000n]);

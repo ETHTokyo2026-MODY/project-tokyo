@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { createServer, verifyDeployment } from '../src/server.mjs';
+import { SupplyInputError } from '../src/supply.mjs';
 import { OrderInputError } from '../src/orders.mjs';
 
 const hash = `0x${'ab'.repeat(32)}`;
@@ -38,7 +39,13 @@ const index = {
     return status;
   },
 };
-const server = createServer({ book, index });
+const supply = {
+  publish: async ({ invalid }) => {
+    if (invalid) throw new SupplyInputError('private detail');
+    throw new Error('RPC credential');
+  },
+};
+const server = createServer({ book, index, supply });
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 after(() => server.close());
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -146,5 +153,21 @@ test('sanitized validation and RPC failures, malformed and oversized JSON', asyn
   assert.deepEqual(await request(`/orders/${hash}`), {
     code: 503,
     body: { error: 'chain status unavailable' },
+  });
+});
+
+test('supply intake distinguishes invalid intent from verification outages', async () => {
+  assert.equal(
+    (
+      await request('/supply', {
+        method: 'POST',
+        body: JSON.stringify({ invalid: true }),
+      })
+    ).code,
+    400,
+  );
+  assert.deepEqual(await request('/supply', { method: 'POST', body: '{}' }), {
+    code: 503,
+    body: { error: 'supply verification unavailable' },
   });
 });

@@ -27,6 +27,8 @@ contract RentalInventory is ERC1155 {
     mapping(bytes32 => Pool) public pools;
     mapping(bytes32 => mapping(uint32 => uint256)) public issued;
     mapping(bytes32 => mapping(uint32 => uint256)) public consumed;
+    mapping(uint256 => uint256) public issuedByToken;
+    mapping(uint256 => uint256) public consumedByToken;
     mapping(uint256 => Reservation) public reservations;
     uint256 public nextReservationId = 1;
 
@@ -60,7 +62,23 @@ contract RentalInventory is ERC1155 {
         return uint256(keccak256(abi.encode(pool, day, terms)));
     }
 
+    /// @notice Idempotent daily issuance target; already issued or consumed units are never replenished.
+    function publishDay(bytes32 pool, uint32 day, bytes32 terms, uint256 target) external {
+        Pool memory p = pools[pool];
+        require(
+            msg.sender == p.supplier && day >= p.startDay && day < p.endDay && day > block.timestamp / 1 days
+                && target > 0 && target <= p.capacity,
+            InvalidInventory()
+        );
+        uint256 prior = issuedByToken[tokenId(pool, day, terms)];
+        if (target > prior) _issue(pool, day, day + 1, terms, target - prior);
+    }
+
     function issue(bytes32 pool, uint32 start, uint32 end, bytes32 terms, uint256 quantity) external {
+        _issue(pool, start, end, terms, quantity);
+    }
+
+    function _issue(bytes32 pool, uint32 start, uint32 end, bytes32 terms, uint256 quantity) internal {
         Pool memory p = pools[pool];
         require(
             msg.sender == p.supplier && start >= p.startDay && end <= p.endDay && start < end && end - start <= 31
@@ -75,6 +93,7 @@ contract RentalInventory is ERC1155 {
             issued[pool][day] = count;
             ids[day - start] = tokenId(pool, day, terms);
             amounts[day - start] = quantity;
+            issuedByToken[ids[day - start]] += quantity;
         }
         _mintBatch(msg.sender, ids, amounts, "");
     }
@@ -105,6 +124,7 @@ contract RentalInventory is ERC1155 {
             consumed[pool][day] = used;
             ids[day - start] = tokenId(pool, day, terms);
             amounts[day - start] = quantity;
+            consumedByToken[ids[day - start]] += quantity;
         }
         _burnBatch(holder, ids, amounts);
         reservationId = nextReservationId++;
