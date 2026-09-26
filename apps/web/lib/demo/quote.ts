@@ -1,4 +1,3 @@
-import { TIERS } from './seed';
 import type { Day, Discounts } from './types';
 
 export type QuoteOk = {
@@ -15,12 +14,19 @@ export type QuoteOk = {
 
 export type Quote = QuoteOk | { reason: string };
 
-/** Highest tier at or below `n`; 0% for 1–2 days. */
+/** Highest saved nights at or below `n`; 0% for 1-night blocks. */
 export function discountPct(tiers: Discounts, n: number): number {
-  return TIERS.filter((min) => min <= n).reduce(
-    (pct, min) => tiers[min as keyof Discounts],
-    0,
-  );
+  if (n < 2) return 0;
+  let best = 0;
+  let pct = 0;
+  for (const key of Object.keys(tiers)) {
+    const min = Number(key);
+    if (min <= n && min >= best) {
+      best = min;
+      pct = Number(tiers[min]);
+    }
+  }
+  return pct;
 }
 
 export function quoteBlock(
