@@ -385,6 +385,11 @@ function TradeBody({
         resetKey={d.date}
         cash={cash}
         busy={busy}
+        assetId={assetId}
+        from={d.date}
+        to={d.date}
+        account={account}
+        onAct={onAct}
         onSubmit={(limit) =>
           onAct(
             'buy',
@@ -765,6 +770,7 @@ function AssetGrid({
           <div className="hint">Shift-click to select a block of days</div>
           {selDays.length > 1 && quote ? (
             <BlockPanel
+              assetId={asset.id}
               days={selDays}
               account={account}
               today={today}

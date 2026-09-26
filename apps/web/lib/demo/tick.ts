@@ -1,3 +1,4 @@
+import { settleBids } from './actions';
 import { priceFromCurve } from './curve';
 import { calendarEnd } from './dates';
 import { seedDaysFor } from './seed';
@@ -62,5 +63,6 @@ export function tick(state: DemoState, today: string, now: string): boolean {
   const extended = extendCalendar(state, today, now) ? 1 : 0;
   const settled = settle(state, today, now) ? 1 : 0;
   const rolled = rollCurves(state, today, now) ? 1 : 0;
-  return !!(extended | settled | rolled);
+  const bids = settleBids(state, today, now) ? 1 : 0;
+  return !!(extended | settled | rolled | bids);
 }

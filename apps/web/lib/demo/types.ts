@@ -70,10 +70,20 @@ export type Asset = {
   custom?: CustomAssetSpec;
 };
 
+export type Bid = {
+  id: string;
+  asset: string;
+  buyer: string;
+  from: string;
+  to: string;
+  limit: number;
+};
+
 export type DemoState = {
   seededOn: string;
   curveDay: string;
   version: number;
   accounts: Record<string, Account>;
   assets: Asset[];
+  bids?: Bid[];
 };

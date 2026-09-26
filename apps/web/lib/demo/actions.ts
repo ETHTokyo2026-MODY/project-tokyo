@@ -10,7 +10,7 @@ import {
   seedState,
   TYPES,
 } from './seed';
-import type { Asset, Day, DemoState, Discounts } from './types';
+import type { Asset, Bid, Day, DemoState, Discounts } from './types';
 
 export class UserError extends Error {}
 
@@ -50,16 +50,114 @@ function checkPrice(price: unknown): number {
   return n;
 }
 
-/** Optional limit; omitted or equal to the ask fills at the ask. Above is rejected. */
-function fillAtAsk(ask: number, limit: unknown): number {
-  if (limit == null || limit === '') return ask;
+function readLimit(limit: unknown): number | undefined {
+  if (limit == null || limit === '') return undefined;
   const n = Number(limit);
   if (!Number.isInteger(n) || n < 1 || n > 100000) {
     fail('Limit must be a whole number of dollars between 1 and 100000');
   }
+  return n;
+}
+
+/** Omitted or equal to the ask fills at the ask. Above is rejected. */
+function fillAtAsk(ask: number, limit: unknown): number {
+  const n = readLimit(limit);
+  if (n == null) return ask;
   if (n > ask) fail(`Above the current price of $${ask}`);
-  if (n < ask) fail('Below the current price');
   return ask;
+}
+
+function restBid(
+  state: DemoState,
+  asset: Asset,
+  account: string,
+  days: Day[],
+  limit: number,
+) {
+  const from = days[0].date;
+  const to = days.at(-1)!.date;
+  const bids = state.bids ?? (state.bids = []);
+  const prev = bids.findIndex(
+    (b) =>
+      b.buyer === account &&
+      b.asset === asset.id &&
+      b.from === from &&
+      b.to === to,
+  );
+  if (prev >= 0) {
+    state.accounts[account].cash += bids[prev].limit;
+    bids.splice(prev, 1);
+  }
+  const buyer = state.accounts[account];
+  if (buyer.cash < limit)
+    fail(`Not enough cash (need $${limit}, have $${buyer.cash})`);
+  buyer.cash -= limit;
+  bids.push({
+    id: `${asset.id}:${account}:${from}:${to}`,
+    asset: asset.id,
+    buyer: account,
+    from,
+    to,
+    limit,
+  });
+}
+
+function quoteDays(asset: Asset, days: Day[], buyer: string, today: string) {
+  if (
+    !days.length ||
+    days.some((d) => d.date < today || !d.listed || d.owner === buyer)
+  ) {
+    return null;
+  }
+  const q = quoteBlock(
+    days,
+    buyer,
+    (owner) => discountsFor(asset, owner),
+    today,
+  );
+  return 'reason' in q ? null : q;
+}
+
+export function settleBids(
+  state: DemoState,
+  today: string,
+  now: string,
+): boolean {
+  const bids = state.bids ?? (state.bids = []);
+  const keep: Bid[] = [];
+  let changed = false;
+  for (const b of bids) {
+    const asset = state.assets.find((a) => a.id === b.asset);
+    const days = asset ? range(asset, b.from, b.to) : [];
+    const q = asset ? quoteDays(asset, days, b.buyer, today) : null;
+    if (!q) {
+      if (state.accounts[b.buyer]) state.accounts[b.buyer].cash += b.limit;
+      changed = true;
+      continue;
+    }
+    if (q.total > b.limit) {
+      keep.push(b);
+      continue;
+    }
+    state.accounts[b.buyer].cash += b.limit - q.total;
+    for (const d of days) {
+      const price = q.perDay[d.date];
+      state.accounts[d.owner].cash += price;
+      d.history.push({
+        type: 'trade',
+        from: d.owner,
+        to: b.buyer,
+        price,
+        ...(days.length > 1 ? { block: days.length } : {}),
+        at: now,
+      });
+      d.owner = b.buyer;
+      d.listed = false;
+    }
+    changed = true;
+  }
+  state.bids = keep;
+  return changed;
 }
 
 function futureDay(asset: Asset, date: string, today: string): Day {
@@ -114,7 +212,13 @@ const actions: Record<string, ActionFn> = {
     const d = futureDay(asset, body.date as string, ctx.today);
     if (d.owner === account) fail("You can't buy your own day");
     if (!d.listed) fail('This day is not for sale');
-    const price = fillAtAsk(d.salePrice!, body.limit);
+    const ask = d.salePrice!;
+    const cap = readLimit(body.limit);
+    if (cap != null && cap < ask) {
+      restBid(state, asset, account, [d], cap);
+      return;
+    }
+    const price = fillAtAsk(ask, body.limit);
     const buyer = state.accounts[account];
     if (buyer.cash < price) {
       fail(`Not enough cash (need $${price}, have $${buyer.cash})`);
@@ -147,6 +251,11 @@ const actions: Record<string, ActionFn> = {
       ctx.today,
     );
     if ('reason' in q) return fail('Blocks must be continuous listed days');
+    const cap = readLimit(body.limit);
+    if (cap != null && cap < q.total) {
+      restBid(state, asset, account, days, cap);
+      return;
+    }
     const total = fillAtAsk(q.total, body.limit);
     const buyer = state.accounts[account];
     if (buyer.cash < total) {
@@ -174,6 +283,16 @@ const actions: Record<string, ActionFn> = {
         d.listed = false;
       });
     }
+  },
+  'cancel-bid'(state, _asset, body) {
+    const account = checkAccount(state, body.account as string);
+    const bids = state.bids ?? [];
+    const i = bids.findIndex((b) => b.id === body.id);
+    if (i < 0) fail('Unknown bid');
+    const bid = bids[i];
+    if (bid.buyer !== account) fail('Only the buyer can cancel');
+    bids.splice(i, 1);
+    state.accounts[account].cash += bid.limit;
   },
   'set-price'(state, asset, body, ctx) {
     const p = checkPrice(body.price);
@@ -428,7 +547,10 @@ export function applyAction(
     typeof raw === 'string' || raw == null ? raw : String(raw),
   );
   if (!asset) throw new UserError('Unknown asset');
+  if (!next.bids) next.bids = [];
+  settleBids(next, ctx.today, ctx.now);
   const out = action(next, asset, body, ctx) ?? {};
+  settleBids(next, ctx.today, ctx.now);
   next.version += 1;
   return { state: next, out };
 }

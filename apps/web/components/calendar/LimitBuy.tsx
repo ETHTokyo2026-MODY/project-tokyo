@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { money } from '@/lib/demo/format';
+import { money, shortDate } from '@/lib/demo/format';
+import { useDemo } from '@/lib/demo/store';
 
 export function LimitBuy({
   ask,
@@ -9,14 +10,24 @@ export function LimitBuy({
   cash,
   busy,
   extraDisabled,
+  assetId,
+  from,
+  to,
+  account,
   onSubmit,
+  onAct,
 }: {
   ask: number;
   resetKey: string;
   cash: number;
   busy: boolean;
   extraDisabled?: boolean;
+  assetId: string;
+  from: string;
+  to: string;
+  account: string;
   onSubmit: (limit: number) => void;
+  onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
   return (
     <LimitForm
@@ -25,7 +36,12 @@ export function LimitBuy({
       cash={cash}
       busy={busy}
       extraDisabled={extraDisabled}
+      assetId={assetId}
+      from={from}
+      to={to}
+      account={account}
       onSubmit={onSubmit}
+      onAct={onAct}
     />
   );
 }
@@ -35,14 +51,32 @@ function LimitForm({
   cash,
   busy,
   extraDisabled,
+  assetId,
+  from,
+  to,
+  account,
   onSubmit,
+  onAct,
 }: {
   ask: number;
   cash: number;
   busy: boolean;
   extraDisabled?: boolean;
+  assetId: string;
+  from: string;
+  to: string;
+  account: string;
   onSubmit: (limit: number) => void;
+  onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
+  const { state } = useDemo();
+  const mine = (state?.bids ?? []).filter(
+    (b) =>
+      b.asset === assetId &&
+      b.buyer === account &&
+      b.from <= to &&
+      b.to >= from,
+  );
   const [text, setText] = useState(String(ask));
   const limit = Number(text);
   const valid = Number.isInteger(limit) && limit >= 1;
@@ -83,6 +117,23 @@ function LimitForm({
       ) : above ? (
         <div className="err">Above the current price of {money(ask)}</div>
       ) : null}
+      {mine.map((b) => (
+        <div className="row" key={b.id}>
+          <span className="note">
+            Your buy {money(b.limit)}
+            {b.from !== b.to
+              ? ` · ${shortDate(b.from)}–${shortDate(b.to)}`
+              : ''}
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('cancel-bid', { id: b.id }, 'Cancelled buy')}
+          >
+            Cancel
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

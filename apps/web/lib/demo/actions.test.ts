@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, assetById, discountsFor, UserError } from './actions';
+import { addDays } from './dates';
 import { checkTiers } from './discounts';
 import { discountPct, quoteBlock } from './quote';
 import { DEFAULT_DISCOUNTS, seedState } from './seed';
@@ -438,6 +439,75 @@ describe('discount tiers', () => {
         { nights: '3', pct: '10' },
       ]),
     ).toMatchObject({ error: 'Duplicate nights' });
+  });
+});
+
+describe('resting buy orders', () => {
+  it('rests below the ask, cancels, auto-fills when relisted lower, and drops if unavailable', () => {
+    const ask = dayOf(seeded, D(3)).salePrice!;
+    const limit = ask - 5;
+    let { state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    });
+    expect(dayOf(state, D(3)).owner).toBe('host');
+    expect(state.accounts.traderA.cash).toBe(1000 - limit);
+    expect(state.bids).toMatchObject([{ buyer: 'traderA', limit }]);
+    ({ state } = act(state, 'cancel-bid', {
+      account: 'traderA',
+      id: state.bids![0].id,
+    }));
+    expect(state.accounts.traderA.cash).toBe(1000);
+
+    ({ state } = act(seeded, 'buy', { account: 'traderA', date: D(3), limit }));
+    ({ state } = act(state, 'list', {
+      account: 'host',
+      date: D(3),
+      price: limit,
+    }));
+    expect(dayOf(state, D(3))).toMatchObject({
+      owner: 'traderA',
+      listed: false,
+    });
+    expect(state.accounts.host.cash).toBe(limit);
+    expect(state.bids).toEqual([]);
+
+    ({ state } = act(seeded, 'buy', { account: 'traderA', date: D(3), limit }));
+    ({ state } = act(state, 'unlist', { account: 'host', date: D(3) }));
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+
+    const block =
+      dayOf(seeded, D(0)).salePrice! + dayOf(seeded, D(1)).salePrice!;
+    ({ state } = act(seeded, 'buy-block', {
+      account: 'traderA',
+      from: D(0),
+      to: D(1),
+      limit: block - 2,
+    }));
+    expect(state.bids).toHaveLength(1);
+    ({ state } = act(state, 'list', {
+      account: 'host',
+      date: D(0),
+      to: D(1),
+      price: 1,
+    }));
+    expect(dayOf(state, D(0)).owner).toBe('traderA');
+    expect(state.bids).toEqual([]);
+
+    ({ state } = act(seeded, 'buy', { account: 'traderA', date: D(3), limit }));
+    state = applyAction(
+      state,
+      'list',
+      { account: 'host', date: D(8), price: 40 },
+      {
+        today: addDays(D(3), 1),
+        now: NOW,
+      },
+    ).state;
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
   });
 });
 
