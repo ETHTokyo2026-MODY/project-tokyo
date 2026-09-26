@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyAction, assetById, discountsFor, UserError } from './actions';
 import { addDays } from './dates';
 import { checkTiers } from './discounts';
-import { discountPct, quoteBlock } from './quote';
+import { discountLine, discountPct, quoteBlock } from './quote';
 import { DEFAULT_DISCOUNTS, seedState } from './seed';
 import type { DemoState } from './types';
 
@@ -366,6 +366,33 @@ describe('discount tiers', () => {
     ]);
     expect(discountPct({ 2: 8, 10: 18 }, 9)).toBe(8);
     expect(discountPct({}, 14)).toBe(0);
+    expect(
+      discountLine(1, {
+        pct: 0,
+        pctText: '0%',
+        subtotal: 80,
+        total: 80,
+        sellers: 1,
+      }),
+    ).toBe('No length discount');
+    expect(
+      discountLine(3, {
+        pct: 10,
+        pctText: '10%',
+        subtotal: 240,
+        total: 216,
+        sellers: 1,
+      }),
+    ).toBe('3 nights · 10% off · saves $24');
+    expect(
+      discountLine(5, {
+        pct: 10,
+        pctText: '5–10% (per owner)',
+        subtotal: 400,
+        total: 370,
+        sellers: 2,
+      }),
+    ).toBe('5 nights · 5–10% off per owner · saves $30');
     const d = {
       listed: true,
       owner: 'host',

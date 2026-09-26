@@ -3,7 +3,7 @@
 import { useRef, type ReactNode } from 'react';
 import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { money, shortDate, signed } from '@/lib/demo/format';
-import type { Quote } from '@/lib/demo/quote';
+import { discountLine, type Quote } from '@/lib/demo/quote';
 import type { Day } from '@/lib/demo/types';
 
 function KeepInput({
@@ -177,8 +177,6 @@ export function BlockPanel({
               <div>{quote.sellers}</div>
             </>
           ) : null}
-          <div>Length discount</div>
-          <div>{quote.pctText}</div>
           <div>Block total</div>
           <div>{money(total)}</div>
           <div>Sum of public prices</div>
@@ -189,7 +187,10 @@ export function BlockPanel({
           </div>
         </div>
         {quote.mixed ? (
-          <div className="note">Block includes your own days.</div>
+          <>
+            <div className="note">Block includes your own days.</div>
+            <div className="note">{discountLine(n, quote)}</div>
+          </>
         ) : (
           <LimitBuy
             ask={total}
@@ -201,6 +202,7 @@ export function BlockPanel({
             to={to}
             account={account}
             onAct={onAct}
+            discount={discountLine(n, quote)}
             onSubmit={(limit) =>
               onAct(
                 'buy-block',
@@ -212,11 +214,6 @@ export function BlockPanel({
             }
           />
         )}
-        <div className="note">
-          {quote.pct > 0
-            ? `${quote.pctText} length discount`
-            : 'No length discount'}
-        </div>
       </>
     );
   }
