@@ -8,6 +8,7 @@ import { useDemo } from '@/lib/demo/store';
 const TABS: { href: string; label: string }[] = [
   { href: '/', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' },
+  { href: '/profile', label: 'Profile' },
 ];
 
 const FALLBACK_ACCOUNTS: [string, string][] = [
