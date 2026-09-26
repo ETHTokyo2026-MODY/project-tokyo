@@ -1,4 +1,4 @@
-# ProjectTokyo
+# DayTrader
 
 Hosts presell future room-nights and get paid now. Traders buy those nights and set the public rental price.
 

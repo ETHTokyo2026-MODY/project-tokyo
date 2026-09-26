@@ -10,7 +10,7 @@ import { longDate, money, signed } from '@/lib/demo/format';
 import { profile } from '@/lib/demo/profile';
 import { useChainStore } from '@/lib/chain/store';
 
-const TITLE = 'Profile · ProjectTokyo';
+const TITLE = 'Profile · DayTrader';
 const WHAT = {
   bought: 'Bought',
   sold: 'Sold',
