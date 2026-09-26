@@ -292,4 +292,242 @@
       padding: 8px 10px;
     }
   }
+
+  .cal-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 16px;
+    padding: 8px 16px;
+  }
+  .cal-layout h1 {
+    margin: 0 0 4px;
+    font-size: 21px;
+  }
+  .cal-layout h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .stickyhead {
+    position: sticky;
+    top: 46px;
+    z-index: 30;
+    background: #f8fafc;
+    padding: 6px 0 4px;
+  }
+  .ahead {
+    margin: 2px 0 8px;
+  }
+  .ahead .sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 2px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 4px 0 10px;
+    align-items: center;
+  }
+  .sw {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    vertical-align: -2px;
+    margin-right: 4px;
+  }
+  .month {
+    margin-bottom: 18px;
+    scroll-margin-top: 130px;
+  }
+  .month h3 {
+    margin: 0 0 4px;
+    font-size: 20px;
+  }
+  .cal {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .dow {
+    text-align: center;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .cell {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 3px 6px;
+    min-height: 60px;
+    cursor: pointer;
+    position: relative;
+    line-height: 1.15;
+    user-select: none;
+    scroll-margin-top: 140px;
+  }
+  .cell.blank {
+    background: none;
+    border: 0;
+    cursor: default;
+  }
+  .cell:not(.blank):hover {
+    box-shadow: 0 0 0 2px #cbd5e1;
+  }
+  .cell .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .cell .price {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .cell .small {
+    font-size: 11px;
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cell.past,
+  .cell.unlisted {
+    background: #f3f4f6;
+  }
+  .cell.past {
+    color: var(--grey);
+  }
+  .cell.past .price,
+  .cell.unlisted .price {
+    color: var(--grey);
+    font-weight: 600;
+  }
+  .cell.forsale {
+    border: 2px solid #f59e0b;
+  }
+  .cell.unlisted .badge {
+    background: #e5e7eb;
+    color: var(--grey);
+  }
+  .cell.mine {
+    border: 2px solid var(--mine);
+  }
+  .cell .pred {
+    text-align: right;
+    color: var(--grey);
+    font-weight: 600;
+  }
+  .cell.today .top .num {
+    background: #111827;
+    color: #fff;
+    border-radius: 4px;
+    padding: 0 5px;
+  }
+  .top .badges {
+    display: flex;
+    gap: 3px;
+  }
+  .badge {
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 3px;
+    padding: 0 4px;
+  }
+  .badge.booked {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .gain {
+    color: var(--green);
+    font-weight: 600;
+  }
+  .loss {
+    color: var(--red);
+    font-weight: 600;
+  }
+  .panel {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 6px 14px;
+    align-self: start;
+    position: sticky;
+    top: 58px;
+    max-height: calc(100vh - 66px);
+    overflow-y: auto;
+  }
+  .panel section {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  .panel section:last-of-type {
+    border-bottom: 0;
+  }
+  .panel .kv {
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    font-size: 15px;
+  }
+  .panel .kv div:nth-child(odd) {
+    color: var(--muted);
+  }
+  .panel .kv div:nth-child(even) {
+    text-align: right;
+    font-weight: 600;
+  }
+  .warn {
+    color: var(--red);
+    font-weight: 600;
+    font-size: 14px;
+    margin-top: 6px;
+  }
+  #cal {
+    container: cal / inline-size;
+  }
+  @container cal (max-width: 560px) {
+    .cell {
+      padding: 2px 3px;
+      min-height: 50px;
+      overflow: hidden;
+    }
+    .cell .top {
+      font-size: 10px;
+      flex-wrap: wrap;
+    }
+    .cell .price {
+      font-size: 14px;
+    }
+    .cell .small {
+      font-size: 9px;
+    }
+    .badge {
+      font-size: 8px;
+      padding: 0 2px;
+    }
+  }
+  @media (max-width: 760px) {
+    .cal-layout {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 8px 10px;
+    }
+    .stickyhead {
+      top: 0;
+    }
+    .panel {
+      top: auto;
+      bottom: 0;
+      max-height: 45vh;
+      box-shadow: 0 -4px 16px rgba(17, 24, 39, 0.15);
+    }
+  }
 }
