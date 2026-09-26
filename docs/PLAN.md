@@ -1,4 +1,4 @@
-# Night Market: plan
+# Project Tokyo: plan
 
 ETHGlobal Tokyo 2026. Team: Michael, Darryl.
 
