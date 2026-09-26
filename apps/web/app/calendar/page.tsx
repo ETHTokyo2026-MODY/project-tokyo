@@ -8,12 +8,17 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { BlockPanel } from '@/components/calendar/BlockPanel';
+import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
+import { discountsFor } from '@/lib/demo/actions';
+import { addDays } from '@/lib/demo/dates';
 import {
   historyLine,
   money,
@@ -22,6 +27,7 @@ import {
   signed,
   weekdayDate,
 } from '@/lib/demo/format';
+import { quoteBlock } from '@/lib/demo/quote';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
@@ -47,9 +53,11 @@ const DayCell = memo(function DayCell({
   mine,
   booked,
   selected,
+  tabIndex,
   price,
   salePrice,
-  onSelect,
+  disc,
+  onPick,
 }: {
   date: string;
   num: number;
@@ -59,9 +67,11 @@ const DayCell = memo(function DayCell({
   mine: boolean;
   booked: boolean;
   selected: boolean;
+  tabIndex: number;
   price: number;
   salePrice: number;
-  onSelect: (date: string) => void;
+  disc?: number;
+  onPick: (date: string, shift: boolean) => void;
 }) {
   const cls = ['cell'];
   let body = null;
@@ -71,13 +81,21 @@ const DayCell = memo(function DayCell({
   } else {
     cls.push(listed ? 'forsale' : 'unlisted');
     if (mine) cls.push('mine');
-    const diff = price - salePrice;
+    const cost = disc ?? salePrice;
+    const diff = price - cost;
     body = (
       <>
-        <div className="price">{money(price)}</div>
+        {disc !== undefined ? (
+          <div className="price blk">
+            <s>{money(salePrice)}</s>{' '}
+            <span className="dprice">{money(disc)}</span>
+          </div>
+        ) : (
+          <div className="price">{money(price)}</div>
+        )}
         {listed ? (
           <div className="small pred">
-            {money(salePrice)}{' '}
+            {disc !== undefined ? '' : `${money(salePrice)} `}
             <span className={diff < 0 ? 'loss' : 'gain'}>{signed(diff)}</span>
           </div>
         ) : null}
@@ -91,8 +109,9 @@ const DayCell = memo(function DayCell({
       className={cls.join(' ')}
       data-date={date}
       role="button"
+      tabIndex={tabIndex}
       aria-pressed={selected}
-      onClick={() => onSelect(date)}
+      onClick={(e) => onPick(date, e.shiftKey)}
     >
       <div className="top">
         <span className="num">{isToday ? `Today ${num}` : num}</span>
@@ -281,6 +300,7 @@ function OwnerControls({
 
 function TradeBody({
   d,
+  assetId,
   account,
   cash,
   today,
@@ -288,6 +308,7 @@ function TradeBody({
   onAct,
 }: {
   d: Day;
+  assetId: string;
   account: string;
   cash: number;
   today: string;
@@ -404,6 +425,14 @@ function TradeBody({
     <>
       <h2>Trading · {title}</h2>
       <div className="kv">{rows}</div>
+      <a
+        className="curvelink"
+        href={linkTo('/curve', { asset: assetId, day: d.date }, account)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Price curve →
+      </a>
       {controls}
       <History day={d} account={account} />
     </>
@@ -495,11 +524,14 @@ function AssetGrid({
   today: string;
 }) {
   const { dispatch, reset } = useDemo();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [kbd, setKbd] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState({ text: '', token: 0 });
   const pending = useRef(false);
+  const calRef = useRef<HTMLDivElement>(null);
   const pl = acct.cash - acct.startCash;
   const lockedIn = asset.days
     .filter(
@@ -512,9 +544,28 @@ function AssetGrid({
       .map((d) => d.salePrice!),
   );
   const scrolled = useRef(false);
-  const selectedDay = selected
-    ? (asset.days.find((d) => d.date === selected) ?? null)
-    : null;
+  const [lo, hi] =
+    anchor && focus
+      ? ([...[anchor, focus].sort()] as [string, string])
+      : ([null, null] as [string | null, string | null]);
+  const selDays =
+    lo && hi ? asset.days.filter((d) => d.date >= lo && d.date <= hi) : [];
+  const quote =
+    selDays.length > 1
+      ? quoteBlock(
+          selDays,
+          account,
+          (owner) => discountsFor(asset, owner),
+          today,
+        )
+      : null;
+  const blockPrice =
+    quote && !('reason' in quote)
+      ? Object.fromEntries(
+          Object.entries(quote.perDay).filter(([dt]) => quote.dayPct[dt] > 0),
+        )
+      : {};
+  const tabStop = kbd || focus || today;
 
   useEffect(() => {
     document.title = `${asset.title} · Calendar · Project Tokyo (demo)`;
@@ -527,14 +578,42 @@ function AssetGrid({
     el.scrollIntoView({ block: 'start' });
   }, [today, asset.days]);
 
-  const selectDay = useCallback((date: string) => {
-    setSelected(date);
-    setError('');
-  }, []);
+  const pick = useCallback(
+    (date: string, shift: boolean) => {
+      if (shift && anchor) {
+        const [a, b] = [anchor, date].sort();
+        const range = asset.days.filter((d) => d.date >= a && d.date <= b);
+        if (
+          range.length > 1 &&
+          range.some((d) => d.date < today || !d.listed)
+        ) {
+          setFocus(anchor);
+          setFlash((f) => ({
+            text: 'Blocks must be continuous listed days',
+            token: f.token + 1,
+          }));
+        } else setFocus(date);
+      } else {
+        setAnchor(date);
+        setFocus(date);
+      }
+      setKbd(date);
+      setError('');
+    },
+    [anchor, asset.days, today],
+  );
+
+  useEffect(() => {
+    if (!kbd) return;
+    const el = calRef.current?.querySelector(
+      `.cell[data-date="${kbd}"]`,
+    ) as HTMLElement | null;
+    el?.focus({ preventScroll: true });
+  }, [kbd]);
 
   const onAct = useCallback(
     (name: string, body: Record<string, unknown>, done?: string) => {
-      if (pending.current) return;
+      if (pending.current) return { ok: false as const, error: 'Busy' };
       pending.current = true;
       setBusy(true);
       setError('');
@@ -543,18 +622,48 @@ function AssetGrid({
       setBusy(false);
       if (!out.ok) {
         setError(out.error);
-        return;
+        return out;
       }
       if (done) setFlash((f) => ({ text: done, token: f.token + 1 }));
+      return out;
     },
     [account, asset.id, dispatch],
   );
 
   const onReset = () => {
     if (!confirm('Master reset: restore the initial sample data?')) return;
-    setSelected(null);
+    setAnchor(null);
+    setFocus(null);
+    setKbd(null);
     setError('');
     reset();
+  };
+
+  const onCalKeyDown = (e: ReactKeyboardEvent) => {
+    const cell = (e.target as HTMLElement).closest('[data-date]');
+    if (!cell) return;
+    const date = (cell as HTMLElement).dataset.date!;
+    const step = (
+      { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<
+        string,
+        number
+      >
+    )[e.key];
+    if (step) {
+      const next = addDays(date, step);
+      if (!asset.days.some((d) => d.date === next)) return;
+      e.preventDefault();
+      setKbd(next);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      pick(date, e.shiftKey);
+    } else if (e.key === ' ') e.preventDefault();
+  };
+
+  const onCalKeyUp = (e: ReactKeyboardEvent) => {
+    if (e.key !== ' ') return;
+    const cell = (e.target as HTMLElement).closest('[data-date]');
+    if (cell) pick((cell as HTMLElement).dataset.date!, e.shiftKey);
   };
 
   return (
@@ -599,7 +708,12 @@ function AssetGrid({
             the owner on the day
           </span>
         </div>
-        <div id="cal">
+        <div
+          id="cal"
+          ref={calRef}
+          onKeyDown={onCalKeyDown}
+          onKeyUp={onCalKeyUp}
+        >
           {months(asset.days).map(([ym, days]) => (
             <div className="month" id={`m-${ym}`} key={ym}>
               <h3>
@@ -624,10 +738,12 @@ function AssetGrid({
                     listed={d.listed}
                     mine={d.owner === account}
                     booked={d.status === 'booked'}
-                    selected={d.date === selected}
+                    selected={Boolean(lo && hi && d.date >= lo && d.date <= hi)}
+                    tabIndex={d.date === tabStop ? 0 : -1}
                     price={d.price}
                     salePrice={d.salePrice ?? 0}
-                    onSelect={selectDay}
+                    disc={blockPrice[d.date]}
+                    onPick={pick}
                   />
                 ))}
               </div>
@@ -657,9 +773,20 @@ function AssetGrid({
         </section>
         <section id="trade" className={busy ? 'busy' : undefined}>
           <div className="hint">Shift-click to select a block of days</div>
-          {selectedDay ? (
+          {selDays.length > 1 && quote ? (
+            <BlockPanel
+              days={selDays}
+              account={account}
+              today={today}
+              cash={acct.cash}
+              quote={quote}
+              busy={busy}
+              onAct={onAct}
+            />
+          ) : selDays.length === 1 ? (
             <TradeBody
-              d={selectedDay}
+              d={selDays[0]}
+              assetId={asset.id}
               account={account}
               cash={acct.cash}
               today={today}
@@ -675,13 +802,12 @@ function AssetGrid({
           <div className="err">{error}</div>
         </section>
         <section>
-          <details>
-            <summary>Length discounts</summary>
-            <div className="note">
-              Your discount on this asset when someone buys a block of your
-              listed days (1-2 days: no discount).
-            </div>
-          </details>
+          <DiscountsEditor
+            asset={asset}
+            account={account}
+            busy={busy}
+            onAct={onAct}
+          />
         </section>
         <button className="reset" type="button" onClick={onReset}>
           Master reset

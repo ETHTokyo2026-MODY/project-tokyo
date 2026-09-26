@@ -666,4 +666,52 @@
       z-index: 35;
     }
   }
+  .cell .price.blk {
+    font-size: 17px;
+    white-space: nowrap;
+    overflow: hidden;
+    letter-spacing: -0.3px;
+  }
+  .cell .price.blk s,
+  .cell .price.blk .dprice {
+    font-size: inherit;
+    vertical-align: baseline;
+    display: inline;
+  }
+  .cell .price.blk s {
+    color: var(--grey);
+    font-weight: 600;
+    text-decoration-thickness: 2px;
+  }
+  .curvelink {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--mine);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .disc {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 4px 8px;
+    align-items: center;
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .disc input {
+    width: 70px;
+    padding: 4px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    text-align: right;
+  }
+  @container cal (max-width: 560px) {
+    .cell .price.blk {
+      font-size: 11px;
+      letter-spacing: -0.5px;
+    }
+  }
+  .contents {
+    display: contents;
+  }
 }
