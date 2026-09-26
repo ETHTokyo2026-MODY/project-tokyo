@@ -131,7 +131,10 @@ test('keeps signed guest recipients distinct within one buyer basket', async () 
   assert.equal(result.quotes.length, 2);
   assert.deepEqual(
     result.bestByBasket.map((quote) => [quote.bidHash, quote.bidRecipient]),
-    [[hash(1), MAKER], [hash(2), guest]],
+    [
+      [hash(1), MAKER],
+      [hash(2), guest],
+    ],
   );
 });
 
@@ -282,23 +285,22 @@ test('history joins canonical settlement events to stored baskets only', async (
       attributed: 1,
     });
     const plan = store.db
-      .prepare(`EXPLAIN QUERY PLAN
+      .prepare(
+        `EXPLAIN QUERY PLAN
         WITH event_window AS MATERIALIZED (
           SELECT block_number, log_index FROM chain_events
           WHERE name = 'Settled'
           ORDER BY block_number DESC, log_index DESC LIMIT 20 OFFSET 20
         )
-        SELECT * FROM event_window`)
+        SELECT * FROM event_window`,
+      )
       .all();
     assert.ok(plan.some((step) => step.detail === 'MATERIALIZE event_window'));
     assert.ok(
       plan.some((step) => step.detail.includes('chain_events_name_position')),
     );
     store.db.prepare('DELETE FROM chain_events').run();
-    assert.deepEqual(
-      (await market.history()).sales,
-      [],
-    );
+    assert.deepEqual((await market.history()).sales, []);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
