@@ -84,6 +84,8 @@ export type Asset = {
   discounts: Record<string, Discounts>;
   days: Day[];
   custom?: CustomAssetSpec;
+  ensLabel?: string;
+  ensName?: string;
 };
 
 export type DemoState = {

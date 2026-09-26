@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useMemo } from 'react';
 import { AddAssetForm } from '@/components/dashboard/AddAssetForm';
 import { Screener } from '@/components/dashboard/Screener';
+import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { usdText } from '@/lib/chain/model';
@@ -123,6 +124,11 @@ export default function DashboardPage() {
                         <b>{a.title}</b>
                       </Link>{' '}
                       <TypeBadge type={a.type} />
+                      {a.ensName ? (
+                        <div>
+                          <EnsName name={a.ensName} address={a.id} />
+                        </div>
+                      ) : null}
                     </td>
                     <td>{a.location}</td>
                     <td className="n">
@@ -207,6 +213,11 @@ export default function DashboardPage() {
                         <b>{a.title}</b>
                       </Link>{' '}
                       <TypeBadge type={a.type} />
+                      {a.ensName ? (
+                        <div>
+                          <EnsName name={a.ensName} address={a.id} />
+                        </div>
+                      ) : null}
                     </td>
                     <td>{a.providerName}</td>
                     <td className="n">{p.owned}</td>

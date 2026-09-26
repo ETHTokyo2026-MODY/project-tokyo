@@ -31,6 +31,7 @@ export type AssetSummary = {
   avgMarginPct: number | null;
   pctBooked: number | null;
   avgListDiscountPct: number | null;
+  ensName?: string;
 };
 
 function round1(x: number | null): number | null {
@@ -150,6 +151,7 @@ export function summaries(
         : null,
       byAccount: by,
       custom: !!a.custom,
+      ensName: a.ensName,
       othersOwn: a.days.filter((d) => d.owner !== a.provider).length,
       ...screenerMetrics(a, today, nowMs),
     };

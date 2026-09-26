@@ -19,18 +19,23 @@ import {
 
 const account = `0x${'11'.repeat(20)}`;
 const other = `0x${'22'.repeat(20)}`;
-const response = () => ({
-  ok: true,
-  json: async () => ({
-    ready: true,
-    today: 20722,
-    blockNumber: '1',
-    blockHash: 'hash',
-    calendars: [],
-    history: [],
-    usdcBalance: '1000000',
-  }),
-});
+const response = (url?: string) => {
+  if (url && String(url).includes('/api/ens/')) {
+    return { ok: true, json: async () => ({ assets: [] }) };
+  }
+  return {
+    ok: true,
+    json: async () => ({
+      ready: true,
+      today: 20722,
+      blockNumber: '1',
+      blockHash: 'hash',
+      calendars: [],
+      history: [],
+      usdcBalance: '1000000',
+    }),
+  };
+};
 function wallet(selected = account) {
   const listeners = new Set<(account: string | null) => void>();
   return {
@@ -68,7 +73,7 @@ afterEach(async () => {
 it('invalidates pending reads immediately on wallet change and refreshes after explicit network recovery', async () => {
   const next = wallet();
   mocks.select.mockReturnValue(next);
-  const fetcher = vi.fn().mockResolvedValue(response());
+  const fetcher = vi.fn(async (url: string) => response(url));
   vi.stubGlobal('fetch', fetcher);
   await connectWallet({ legacy: true });
   expect(useChainStore()).toMatchObject({
@@ -118,7 +123,7 @@ it('unsubscribes before replacing the session and disconnect clears its identity
   const first = wallet(),
     second = wallet(other);
   mocks.select.mockReturnValueOnce(first).mockReturnValueOnce(second);
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response()));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url)));
   await connectWallet({ legacy: true });
   first.dispose.mockImplementation(() => {
     expect(first.listeners.size).toBe(0);

@@ -5,6 +5,7 @@ import { useDemo } from '@/lib/demo/store';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo } from '@/lib/demo/account';
 import { money, shortDate } from '@/lib/demo/format';
@@ -212,7 +213,7 @@ export function Screener({
     const words = S.q.toLowerCase().split(/\s+/).filter(Boolean);
     let list = assets.filter((a) => {
       const hay =
-        `${a.title} ${a.location} ${a.providerName} ${a.type}`.toLowerCase();
+        `${a.title} ${a.location} ${a.providerName} ${a.type} ${a.ensName ?? ''}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
       if (!S.types.includes(a.type)) return false;
       if (!chain && S.has && !a.volume.all.count) return false;
@@ -498,6 +499,12 @@ export function Screener({
                     ) : null}
                     <div className="muted small">
                       {a.providerName} · {a.location}
+                      {a.ensName ? (
+                        <>
+                          {' · '}
+                          <EnsName name={a.ensName} address={a.id} />
+                        </>
+                      ) : null}
                     </div>
                   </td>
                   {METRICS.map((m) => (
@@ -523,6 +530,12 @@ export function Screener({
               </div>
               <div className="sub">
                 {a.providerName} · {a.location}
+                {a.ensName ? (
+                  <>
+                    {' · '}
+                    <EnsName name={a.ensName} address={a.id} />
+                  </>
+                ) : null}
               </div>
               <div className="kv">
                 {show.map((m) => (
