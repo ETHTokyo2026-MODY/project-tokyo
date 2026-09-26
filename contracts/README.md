@@ -26,7 +26,7 @@ Powered by Aqua and SwapVM, © Degensoft Ltd 2025. `DaySwapVM` reuses upstream e
 
 The earlier ERC-1155 implementation remains in Git at `checkpoint/erc1155-aquavapor` (`8a794ef62dd2f6df12efe470938fabcf16761796`). Active contracts use official Aqua and item-day ERC-20s. ENS discovery and token conversion require new implementations against this model.
 
-## ProjectTokyo ENSv2 (asset and day index)
+## DayTrader ENSv2 (asset and day index)
 
 `projecttokyo.eth` is already registered on ENSv2 Sepolia. `ProjectTokyoNames` is the ENS registrar for that name. It does not mint tokens.
 

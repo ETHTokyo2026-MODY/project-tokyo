@@ -13,7 +13,7 @@ const sora = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'Dashboard · ProjectTokyo',
+  title: 'Dashboard · DayTrader',
   description:
     'A market where hosts presell future room-nights and traders set the price.',
 };
@@ -31,7 +31,7 @@ export default function RootLayout({
             fallback={
               <nav id="nav" aria-label="Main">
                 <span className="brand">
-                  ProjectTokyo<small>Loading…</small>
+                  DayTrader<small>Loading…</small>
                 </span>
               </nav>
             }

@@ -16,7 +16,7 @@ import './dash.css';
 import './screener.css';
 import './add.css';
 
-const TITLE = 'Dashboard · ProjectTokyo';
+const TITLE = 'Dashboard · DayTrader';
 
 export default function DashboardPage() {
   const { ready, state, today, dispatch, busy } = useChainStore();

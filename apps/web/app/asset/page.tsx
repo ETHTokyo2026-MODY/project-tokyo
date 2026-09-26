@@ -29,8 +29,8 @@ function AssetInner() {
 
   useEffect(() => {
     document.title = asset
-      ? `${asset.title} · Asset · ProjectTokyo`
-      : 'Asset · ProjectTokyo';
+      ? `${asset.title} · Asset · DayTrader`
+      : 'Asset · DayTrader';
   }, [asset]);
 
   if (!state) return <Loading />;

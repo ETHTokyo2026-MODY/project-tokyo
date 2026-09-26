@@ -54,7 +54,7 @@ export function Nav() {
     <>
       <nav id="nav" aria-label="Main">
         <span className="brand">
-          ProjectTokyo
+          DayTrader
           <small>Sepolia · test USDC</small>
         </span>
         <div className="nav-links">

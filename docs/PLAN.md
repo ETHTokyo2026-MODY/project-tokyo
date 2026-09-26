@@ -1,11 +1,11 @@
-# ProjectTokyo
+# DayTrader
 
 ETHGlobal Tokyo 2026. Michael owns the website; Darryl owns contracts and backend.
 The checked product decisions in [issue #44](https://github.com/ETHTokyo2026-MODY/project-tokyo/issues/44), together with the ERC-20 and Sepolia decisions below, govern the demo.
 
 ## Product
 
-Hosts sell ownership of future days of a specific car or room to traders. The day owner controls its public booking price and receives its booking revenue. Guests book through an external host platform; they have no wallet, beneficiary address or reservation token in ProjectTokyo.
+Hosts sell ownership of future days of a specific car or room to traders. The day owner controls its public booking price and receives its booking revenue. Guests book through an external host platform; they have no wallet, beneficiary address or reservation token in DayTrader.
 
 - An **asset** is one physical item. There is no pool capacity or interchangeable-unit quantity.
 - A **day token** is one ERC-20 contract per asset and Tokyo calendar date, with `decimals = 0` and exactly one raw unit of supply. It is never burned. Terms versions cannot create additional ownership for the same day.
