@@ -1,10 +1,27 @@
 'use client';
 
-import { memo, Suspense, useEffect, useMemo, useRef } from 'react';
+import {
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
-import { MONTHS, money, shortDate, signed } from '@/lib/demo/format';
+import {
+  historyLine,
+  money,
+  MONTHS,
+  shortDate,
+  signed,
+  weekdayDate,
+} from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
@@ -29,8 +46,10 @@ const DayCell = memo(function DayCell({
   listed,
   mine,
   booked,
+  selected,
   price,
   salePrice,
+  onSelect,
 }: {
   date: string;
   num: number;
@@ -39,8 +58,10 @@ const DayCell = memo(function DayCell({
   listed: boolean;
   mine: boolean;
   booked: boolean;
+  selected: boolean;
   price: number;
   salePrice: number;
+  onSelect: (date: string) => void;
 }) {
   const cls = ['cell'];
   let body = null;
@@ -64,8 +85,15 @@ const DayCell = memo(function DayCell({
     );
   }
   if (isToday) cls.push('today');
+  if (selected) cls.push('sel');
   return (
-    <div className={cls.join(' ')} data-date={date}>
+    <div
+      className={cls.join(' ')}
+      data-date={date}
+      role="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(date)}
+    >
       <div className="top">
         <span className="num">{isToday ? `Today ${num}` : num}</span>
         <span className="badges">
@@ -91,6 +119,295 @@ function months(days: Day[]): [string, Day[]][] {
     by[ym].push(d);
   }
   return order.map((ym) => [ym, by[ym]]);
+}
+
+function pred(d: Day): number {
+  return d.status === 'booked' ? d.price : (d.predicted ?? 0);
+}
+
+function KeepInput({
+  id,
+  dataKey,
+  value,
+  disabled,
+  inputRef,
+}: {
+  id: string;
+  dataKey: string;
+  value: number;
+  disabled?: boolean;
+  inputRef: RefObject<HTMLInputElement | null>;
+}) {
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el || document.activeElement === el) return;
+    el.value = String(value);
+  }, [value, inputRef]);
+  return (
+    <input
+      key={dataKey}
+      id={id}
+      ref={inputRef}
+      data-key={dataKey}
+      type="number"
+      min={1}
+      defaultValue={value}
+      disabled={disabled}
+    />
+  );
+}
+
+function Flash({ text, token }: { text: string; token: number }) {
+  if (!text) return <div id="flash" role="status" />;
+  return (
+    <div key={token} id="flash" role="status" className="show">
+      {text}
+    </div>
+  );
+}
+
+function History({ day, account }: { day: Day; account: string }) {
+  return (
+    <>
+      <h2 style={{ marginTop: 8 }}>Trade history</h2>
+      {day.history.length ? (
+        <ol className="hist">
+          {day.history.map((h, i) => (
+            <li key={`${h.type}-${h.at}-${i}`}>{historyLine(h, account)}</li>
+          ))}
+        </ol>
+      ) : (
+        <div className="note">Never sold.</div>
+      )}
+    </>
+  );
+}
+
+function OwnerControls({
+  d,
+  booked,
+  busy,
+  onAct,
+}: {
+  d: Day;
+  booked: boolean;
+  busy: boolean;
+  onAct: (name: string, body: Record<string, unknown>) => void;
+}) {
+  const priceRef = useRef<HTMLInputElement>(null);
+  const saleRef = useRef<HTMLInputElement>(null);
+  const sale = d.listed ? d.salePrice! : Math.round(pred(d) * 0.85);
+  return (
+    <>
+      <div className="note">
+        {booked
+          ? 'Booked: the price is locked. Whoever owns the day when it arrives gets paid.'
+          : 'You set the price renters see and keep the booking result.'}
+      </div>
+      <div className="row">
+        <KeepInput
+          id="price"
+          dataKey={d.date}
+          value={d.price}
+          disabled={booked}
+          inputRef={priceRef}
+        />
+        <button
+          className="primary"
+          type="button"
+          disabled={booked || busy}
+          onClick={() =>
+            onAct('set-price', {
+              date: d.date,
+              price: Number(priceRef.current?.value),
+            })
+          }
+        >
+          Set public price
+        </button>
+      </div>
+      <div className="row">
+        <KeepInput
+          id="salePrice"
+          dataKey={d.date}
+          value={sale}
+          disabled={busy}
+          inputRef={saleRef}
+        />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            onAct('list', {
+              date: d.date,
+              price: Number(saleRef.current?.value),
+            })
+          }
+        >
+          {d.listed ? 'Update sale price' : 'List for sale'}
+        </button>
+        {d.listed ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('unlist', { date: d.date })}
+          >
+            Unlist
+          </button>
+        ) : null}
+      </div>
+      {booked ? (
+        <button
+          className="markbooked on"
+          type="button"
+          disabled={busy}
+          onClick={() => onAct('unbook', { day: d.date })}
+        >
+          ✓ Booked · Undo
+        </button>
+      ) : (
+        <button
+          className="markbooked"
+          type="button"
+          disabled={busy}
+          onClick={() => onAct('book', { date: d.date })}
+        >
+          Mark as Booked
+        </button>
+      )}
+    </>
+  );
+}
+
+function TradeBody({
+  d,
+  account,
+  cash,
+  today,
+  busy,
+  onAct,
+}: {
+  d: Day;
+  account: string;
+  cash: number;
+  today: string;
+  busy: boolean;
+  onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
+}) {
+  const title = weekdayDate(d.date, d.weekday);
+  const mine = d.owner === account;
+  const booked = d.status === 'booked';
+  let rows: ReactNode;
+  let controls: ReactNode = null;
+
+  if (d.date < today) {
+    rows = (
+      <>
+        <div>Result</div>
+        <div>{booked ? `Booked at ${money(d.price)}` : 'Not booked ($0)'}</div>
+      </>
+    );
+    controls = <div className="note">🔒 Locked: final result.</div>;
+  } else if (mine) {
+    rows = (
+      <>
+        {booked ? (
+          <>
+            <div>Status</div>
+            <div>Booked</div>
+          </>
+        ) : null}
+        <div>{booked ? 'Booked price' : 'Public price'}</div>
+        <div>
+          {money(d.price)}
+          {booked ? ' 🔒' : ''}
+        </div>
+        {d.listed ? (
+          <>
+            <div>Sale price</div>
+            <div>{money(d.salePrice!)}</div>
+          </>
+        ) : null}
+        <div>{booked ? 'Paid to owner on' : 'Predicted if booked'}</div>
+        <div>{booked ? title : money(pred(d))}</div>
+      </>
+    );
+    controls = (
+      <OwnerControls d={d} booked={booked} busy={busy} onAct={onAct} />
+    );
+  } else if (d.listed) {
+    const gain = d.price - d.salePrice!;
+    const short = cash < d.salePrice!;
+    rows = (
+      <>
+        <div>Status</div>
+        <div>
+          {booked ? 'Booked · ' : ''}
+          For sale
+        </div>
+        <div>{booked ? 'Booked price' : 'Public price'}</div>
+        <div>{money(d.price)}</div>
+        <div>Sale price</div>
+        <div>{money(d.salePrice!)}</div>
+        {booked ? null : (
+          <>
+            <div>Predicted if booked</div>
+            <div>{money(pred(d))}</div>
+          </>
+        )}
+        <div>Potential gain</div>
+        <div className={gain >= 0 ? 'pos' : 'neg'}>{signed(gain)}</div>
+      </>
+    );
+    controls = (
+      <>
+        <button
+          className="buy"
+          type="button"
+          disabled={short || busy}
+          onClick={() =>
+            onAct(
+              'buy',
+              { date: d.date },
+              `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
+            )
+          }
+        >
+          {short
+            ? `Not enough cash · need ${money(d.salePrice!)}`
+            : `Buy for ${money(d.salePrice!)}`}
+        </button>
+        {short ? (
+          <div className="warn">
+            You have {money(cash)}. List some of your days for sale to raise
+            cash.
+          </div>
+        ) : null}
+      </>
+    );
+  } else {
+    rows = (
+      <>
+        {booked ? (
+          <>
+            <div>Status</div>
+            <div>Booked</div>
+          </>
+        ) : null}
+        <div>{booked ? 'Booked price' : 'Public price'}</div>
+        <div>{money(d.price)}</div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h2>Trading · {title}</h2>
+      <div className="kv">{rows}</div>
+      {controls}
+      <History day={d} account={account} />
+    </>
+  );
 }
 
 function CalendarInner() {
@@ -177,6 +494,12 @@ function AssetGrid({
   acct: Account;
   today: string;
 }) {
+  const { dispatch, reset } = useDemo();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState({ text: '', token: 0 });
+  const pending = useRef(false);
   const pl = acct.cash - acct.startCash;
   const lockedIn = asset.days
     .filter(
@@ -189,6 +512,10 @@ function AssetGrid({
       .map((d) => d.salePrice!),
   );
   const scrolled = useRef(false);
+  const selectedDay = selected
+    ? (asset.days.find((d) => d.date === selected) ?? null)
+    : null;
+
   useEffect(() => {
     document.title = `${asset.title} · Calendar · Project Tokyo (demo)`;
   }, [asset.title]);
@@ -200,9 +527,44 @@ function AssetGrid({
     el.scrollIntoView({ block: 'start' });
   }, [today, asset.days]);
 
+  const selectDay = useCallback((date: string) => {
+    setSelected(date);
+    setError('');
+  }, []);
+
+  const onAct = useCallback(
+    (name: string, body: Record<string, unknown>, done?: string) => {
+      if (pending.current) return;
+      pending.current = true;
+      setBusy(true);
+      setError('');
+      const out = dispatch(name, { asset: asset.id, account, ...body });
+      pending.current = false;
+      setBusy(false);
+      if (!out.ok) {
+        setError(out.error);
+        return;
+      }
+      if (done) setFlash((f) => ({ text: done, token: f.token + 1 }));
+    },
+    [account, asset.id, dispatch],
+  );
+
+  const onReset = () => {
+    if (!confirm('Master reset: restore the initial sample data?')) return;
+    setSelected(null);
+    setError('');
+    reset();
+  };
+
   return (
     <div className="cal-layout">
-      <main>
+      <Flash key={flash.token} text={flash.text} token={flash.token} />
+      <main
+        onMouseDown={(e) => {
+          if (e.shiftKey) e.preventDefault();
+        }}
+      >
         <div className="stickyhead">
           <div className="crumbs">
             <a href={linkTo('/calendar', {}, account)}>Calendar</a> ›
@@ -262,8 +624,10 @@ function AssetGrid({
                     listed={d.listed}
                     mine={d.owner === account}
                     booked={d.status === 'booked'}
+                    selected={d.date === selected}
                     price={d.price}
                     salePrice={d.salePrice ?? 0}
+                    onSelect={selectDay}
                   />
                 ))}
               </div>
@@ -291,6 +655,37 @@ function AssetGrid({
             </div>
           ) : null}
         </section>
+        <section id="trade" className={busy ? 'busy' : undefined}>
+          <div className="hint">Shift-click to select a block of days</div>
+          {selectedDay ? (
+            <TradeBody
+              d={selectedDay}
+              account={account}
+              cash={acct.cash}
+              today={today}
+              busy={busy}
+              onAct={onAct}
+            />
+          ) : (
+            <>
+              <h2>Trading</h2>
+              <div className="note">Click a day on the calendar.</div>
+            </>
+          )}
+          <div className="err">{error}</div>
+        </section>
+        <section>
+          <details>
+            <summary>Length discounts</summary>
+            <div className="note">
+              Your discount on this asset when someone buys a block of your
+              listed days (1-2 days: no discount).
+            </div>
+          </details>
+        </section>
+        <button className="reset" type="button" onClick={onReset}>
+          Master reset
+        </button>
       </aside>
     </div>
   );
