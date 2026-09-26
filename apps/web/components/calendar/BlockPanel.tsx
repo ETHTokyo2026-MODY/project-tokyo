@@ -34,6 +34,7 @@ function pred(d: Day): number {
 }
 
 export function BlockPanel({
+  assetId,
   days,
   account,
   today,
@@ -42,6 +43,7 @@ export function BlockPanel({
   busy,
   onAct,
 }: {
+  assetId: string;
   days: Day[];
   account: string;
   today: string;
@@ -194,6 +196,11 @@ export function BlockPanel({
             resetKey={key}
             cash={cash}
             busy={busy}
+            assetId={assetId}
+            from={from}
+            to={to}
+            account={account}
+            onAct={onAct}
             onSubmit={(limit) =>
               onAct(
                 'buy-block',
