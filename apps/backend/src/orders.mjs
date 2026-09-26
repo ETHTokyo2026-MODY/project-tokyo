@@ -127,6 +127,11 @@ function normalizeProgram(value) {
   return p;
 }
 
+/**
+ * Immutable signed envelopes scoped to one chain/router/USDC deployment.
+ * Admission authenticates intent; it reserves neither funds nor inventory.
+ * Current executability must be checked by simulating the complete settlement.
+ */
 export class OrderBook {
   constructor(store, publicClient, config) {
     if (!store?.db || typeof publicClient?.verifyTypedData !== 'function')
@@ -152,6 +157,7 @@ export class OrderBook {
         .run(scope);
   }
 
+  /** Validate canonical fields and current signature authority, then deduplicate by EIP-712 hash. */
   async submit(envelope) {
     exactObject(
       envelope,

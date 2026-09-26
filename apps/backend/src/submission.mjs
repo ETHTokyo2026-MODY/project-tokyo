@@ -77,6 +77,11 @@ export class StoredSubmission {
     }
   }
 
+  /**
+   * Persist one exact call through preparation, signing and broadcast. Retrying an existing job
+   * reuses its request and signed bytes, including nonce and fees; it is not a replacement transaction.
+   * Route consumers own receipt/event verification and chain-specific confirmation policy.
+   */
   async submit({ id, bidHash, askHash, to, data, payload = null, simulate }) {
     if (
       !id ||
@@ -111,6 +116,8 @@ export class StoredSubmission {
         address: this.sender,
         blockTag: 'pending',
       });
+      // Serialize nonce admission across ordinary and conversion jobs. Network preparation happens
+      // before the lock; recheck stored jobs inside it to avoid two consumers allocating the same nonce.
       this.db.exec('BEGIN IMMEDIATE');
       try {
         job = this.get(id);
@@ -166,6 +173,7 @@ export class StoredSubmission {
       !same(job.ask_hash, askHash)
     )
       throw new Error('Conflicting saved submission');
+    // An unsigned earlier job leaves a nonce gap. Recover it before signing later jobs.
     const unsignedPrior = this.db
       .prepare(
         'SELECT id FROM submissions WHERE sender = ? AND nonce < ? AND raw IS NULL LIMIT 1',
@@ -201,6 +209,7 @@ export class StoredSubmission {
         (decoded.value ?? 0n) !== 0n
       )
         throw new Error('Signed transaction differs from exact call');
+      // Commit signed bytes before sending: a lost RPC response must not trigger a fresh signature/nonce.
       this.db
         .prepare(
           'UPDATE submissions SET raw = ?, tx_hash = ? WHERE id = ? AND raw IS NULL',

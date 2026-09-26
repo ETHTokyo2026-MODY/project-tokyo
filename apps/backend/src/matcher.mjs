@@ -4,6 +4,7 @@ import { StoredSubmission } from './submission.mjs';
 export { ensureSubmissions } from './submission.mjs';
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
+// Structural compatibility only; signatures, current balances and price limits are checked by settlement.
 export function compatible(bid, ask) {
   return (
     bid.order.buy &&
@@ -34,6 +35,7 @@ export class Matcher {
     return this.submissions.get(id);
   }
 
+  /** Search one bounded order window; no partial fills, multi-seller assembly or global optimization. */
   async candidates(limit = 20, offset = 0) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100)
       throw new Error('Invalid limit');
@@ -131,6 +133,7 @@ export class Matcher {
     };
   }
 
+  /** A successful receipt becomes confirmed only with both order hashes in the canonical index. */
   async status(id, index) {
     const job = this.get(id);
     if (!job) throw new Error('Unknown submission');

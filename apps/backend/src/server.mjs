@@ -56,6 +56,11 @@ async function readJson(request) {
   }
 }
 
+/**
+ * Internal intake/read API. This process has no booking or relayer signing key.
+ * Authentication, quotas and TLS belong at the gateway before exposing it beyond localhost.
+ * Signed order admission and market reads do not reserve funds or execute a trade.
+ */
 export function createServer({ book, index, supply, market, discovery }) {
   if (!book || !index) throw new Error('Order book and chain index required');
   const health = { lastSuccessAt: null, lastErrorAt: null };
