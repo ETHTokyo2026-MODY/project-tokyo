@@ -47,19 +47,30 @@ ID and exact body; a reversal uses a new event ID.
 ### Next.js API (DigitalOcean web service)
 
 The web app serves `/api/day/*` directly through the shared backend handler.
-Use Node **22.13 or newer**. Set these server environment variables:
+Use Node **22.13 or newer**. Sepolia works without environment setup: the API uses
+the checked-in deployment manifest and viem's public Sepolia RPC. Optional server overrides:
 
 - `DAY_CONFIG_JSON`: the JSON object described above, with the deployment's actual
   `startBlock` and optional `conversion` configuration. This replaces `DAY_CONFIG`
-  for the web process; it contains public deployment data only.
-- `DAY_RPC_URL`: a Sepolia RPC URL, preferably with a dedicated API key.
-- `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash.
+  for the web process; it contains public deployment data only. Omit to use
+  `contracts/deployments/sepolia.json`. Invalid explicit overrides fail closed.
+- `DAY_RPC_URL`: override the public RPC with a dedicated endpoint for reliability.
+  A non-Sepolia deployment requires an explicit RPC URL.
+- `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash. By default
+  this is the request origin; set it if the reverse proxy rewrites the public URL.
+
+Wallet controls appear in live mode, which is the default. A build with
+`NEXT_PUBLIC_DATA_MODE=sample` hides them and shows simulated accounts. Remove
+that override or set it to `chain`, then rebuild; changing only runtime variables
+will not change this client-side build setting.
 
 No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
 state, curves, receipts, or unsigned transaction preparation. Configuration and
 contract identity are validated before serving requests; setup errors return 503.
 Each process shares one in-memory canonical index. Requests advance it in bounded
-batches, and state explicitly reports indexing until caught up. Restarts and
+batches. A cold state request waits at most one second for its indexing batch,
+then returns explicit indexing status while that shared batch continues. Later
+polls report RPC failures rather than hiding them. Restarts and
 replicas rebuild independently; choose the true deployment block to avoid scanning
 unrelated history. RPC failures remain failures, not empty calendars. Monitor RPC
 429 responses and timeouts; more replicas and cold starts increase RPC traffic.

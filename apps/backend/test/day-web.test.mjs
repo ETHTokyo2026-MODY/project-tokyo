@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDayHandler } from '../src/day-server.mjs';
-import { lazyDayWeb } from '../src/day-web.mjs';
+import { lazyDayWeb, boundedIndexSync } from '../src/day-web.mjs';
 
 test('Fetch transport serves config and indexing state without a listener', async () => {
   const handle = createDayHandler({
@@ -39,4 +39,27 @@ test('concurrent requests share initialization; failed setup retries', async () 
   const responses = await Promise.all([handle(), handle()]);
   assert.ok(responses.every((response) => response.status === 200));
   assert.equal(starts, 2);
+});
+
+test('cold reads yield while a single batch progresses and late RPC errors remain visible', async () => {
+  let reject,
+    calls = 0;
+  const work = new Promise((resolve, fail) => {
+    reject = fail;
+  });
+  const sync = boundedIndexSync(
+    {
+      sync: () => {
+        calls++;
+        return work;
+      },
+    },
+    1,
+  );
+  assert.equal(await sync(), false);
+  assert.equal(await sync(), false);
+  assert.equal(calls, 1);
+  reject(new Error('RPC unavailable'));
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(sync(), /RPC unavailable/);
 });
