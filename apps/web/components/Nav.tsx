@@ -67,6 +67,14 @@ export function Nav() {
             {tab.label}
           </Link>
         ))}
+        <button
+          type="button"
+          disabled={busy || waiting}
+          onClick={() => void act(refreshChain)}
+          aria-label="Refresh data"
+        >
+          Refresh
+        </button>
         <WalletMenu
           account={account}
           hasSession={Boolean(hasWalletSession)}
@@ -90,48 +98,32 @@ export function Nav() {
           onDisconnect={() => void act(disconnectWallet)}
         />
       </nav>
-      <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
-        <div className="row">
-          <span>
-            {account
-              ? `${account} · ${money(state?.accounts[account]?.cash ?? 0)} USDC`
-              : 'Connect a wallet to create assets or publish orders.'}
-          </span>
-          <button
-            type="button"
-            disabled={busy || waiting}
-            onClick={() => void act(refreshChain)}
-          >
-            Refresh chain state
-          </button>
+      {progress || message || error || hashes.length > 0 ? (
+        <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
+          {progress ? <div role="status">{progress}</div> : null}
+          {message || error ? (
+            <div className="err" role="alert">
+              {message || error}
+            </div>
+          ) : null}
+          {hashes.length ? (
+            <details>
+              <summary>Transactions ({hashes.length})</summary>
+              {hashes.map((hash, i) => (
+                <div key={`${hash}:${i}`}>
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {hash.slice(0, 10)}…{hash.slice(-6)}
+                  </a>
+                </div>
+              ))}
+            </details>
+          ) : null}
         </div>
-        <div className="note">
-          Hosts report external bookings with their wallet. Booking revenue is
-          unfunded; these amounts are not payouts.
-        </div>
-        {progress ? <div role="status">{progress}</div> : null}
-        {message || error ? (
-          <div className="err" role="alert">
-            {message || error}
-          </div>
-        ) : null}
-        {hashes.length ? (
-          <details open>
-            <summary>Submitted transactions ({hashes.length})</summary>
-            {hashes.map((hash, i) => (
-              <div key={`${hash}:${i}`}>
-                <a
-                  href={`https://sepolia.etherscan.io/tx/${hash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {hash}
-                </a>
-              </div>
-            ))}
-          </details>
-        ) : null}
-      </div>
+      ) : null}
     </>
   );
 }

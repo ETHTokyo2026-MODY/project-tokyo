@@ -221,7 +221,7 @@ function History({ day, account }: { day: Day; account: string }) {
             ))}
           </ol>
         ) : (
-          <div className="note">No indexed trades.</div>
+          <div className="note">No trades yet.</div>
         )
       ) : day.history.length ? (
         <ol className="hist">
@@ -231,7 +231,7 @@ function History({ day, account }: { day: Day; account: string }) {
         </ol>
       ) : (
         <div className="note">
-          {day.token ? 'Trade history is not indexed.' : 'Never sold.'}
+          {day.token ? 'Trade history unavailable.' : 'Never sold.'}
         </div>
       )}
     </>
@@ -437,7 +437,6 @@ function TradeBody({
         to={d.date}
         account={account}
         onAct={onAct}
-        discount="No length discount"
         onSubmit={(limit) =>
           onAct(
             'buy',
@@ -491,6 +490,7 @@ function TradeBody({
           >
             {booked ? 'Undo booking' : 'Report booking'}
           </button>
+          <span className="note">Demo booking report · no payout</span>
         </div>
       ) : null}
       <History day={d} account={account} />
@@ -765,8 +765,7 @@ function AssetGrid({
         </div>
         {asset.chain ? (
           <div className="note">
-            Listing authorization required: a listed price alone cannot execute.
-            Publish each range through the wallet, and republish after the host
+            Publish listings through your wallet. Republish after the host
             changes discounts.
           </div>
         ) : null}
@@ -844,7 +843,7 @@ function AssetGrid({
               <div>{money(acct.cash)}</div>
               <div>Profit / loss</div>
               <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
-                {asset.chain ? 'Not indexed' : signed(pl)}
+                {asset.chain ? 'Unavailable' : signed(pl)}
               </div>
               <div>Booked public prices (unfunded)</div>
               <div>{money(lockedIn)}</div>

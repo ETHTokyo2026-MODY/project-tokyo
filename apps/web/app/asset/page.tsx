@@ -64,10 +64,6 @@ function AssetInner() {
         ) : null}
       </div>
       <p>
-        Fixed 365-day JST calendar. Select a day or range to publish sales, edit
-        prices, or report a mock booking.
-      </p>
-      <p>
         <Link href={cal}>Open calendar →</Link>
       </p>
       <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>

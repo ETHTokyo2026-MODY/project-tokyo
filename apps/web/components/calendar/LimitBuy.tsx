@@ -84,7 +84,7 @@ function LimitForm({
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      <label htmlFor={`${id}-funding`}>Funding plan</label>
+      <label htmlFor={`${id}-funding`}>Pay with</label>
       <select
         id={`${id}-funding`}
         value={funding}
@@ -92,7 +92,7 @@ function LimitForm({
         onChange={(e) => setFunding(e.target.value)}
       >
         <option value="usdc">Wallet USDC</option>
-        <option value="weth">Held WETH · conditional conversion</option>
+        <option value="weth">WETH</option>
       </select>
       {funding === 'weth' ? (
         <>
@@ -113,14 +113,10 @@ function LimitForm({
             onChange={(e) => setMinOutput(e.target.value)}
           />
           <div className="note">
-            This first publishes an ordinary USDC buy order. If your wallet
-            has enough USDC, an open taker can fill it before conversion
-            without spending WETH. Otherwise the configured Uniswap V3 route
-            can convert held WETH and purchase atomically. Review exact
-            input and minimum output; surplus stays in your wallet.
-            Approval, order publication, funding signature and purchase each
-            request wallet consent. A failed purchase rolls back the swap;
-            approvals and the published order remain.
+            Available USDC may fill this order before WETH is swapped.
+            Otherwise, the swap and purchase succeed together; surplus USDC
+            stays in your wallet. If the purchase fails, the swap reverts but
+            approvals and the open order remain.
           </div>
         </>
       ) : null}
@@ -145,19 +141,13 @@ function LimitForm({
             : onSubmit(text))
         }
       >
-        {funding === 'weth'
-          ? 'Prepare WETH-funded order'
-          : 'Publish buy order'}
+        {funding === 'weth' ? 'Prepare WETH-funded order' : 'Publish buy order'}
         {raw === undefined ? '' : ` · $${usdText(raw)}`}
       </button>
       {discount ? <div className="note">{discount}</div> : null}
       <div className="note">
-        Current ask: ${askRaw === undefined ? String(ask) : usdText(askRaw)}.
-      </div>
-      <div className="note">
-        Your maximum may be below or above the current ask. Orders share
-        wallet USDC; funding and available days are checked at fill.
-        Publishing does not transfer ownership.
+        Funds stay in your wallet until a fill. Open orders share your balance
+        and require available days.
       </div>
       {raw === undefined ? (
         <div className="err">

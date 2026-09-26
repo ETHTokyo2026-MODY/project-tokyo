@@ -243,7 +243,7 @@ export function Screener({
   }, [S, assets]);
 
   const cell = (m: Metric, a: AssetSummary) => {
-    if (!available(m)) return <span className="muted">Not indexed</span>;
+    if (!available(m)) return <span className="muted">Unavailable</span>;
     const v = m.get(a, S.period);
     if (v == null) return <span className="muted">—</span>;
     const cls = m.sign
