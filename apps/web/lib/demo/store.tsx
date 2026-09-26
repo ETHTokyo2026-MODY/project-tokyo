@@ -10,7 +10,10 @@ import {
   type ActionResult,
 } from '../chain/store';
 export type DemoDispatchResult = ActionResult;
-export const SAMPLE_MODE = process.env.NEXT_PUBLIC_DATA_MODE === 'sample';
+// Deployed builds always expose the live wallet flow; sample data is local only.
+export const SAMPLE_MODE =
+  process.env.NODE_ENV !== 'production' &&
+  process.env.NEXT_PUBLIC_DATA_MODE === 'sample';
 export function DemoProvider({ children }: { children: ReactNode }) {
   return SAMPLE_MODE ? (
     <SampleProvider>{children}</SampleProvider>
