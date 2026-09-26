@@ -7,6 +7,7 @@ import {
   routerAbi,
   ZERO_HASH,
 } from './protocol.mjs';
+import { parseCollectiveProgram } from './collective.mjs';
 
 const UINT256_MAX = (1n << 256n) - 1n;
 const UINT32_MAX = (1n << 32n) - 1n;
@@ -174,9 +175,25 @@ export class OrderBook {
       signature.length % 2
     )
       fail('invalid signature');
-    const program = normalizeProgram(envelope.program);
+    let guard;
+    try {
+      guard = parseCollectiveProgram(envelope.program);
+    } catch {
+      fail('invalid collective program');
+    }
+    normalizeProgram(guard?.priceProgram ?? envelope.program);
+    const program = envelope.program.toLowerCase();
     if (keccak256(program).toLowerCase() !== order.programHash)
       fail('program hash mismatch');
+    if (guard) {
+      const collective = await this.publicClient.readContract({
+        address: this.config.router,
+        abi: routerAbi,
+        functionName: 'collective',
+      });
+      if (getAddress(collective) !== guard.coordinator)
+        fail('collective coordinator mismatch');
+    }
     const now = BigInt(Math.floor(Date.now() / 1000));
     const start = BigInt(order.startDay);
     const end = BigInt(order.endDay);
