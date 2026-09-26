@@ -61,7 +61,7 @@ function StatsInner() {
     [assetQ, scopeAssets, today],
   );
 
-  if (!ready || !state) return <Loading />;
+  if (!state) return <Loading />;
   if (state.chain)
     return (
       <main className="page">

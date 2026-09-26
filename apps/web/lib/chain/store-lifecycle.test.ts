@@ -93,11 +93,12 @@ it('invalidates pending reads immediately on wallet change and refreshes after e
   });
   finish(response());
   await pending;
-  expect(useChainStore()).toMatchObject({
+  await vi.waitFor(() => expect(useChainStore()).toMatchObject({
     wallet: '',
-    state: null,
-    ready: false,
-  });
+    ready: true,
+  }));
+  expect(useChainStore().state?.accounts).not.toHaveProperty(account);
+  expect(fetcher).toHaveBeenLastCalledWith('/api/day/state', expect.anything());
   await switchNetwork();
   expect(next.switchToSepolia).toHaveBeenCalledOnce();
   expect(useChainStore()).toMatchObject({
@@ -130,10 +131,10 @@ it('unsubscribes before replacing the session and disconnect clears its identity
   expect(second.listeners.size).toBe(0);
   expect(useChainStore()).toMatchObject({
     wallet: '',
-    state: null,
-    ready: false,
+    ready: true,
     hasWalletSession: false,
   });
+  expect(useChainStore().state?.accounts).not.toHaveProperty(other);
   second.change(other);
   expect(useChainStore().wallet).toBe('');
 });
