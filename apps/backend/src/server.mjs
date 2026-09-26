@@ -6,7 +6,7 @@ import { ChainIndex } from './chain.mjs';
 import { OrderBook, OrderInputError } from './orders.mjs';
 import { routerAbi } from './protocol.mjs';
 import { Store } from './store.mjs';
-import { SupplyBook } from './supply.mjs';
+import { SupplyBook, SupplyInputError } from './supply.mjs';
 
 const BODY_LIMIT = 64 * 1024;
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -75,9 +75,20 @@ export function createServer({ book, index, supply }) {
             await supply.publish(await readJson(request)),
           );
         } catch (error) {
-          return json(response, error.status === 413 ? 413 : 400, {
-            error: 'supply publication rejected',
-          });
+          return json(
+            response,
+            error.status === 413
+              ? 413
+              : error.status === 400 || error instanceof SupplyInputError
+                ? 400
+                : 503,
+            {
+              error:
+                error.status || error instanceof SupplyInputError
+                  ? 'supply publication rejected'
+                  : 'supply verification unavailable',
+            },
+          );
         }
       }
       const supplyMatch = /^\/supply\/(0x[0-9a-fA-F]{64})$/.exec(url.pathname);
