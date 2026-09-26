@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
-import { ACCOUNT_KEY, linkTo, useAccount } from '@/lib/demo/account';
-import { useDemo } from '@/lib/demo/store';
+import { usePathname } from 'next/navigation';
+import { linkTo, useAccount } from '@/lib/demo/account';
 import {
   connectWallet,
   disconnectWallet,
   refreshChain,
   switchNetwork,
+  useChainStore,
   walletChoices,
 } from '@/lib/chain/store';
 import { WalletMenu } from './WalletMenu';
@@ -23,11 +23,9 @@ const TABS = [
 ];
 export function Nav() {
   const account = useAccount();
-  const demo = useDemo();
-  const { state, mode, busy, error, progress, hashes } = demo;
-  const hasWalletSession = 'hasWalletSession' in demo && demo.hasWalletSession;
+  const { state, busy, error, progress, hashes, hasWalletSession } =
+    useChainStore();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [providers, setProviders] = useState<ReturnType<typeof walletChoices>>(
     [],
   );
@@ -35,12 +33,11 @@ export function Nav() {
   const [waiting, setWaiting] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
-    if (mode !== 'chain') return;
     const update = () => setProviders(walletChoices());
     update();
     const timer = setInterval(update, 2000);
     return () => clearInterval(timer);
-  }, [mode]);
+  }, []);
   async function act(fn: () => Promise<void>) {
     setWaiting(true);
     setMessage('');
@@ -58,9 +55,7 @@ export function Nav() {
       <nav id="nav" aria-label="Main">
         <span className="brand">
           ProjectTokyo
-          <small>
-            {mode === 'chain' ? 'Sepolia · test USDC' : 'sample data'}
-          </small>
+          <small>Sepolia · test USDC</small>
         </span>
         {TABS.map((tab) => (
           <Link
@@ -72,94 +67,71 @@ export function Nav() {
             {tab.label}
           </Link>
         ))}
-        {mode === 'sample' ? (
-          <label className="who">
-            Viewing as{' '}
-            <select
-              value={account}
-              onChange={(e) => {
-                localStorage.setItem(ACCOUNT_KEY, e.target.value);
-                const q = new URLSearchParams(searchParams.toString());
-                q.set('account', e.target.value);
-                window.location.search = q.toString();
-              }}
-            >
-              {Object.entries(state?.accounts ?? {}).map(([id, a]) => (
-                <option key={id} value={id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <WalletMenu
-            account={account}
-            hasSession={Boolean(hasWalletSession)}
-            balance={
-              state?.accounts[account]
-                ? money(state.accounts[account].cash)
-                : undefined
-            }
-            providers={providers}
-            selected={selected}
-            busy={waiting || busy}
-            onSelect={setChoice}
-            onConnect={() =>
-              void act(() =>
-                connectWallet(
-                  selected === 'legacy' ? { legacy: true } : { uuid: selected },
-                ),
-              )
-            }
-            onSwitch={() => void act(switchNetwork)}
-            onDisconnect={() => void act(disconnectWallet)}
-          />
-        )}
+        <WalletMenu
+          account={account}
+          hasSession={Boolean(hasWalletSession)}
+          balance={
+            state?.accounts[account]
+              ? money(state.accounts[account].cash)
+              : undefined
+          }
+          providers={providers}
+          selected={selected}
+          busy={waiting || busy}
+          onSelect={setChoice}
+          onConnect={() =>
+            void act(() =>
+              connectWallet(
+                selected === 'legacy' ? { legacy: true } : { uuid: selected },
+              ),
+            )
+          }
+          onSwitch={() => void act(switchNetwork)}
+          onDisconnect={() => void act(disconnectWallet)}
+        />
       </nav>
-      {mode === 'chain' ? (
-        <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
-          <div className="row">
-            <span>
-              {account
-                ? `${account} · ${money(state?.accounts[account]?.cash ?? 0)} USDC`
-                : 'Connect a wallet to create assets or publish orders.'}
-            </span>
-            <button
-              type="button"
-              disabled={busy || waiting}
-              onClick={() => void act(refreshChain)}
-            >
-              Refresh chain state
-            </button>
-          </div>
-          <div className="note">
-            Hosts report external bookings with their wallet. Booking revenue is
-            unfunded; these amounts are not payouts.
-          </div>
-          {progress ? <div role="status">{progress}</div> : null}
-          {message || error ? (
-            <div className="err" role="alert">
-              {message || error}
-            </div>
-          ) : null}
-          {hashes.length ? (
-            <details open>
-              <summary>Submitted transactions ({hashes.length})</summary>
-              {hashes.map((hash, i) => (
-                <div key={`${hash}:${i}`}>
-                  <a
-                    href={`https://sepolia.etherscan.io/tx/${hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {hash}
-                  </a>
-                </div>
-              ))}
-            </details>
-          ) : null}
+      <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
+        <div className="row">
+          <span>
+            {account
+              ? `${account} · ${money(state?.accounts[account]?.cash ?? 0)} USDC`
+              : 'Connect a wallet to create assets or publish orders.'}
+          </span>
+          <button
+            type="button"
+            disabled={busy || waiting}
+            onClick={() => void act(refreshChain)}
+          >
+            Refresh chain state
+          </button>
         </div>
-      ) : null}
+        <div className="note">
+          Hosts report external bookings with their wallet. Booking revenue is
+          unfunded; these amounts are not payouts.
+        </div>
+        {progress ? <div role="status">{progress}</div> : null}
+        {message || error ? (
+          <div className="err" role="alert">
+            {message || error}
+          </div>
+        ) : null}
+        {hashes.length ? (
+          <details open>
+            <summary>Submitted transactions ({hashes.length})</summary>
+            {hashes.map((hash, i) => (
+              <div key={`${hash}:${i}`}>
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${hash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {hash}
+                </a>
+              </div>
+            ))}
+          </details>
+        ) : null}
+      </div>
     </>
   );
 }

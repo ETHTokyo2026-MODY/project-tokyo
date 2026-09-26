@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useDemo } from '@/lib/demo/store';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -163,10 +162,7 @@ export function Screener({
   assets: AssetSummary[];
   account: string;
 }) {
-  const { mode } = useDemo();
-  const chain = mode === 'chain';
   const available = (m: Metric) =>
-    !chain ||
     !['volCount', 'volUsd', 'avgMarginPct', 'avgProfit'].includes(m.key);
   const params = useSearchParams();
   const [S, setS] = useState(() => readState(params));
@@ -215,12 +211,8 @@ export function Screener({
         `${a.title} ${a.location} ${a.providerName} ${a.type}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
       if (!S.types.includes(a.type)) return false;
-      if (!chain && S.has && !a.volume.all.count) return false;
       for (const m of NUMERIC) {
-        if (
-          chain &&
-          ['volCount', 'volUsd', 'avgMarginPct', 'avgProfit'].includes(m.key)
-        )
+        if (['volCount', 'volUsd', 'avgMarginPct', 'avgProfit'].includes(m.key))
           continue;
         const v = m.get(a, S.period);
         if (S.min[m.key] != null && (v == null || (v as number) < S.min[m.key]))
@@ -247,7 +239,7 @@ export function Screener({
       });
     }
     return list;
-  }, [S, assets, chain]);
+  }, [S, assets]);
 
   const cell = (m: Metric, a: AssetSummary) => {
     if (!available(m)) return <span className="muted">Not indexed</span>;
@@ -295,7 +287,7 @@ export function Screener({
         <label>
           Period{' '}
           <select
-            disabled={chain}
+            disabled
             value={S.period}
             onChange={(e) => update({ period: e.target.value as Period })}
           >
@@ -372,8 +364,8 @@ export function Screener({
             <label title="Only assets with at least one trade (all time)">
               <input
                 type="checkbox"
-                disabled={chain}
-                checked={!chain && S.has}
+                disabled
+                checked={false}
                 onChange={(e) => update({ has: e.target.checked })}
               />{' '}
               has trades

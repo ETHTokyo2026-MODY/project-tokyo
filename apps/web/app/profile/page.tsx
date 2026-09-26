@@ -8,7 +8,7 @@ import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { longDate, money, signed } from '@/lib/demo/format';
 import { profile } from '@/lib/demo/profile';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 
 const TITLE = 'Profile · ProjectTokyo';
 const WHAT = {
@@ -27,7 +27,7 @@ function Loading() {
 }
 
 function ProfileInner() {
-  const { ready, state, today } = useDemo();
+  const { ready, state, today } = useChainStore();
   const account = useAccount();
 
   useEffect(() => {

@@ -2,8 +2,7 @@
 
 import { useId, useState } from 'react';
 import { money, shortDate } from '@/lib/demo/format';
-import { useDemo } from '@/lib/demo/store';
-import { parseWETH } from '@/lib/chain/store';
+import { parseWETH, useChainStore } from '@/lib/chain/store';
 import { parseUSDC, usdText } from '@/lib/chain/model';
 
 type Props = {
@@ -43,7 +42,7 @@ function LimitForm({
   onAct,
   discount,
 }: Props) {
-  const { state, mode } = useDemo();
+  const { state } = useChainStore();
   const id = useId();
   const mine = (state?.bids ?? []).filter(
     (b) =>
@@ -72,8 +71,6 @@ function LimitForm({
   } catch {
     /* Render input validation below. */
   }
-  const sampleInvalid =
-    mode === 'sample' && (Number(text) !== ask || cash < ask);
   return (
     <div className="limit-buy">
       <div className="row">
@@ -87,48 +84,44 @@ function LimitForm({
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      {mode === 'chain' ? (
+      <label htmlFor={`${id}-funding`}>Funding plan</label>
+      <select
+        id={`${id}-funding`}
+        value={funding}
+        disabled={busy}
+        onChange={(e) => setFunding(e.target.value)}
+      >
+        <option value="usdc">Wallet USDC</option>
+        <option value="weth">Held WETH · conditional conversion</option>
+      </select>
+      {funding === 'weth' ? (
         <>
-          <label htmlFor={`${id}-funding`}>Funding plan</label>
-          <select
-            id={`${id}-funding`}
-            value={funding}
+          <label htmlFor={`${id}-weth`}>Exact WETH to spend</label>
+          <input
+            id={`${id}-weth`}
+            value={weth}
+            inputMode="decimal"
             disabled={busy}
-            onChange={(e) => setFunding(e.target.value)}
-          >
-            <option value="usdc">Wallet USDC</option>
-            <option value="weth">Held WETH · conditional conversion</option>
-          </select>
-          {funding === 'weth' ? (
-            <>
-              <label htmlFor={`${id}-weth`}>Exact WETH to spend</label>
-              <input
-                id={`${id}-weth`}
-                value={weth}
-                inputMode="decimal"
-                disabled={busy}
-                onChange={(e) => setWeth(e.target.value)}
-              />
-              <label htmlFor={`${id}-output`}>Minimum USDC from swap</label>
-              <input
-                id={`${id}-output`}
-                value={minOutput}
-                inputMode="decimal"
-                disabled={busy}
-                onChange={(e) => setMinOutput(e.target.value)}
-              />
-              <div className="note">
-                This first publishes an ordinary USDC buy order. If your wallet
-                has enough USDC, an open taker can fill it before conversion
-                without spending WETH. Otherwise the configured Uniswap V3 route
-                can convert held WETH and purchase atomically. Review exact
-                input and minimum output; surplus stays in your wallet.
-                Approval, order publication, funding signature and purchase each
-                request wallet consent. A failed purchase rolls back the swap;
-                approvals and the published order remain.
-              </div>
-            </>
-          ) : null}
+            onChange={(e) => setWeth(e.target.value)}
+          />
+          <label htmlFor={`${id}-output`}>Minimum USDC from swap</label>
+          <input
+            id={`${id}-output`}
+            value={minOutput}
+            inputMode="decimal"
+            disabled={busy}
+            onChange={(e) => setMinOutput(e.target.value)}
+          />
+          <div className="note">
+            This first publishes an ordinary USDC buy order. If your wallet
+            has enough USDC, an open taker can fill it before conversion
+            without spending WETH. Otherwise the configured Uniswap V3 route
+            can convert held WETH and purchase atomically. Review exact
+            input and minimum output; surplus stays in your wallet.
+            Approval, order publication, funding signature and purchase each
+            request wallet consent. A failed purchase rolls back the swap;
+            approvals and the published order remain.
+          </div>
         </>
       ) : null}
       <button
@@ -137,7 +130,6 @@ function LimitForm({
         disabled={
           raw === undefined ||
           (funding === 'weth' && !conversionValid) ||
-          sampleInvalid ||
           busy ||
           extraDisabled ||
           !account
@@ -153,28 +145,20 @@ function LimitForm({
             : onSubmit(text))
         }
       >
-        {mode === 'chain'
-          ? funding === 'weth'
-            ? 'Prepare WETH-funded order'
-            : 'Publish buy order'
-          : 'Buy sample days'}
+        {funding === 'weth'
+          ? 'Prepare WETH-funded order'
+          : 'Publish buy order'}
         {raw === undefined ? '' : ` · $${usdText(raw)}`}
       </button>
       {discount ? <div className="note">{discount}</div> : null}
       <div className="note">
         Current ask: ${askRaw === undefined ? String(ask) : usdText(askRaw)}.
       </div>
-      {mode === 'chain' ? (
-        <div className="note">
-          Your maximum may be below or above the current ask. Orders share
-          wallet USDC; funding and available days are checked at fill.
-          Publishing does not transfer ownership.
-        </div>
-      ) : (
-        <div className="note">
-          Sample mode supports buying at the current ask only.
-        </div>
-      )}
+      <div className="note">
+        Your maximum may be below or above the current ask. Orders share
+        wallet USDC; funding and available days are checked at fill.
+        Publishing does not transfer ownership.
+      </div>
       {raw === undefined ? (
         <div className="err">
           Enter a nonnegative amount with up to six decimal places.

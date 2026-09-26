@@ -59,9 +59,7 @@ the checked-in deployment manifest and viem's public Sepolia RPC. Optional serve
 - `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash. By default
   this is the request origin; set it if the reverse proxy rewrites the public URL.
 
-Production builds always expose the live wallet flow. The `DATA_MODE` constant
-in `apps/web/lib/demo/store.tsx` selects the local preview mode. A previously
-deployed sample build must be replaced with the current production build.
+The web app always reads the chain through this handler.
 
 No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
 state, curves, receipts, or unsigned transaction preparation. Configuration and
@@ -88,8 +86,7 @@ journals there. Run the existing worker on a Droplet with persistent disk, retai
 SQLite journals across restarts. Keeping the worker on App Platform instead
 requires migrating these journals to a managed database such as PostgreSQL. Never put signer keys in Next.js. See [DigitalOcean storage limits](https://docs.digitalocean.com/products/app-platform/how-to/store-data/).
 
-The web mode is set by the `DATA_MODE` constant in apps/web/lib/demo/store.tsx
-('live' reads this backend, 'sample' shows labelled sample data).
+The web app always reads the chain through this handler.
 
 ## Indexed reads and execution
 

@@ -1,28 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  curveValue,
-  curveValueX,
-  easeInOut,
-  priceFromCurve,
-  seedCurve,
-} from './curve';
+import { curveValue, curveValueX, easeInOut } from './curve';
 import { dayNum } from './dates';
-import type { Curve, Day } from './types';
-
-function sampleDay(curve: Curve, extra: Partial<Day> = {}): Day {
-  return {
-    date: '2026-10-10',
-    weekday: 6,
-    base: 80,
-    status: 'open',
-    owner: 'host',
-    price: 80,
-    listed: true,
-    history: [],
-    curve,
-    ...extra,
-  };
-}
+import type { Curve } from './types';
 
 describe('curve', () => {
   it('eases 0, 0.5 and 1 to themselves', () => {
@@ -84,52 +63,5 @@ describe('curve', () => {
         '2026-09-01',
       ),
     ).toBe(40);
-  });
-
-  it('seeds one point on today and two points otherwise', () => {
-    expect(seedCurve('2026-09-26', 88, '2026-09-26', 40)).toEqual({
-      min: 40,
-      points: [{ date: '2026-09-26', price: 88 }],
-    });
-    expect(seedCurve('2026-10-01', 20, '2026-09-26', 40)).toEqual({
-      min: 40,
-      points: [
-        { date: '2026-09-26', price: 40 },
-        { date: '2026-10-01', price: 40 },
-      ],
-    });
-  });
-
-  it('moves past points into past and sets the rounded price', () => {
-    const day = sampleDay({
-      min: 40,
-      past: [{ date: '2026-09-01', price: 90 }],
-      points: [
-        { date: '2026-09-20', price: 100 },
-        { date: '2026-10-10', price: 40 },
-      ],
-    });
-    priceFromCurve(day, '2026-09-26');
-    const v = Math.round(
-      curveValue(
-        {
-          min: 40,
-          points: [
-            { date: '2026-09-20', price: 100 },
-            { date: '2026-10-10', price: 40 },
-          ],
-        },
-        '2026-09-26',
-      ),
-    );
-    expect(day.price).toBe(v);
-    expect(day.curve?.past).toEqual([
-      { date: '2026-09-01', price: 90 },
-      { date: '2026-09-20', price: 100 },
-    ]);
-    expect(day.curve?.points).toEqual([
-      { date: '2026-09-26', price: v },
-      { date: '2026-10-10', price: 40 },
-    ]);
   });
 });

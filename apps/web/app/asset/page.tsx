@@ -8,7 +8,7 @@ import { normalizeAssetId } from '@/lib/chain/model';
 import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 
 function Loading() {
   return (
@@ -20,7 +20,7 @@ function Loading() {
 }
 
 function AssetInner() {
-  const { ready, state, dispatch, busy } = useDemo();
+  const { ready, state, dispatch, busy } = useChainStore();
   const account = useAccount();
   const id = normalizeAssetId(useSearchParams().get('asset') ?? '');
   const asset = id && state ? state.assets.find((a) => a.id === id) : undefined;

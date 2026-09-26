@@ -10,7 +10,7 @@ import { linkTo, useAccount } from '@/lib/demo/account';
 import { usdText } from '@/lib/chain/model';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 import './dash.css';
 import './screener.css';
 import './add.css';
@@ -18,7 +18,7 @@ import './add.css';
 const TITLE = 'Dashboard · ProjectTokyo';
 
 export default function DashboardPage() {
-  const { ready, state, today, dispatch, busy } = useDemo();
+  const { ready, state, today, dispatch, busy } = useChainStore();
   const accountId = useAccount();
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export default function DashboardPage() {
           {state?.chain ? 'Not indexed' : signed(pl)}
         </span>
       </div>
-      <AddAssetForm account={accountId} today={today} />
+      <AddAssetForm account={accountId} />
       <div className="scroll-x">
         {!provided.length && !holding.length ? (
           <div className="empty">
@@ -99,7 +99,6 @@ export default function DashboardPage() {
                 <th className="n">Booked</th>
                 <th className="n">Owned by others</th>
                 <th className="n">Received</th>
-                <th />
               </tr>
             </thead>
             <tbody>
@@ -133,36 +132,6 @@ export default function DashboardPage() {
                     <td className="n">{a.futureDays - p.owned}</td>
                     <td className="n">
                       {state?.chain ? 'Not indexed' : money(p.received)}
-                    </td>
-                    <td className="n">
-                      {a.custom && a.provider === accountId ? (
-                        <button
-                          type="button"
-                          className="del"
-                          disabled={a.othersOwn > 0}
-                          title={
-                            a.othersOwn
-                              ? `Other accounts own ${a.othersOwn} day(s) of this asset`
-                              : 'Delete this asset (nobody else owns its days)'
-                          }
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (
-                              !confirm(
-                                'Delete this asset and its calendar? This cannot be undone.',
-                              )
-                            )
-                              return;
-                            const out = await dispatch('delete-asset', {
-                              account: accountId,
-                              asset: a.id,
-                            });
-                            if (!out.ok) alert(out.error);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      ) : null}
                     </td>
                   </tr>
                 );

@@ -1,10 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { calendarEnd } from '@/lib/demo/dates';
-import { MONTHS } from '@/lib/demo/format';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 
 const DEFAULTS = {
   car: {
@@ -35,14 +33,8 @@ const DEFAULTS = {
 
 type Kind = keyof typeof DEFAULTS;
 
-export function AddAssetForm({
-  account,
-  today,
-}: {
-  account: string;
-  today: string;
-}) {
-  const { dispatch, mode, busy: walletBusy } = useDemo();
+export function AddAssetForm({ account }: { account: string }) {
+  const { dispatch, busy: walletBusy } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
@@ -57,14 +49,8 @@ export function AddAssetForm({
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const d = DEFAULTS[type];
-  const note = useMemo(() => {
-    if (mode === 'chain')
-      return 'Create 365 fixed JST days, starting today. Then select days in the calendar to publish sales.';
-    const end = calendarEnd(today);
-    const a = `${MONTHS[0].slice(0, 3)} ${today.slice(0, 4)}`;
-    const b = `${MONTHS[Number(end.slice(5, 7)) - 1].slice(0, 3)} ${end.slice(0, 4)}`;
-    return `You become the provider. A full calendar (${a} – ${b}) is seeded like the other assets (sample data); your future days are listed for sale.`;
-  }, [today, mode]);
+  const note =
+    'Create 365 fixed JST days, starting today. Then select days in the calendar to publish sales.';
 
   function prefill(next: Kind) {
     const def = DEFAULTS[next];
@@ -179,7 +165,6 @@ export function AddAssetForm({
                 name="monWed"
                 type="number"
                 min={1}
-                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={monWed}
@@ -196,7 +181,6 @@ export function AddAssetForm({
                 name="thuSat"
                 type="number"
                 min={1}
-                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={thuSat}
@@ -213,7 +197,6 @@ export function AddAssetForm({
                 name="sun"
                 type="number"
                 min={1}
-                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={sun}
@@ -223,25 +206,23 @@ export function AddAssetForm({
                 }}
               />
             </label>
-            {mode === 'chain' ? (
-              <label htmlFor="add-sellingPrice">
-                Initial sale price (USDC/day)
-                <input
-                  id="add-sellingPrice"
-                  name="sellingPrice"
-                  type="number"
-                  min="0.000001"
-                  step="0.000001"
-                  required
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value)}
-                />
-                <span className="note">
-                  The ownership sale price is separate from the guest price
-                  above. Edit individual sale days in the calendar.
-                </span>
-              </label>
-            ) : null}
+            <label htmlFor="add-sellingPrice">
+              Initial sale price (USDC/day)
+              <input
+                id="add-sellingPrice"
+                name="sellingPrice"
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                required
+                value={sellingPrice}
+                onChange={(e) => setSellingPrice(e.target.value)}
+              />
+              <span className="note">
+                The ownership sale price is separate from the guest price
+                above. Edit individual sale days in the calendar.
+              </span>
+            </label>
             <label htmlFor="add-min">
               Min price (optional)
               <input
@@ -249,7 +230,6 @@ export function AddAssetForm({
                 name="min"
                 type="number"
                 min={1}
-                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 placeholder={`auto (≈2/3 of lowest), e.g. ${d.min}`}
                 value={min}
