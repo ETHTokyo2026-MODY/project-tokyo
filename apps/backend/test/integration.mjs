@@ -419,7 +419,10 @@ test(
       0,
     );
     await send(seller, usd, 'transfer', [buyer.account.address, 10_000_000n]);
-    assert.equal((await market.quotes()).quotes.length, 2);
+    assert.deepEqual(
+      new Set((await market.quotes()).quotes.map((quote) => quote.bidHash)),
+      new Set([bid.hash, weekBid.hash, economicBid.hash]),
+    );
     const snapshot = await client.request({ method: 'evm_snapshot' });
     let dropped = false;
     const lossyClient = new Proxy(client, {
