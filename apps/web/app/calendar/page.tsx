@@ -14,7 +14,6 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
-import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
@@ -789,15 +788,6 @@ function AssetGrid({
             </>
           )}
           <div className="err">{error}</div>
-        </section>
-        <section>
-          <DiscountsEditor
-            key={`${asset.id}:${account}`}
-            asset={asset}
-            account={account}
-            busy={busy}
-            onAct={onAct}
-          />
         </section>
         <button className="reset" type="button" onClick={onReset}>
           Master reset

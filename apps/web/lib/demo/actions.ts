@@ -57,7 +57,7 @@ function fillAtAsk(ask: number, limit: unknown): number {
   if (!Number.isInteger(n) || n < 1 || n > 100000) {
     fail('Limit must be a whole number of dollars between 1 and 100000');
   }
-  if (n < ask) fail(`Limit $${n} is below the asking price of $${ask}`);
+  if (n < ask) fail('Below the current price');
   return ask;
 }
 

@@ -118,7 +118,7 @@ describe('buy', () => {
     const ask = dayOf(seeded, D(3)).salePrice!;
     expect(
       err(seeded, 'buy', { account: 'traderA', date: D(3), limit: ask - 1 }),
-    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
+    ).toBe('Below the current price');
     expect(dayOf(seeded, D(3)).owner).toBe('host');
     expect(seeded.accounts.traderA.cash).toBe(1000);
     expect(
@@ -414,7 +414,7 @@ describe('discount tiers', () => {
         to: D(1),
         limit: ask - 1,
       }),
-    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
+    ).toBe('Below the current price');
   });
 
   it('allows zero tiers and rejects invalid drafts', () => {

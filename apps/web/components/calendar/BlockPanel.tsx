@@ -203,6 +203,11 @@ export function BlockPanel({
             }
           />
         )}
+        <div className="note">
+          {quote.pct > 0
+            ? `${quote.pctText} length discount`
+            : 'No length discount'}
+        </div>
       </>
     );
   }

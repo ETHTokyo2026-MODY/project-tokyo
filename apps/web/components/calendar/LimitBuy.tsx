@@ -46,8 +46,8 @@ function LimitForm({
   const [text, setText] = useState(String(ask));
   const limit = Number(text);
   const valid = Number.isInteger(limit) && limit >= 1;
-  const fills = valid && limit >= ask;
-  const short = fills && cash < ask;
+  const below = valid && limit < ask;
+  const short = valid && !below && cash < ask;
 
   return (
     <div className="limit-buy">
@@ -66,7 +66,7 @@ function LimitForm({
       <button
         className="buy"
         type="button"
-        disabled={!valid || short || busy || extraDisabled}
+        disabled={!valid || below || short || busy || extraDisabled}
         onClick={() => valid && onSubmit(limit)}
       >
         {short
@@ -79,6 +79,8 @@ function LimitForm({
         <div className="warn">
           You have {money(cash)}. List some of your days for sale to raise cash.
         </div>
+      ) : below ? (
+        <div className="err">Below the current price</div>
       ) : null}
     </div>
   );
