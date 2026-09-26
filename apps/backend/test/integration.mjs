@@ -16,6 +16,7 @@ import {
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { Store } from '../src/store.mjs';
+import { SupplyBook, supplyDomain, scheduleTypes } from '../src/supply.mjs';
 import { OrderBook } from '../src/orders.mjs';
 import { ChainIndex } from '../src/chain.mjs';
 import { Matcher } from '../src/matcher.mjs';
@@ -149,7 +150,42 @@ test(
       day + 7,
       1,
     ]);
-    await send(seller, inventory, 'issue', [pool, day, day + 7, terms, 1]);
+    const supplyConfig = { chainId: foundry.id, inventory: inventory.address };
+    const supply = new SupplyBook(store, client, supplyConfig);
+    const schedule = {
+      supplier: seller.account.address,
+      pool,
+      terms,
+      startDay: day,
+      endDay: day + 7,
+      weekdays: 127,
+      target: 1,
+    };
+    const signature = await seller.signTypedData({
+      domain: supplyDomain(supplyConfig),
+      types: scheduleTypes,
+      primaryType: 'Schedule',
+      message: schedule,
+    });
+    const publication = await supply.publish({ schedule, signature });
+    const plannedSupply = await supply.reconcile(publication.hash);
+    assert.equal(plannedSupply.slots.length, 7);
+    for (const slot of plannedSupply.slots) {
+      const hash = await seller.sendTransaction(slot.transaction);
+      assert.equal(
+        (await client.waitForTransactionReceipt({ hash })).status,
+        'success',
+      );
+    }
+    // Replaying the exact unsigned transaction does not mint a second entitlement.
+    await client.waitForTransactionReceipt({
+      hash: await seller.sendTransaction(plannedSupply.slots[0].transaction),
+    });
+    assert.ok(
+      (await supply.reconcile(publication.hash)).slots.every(
+        (slot) => slot.issued === '1' && slot.transaction === null,
+      ),
+    );
     await send(seller, inventory, 'setApprovalForAll', [router.address, true]);
     await send(seller, usd, 'mint', [buyer.account.address, 10_000_000n]);
     await send(buyer, usd, 'approve', [aqua.address, 10_000_000n]);
