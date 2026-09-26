@@ -38,3 +38,8 @@ private-artifacts/
 runtime-artifacts/
 deployment-secrets/
 *.keystore
+
+# Local backend state
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

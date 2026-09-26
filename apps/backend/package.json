@@ -1,0 +1,15 @@
+{
+  "name": "@project-tokyo/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "viem": "2.56.8"
+  }
+}

@@ -1,0 +1,163 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, test } from 'node:test';
+import { toHex, verifyTypedData } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { OrderBook } from '../src/orders.mjs';
+import {
+  hashMandate,
+  orderDomain,
+  orderTypes,
+  ZERO_HASH,
+} from '../src/protocol.mjs';
+import { Store } from '../src/store.mjs';
+
+const directory = mkdtempSync(join(tmpdir(), 'rental-orders-'));
+after(() => rmSync(directory, { recursive: true, force: true }));
+const account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
+const router = '0x1111111111111111111111111111111111111111';
+const usdc = '0x2222222222222222222222222222222222222222';
+const config = { chainId: 11155111, router, usdc };
+const client = { verifyTypedData: (args) => verifyTypedData(args) };
+const day = Math.floor(Date.now() / 1000 / 86_400) + 2;
+const expiry = Math.floor(Date.now() / 1000) + 3600;
+const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
+const programHash = (await import('viem')).keccak256(program);
+const filename = () => join(directory, `${Math.random()}.db`);
+
+async function envelope({ buy = true, overrides = {} } = {}) {
+  const mandate = {
+    buyer: account.address,
+    app: router,
+    token: usdc,
+    limit: '100000000',
+    expiry: String(expiry),
+    salt: `0x${'77'.repeat(32)}`,
+  };
+  const order = {
+    maker: account.address,
+    buy,
+    pool: `0x${'33'.repeat(32)}`,
+    startDay: String(day),
+    endDay: String(day + 7),
+    quantity: '2',
+    terms: `0x${'44'.repeat(32)}`,
+    recipient: account.address,
+    priceLimit: '2000000',
+    maxFee: '20000',
+    expiry: String(expiry),
+    nonce: '1',
+    group: ZERO_HASH,
+    mandate: buy ? hashMandate(mandate) : ZERO_HASH,
+    programHash,
+    ...overrides,
+  };
+  const signature = await account.signTypedData({
+    domain: orderDomain(config),
+    types: orderTypes,
+    primaryType: 'Order',
+    message: order,
+  });
+  return { order, signature, program, ...(buy ? { mandate } : {}) };
+}
+
+test('valid EOA order is canonical, idempotent, and survives restart', async () => {
+  const path = filename();
+  let store = new Store(path);
+  assert.equal(
+    store.db.prepare('PRAGMA journal_mode').get().journal_mode,
+    'wal',
+  );
+  assert.equal(store.db.prepare('PRAGMA synchronous').get().synchronous, 2);
+  assert.equal(store.db.prepare('PRAGMA busy_timeout').get().timeout, 5000);
+  let book = new OrderBook(store, client, config);
+  const input = await envelope();
+  const first = await book.submit(input);
+  assert.equal(first.order.startDay, String(day));
+  assert.equal(first.order.quantity, '2');
+  assert.equal(first.hash.length, 66);
+  assert.deepEqual(await book.submit(input), first);
+  assert.deepEqual(book.list(), [first]);
+  assert.deepEqual(book.list({ limit: 1, offset: 1 }), []);
+  assert.throws(() => book.list({ limit: 1001 }), /invalid pagination/);
+  assert.throws(() => book.list({ offset: -1 }), /invalid pagination/);
+  store.close();
+  store = new Store(path);
+  book = new OrderBook(store, client, config);
+  assert.deepEqual(book.get(first.hash), first);
+  assert.throws(
+    () => new OrderBook(store, client, { ...config, chainId: 1 }),
+    /mismatch/,
+  );
+  store.close();
+});
+
+test('rejects changed signed fields, conflicting signature bytes, and malformed payload', async () => {
+  const store = new Store(filename());
+  const book = new OrderBook(store, client, config);
+  const input = await envelope();
+  const first = await book.submit(input);
+  assert.equal((await book.submit(input)).hash, first.hash);
+  await assert.rejects(
+    book.submit({ ...input, order: { ...input.order, quantity: '3' } }),
+    /invalid signature/,
+  );
+  await assert.rejects(
+    book.submit({ ...input, signature: `0x${'00'.repeat(65)}` }),
+    /conflicting signed order/,
+  );
+  await assert.rejects(
+    book.submit({ ...input, program: '0x1234' }),
+    /invalid program/,
+  );
+  await assert.rejects(
+    book.submit({ ...input, order: { ...input.order, extra: 1 } }),
+    /invalid order fields/,
+  );
+  await assert.rejects(
+    book.submit({ ...input, order: { ...input.order, recipient: '0x1234' } }),
+    /invalid order.recipient/,
+  );
+  await assert.rejects(
+    book.submit({
+      ...input,
+      order: { ...input.order, endDay: String(day + 32) },
+    }),
+    /inactive basket/,
+  );
+  await assert.rejects(
+    book.submit({ ...input, mandate: { ...input.mandate, token: router } }),
+    /mandate mismatch/,
+  );
+  store.close();
+});
+
+test('ask has zero mandate and verification is delegated to the public client (mock, not ERC-1271 proof)', async () => {
+  const input = await envelope({ buy: false });
+  let observed;
+  let valid = true;
+  const store = new Store(filename());
+  const book = new OrderBook(
+    store,
+    {
+      verifyTypedData: async (args) => {
+        observed = args;
+        return valid;
+      },
+    },
+    config,
+  );
+  const stored = await book.submit(input);
+  assert.equal(stored.order.mandate, ZERO_HASH);
+  assert.equal(observed.address, account.address);
+  assert.equal(observed.message.programHash, programHash);
+  await assert.rejects(
+    book.submit({ ...input, mandate: {} }),
+    /ask must have zero mandate/,
+  );
+  valid = false;
+  await assert.rejects(book.submit(input), /invalid signature/);
+  store.close();
+});
