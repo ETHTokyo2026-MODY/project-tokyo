@@ -4,3 +4,5 @@ package-lock.json
 docs/
 next-env.d.ts
 
+# Vendored Solidity sources
+contracts/lib/

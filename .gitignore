@@ -25,3 +25,16 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Contract dependency checkouts and proof logs
+contracts/lib/
+*.log
+
+# Generated contract proof output
+contracts/evidence/
+# Private agent and signing material
+.agent-artifacts/
+private-artifacts/
+runtime-artifacts/
+deployment-secrets/
+*.keystore
