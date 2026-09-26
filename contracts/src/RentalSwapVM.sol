@@ -7,7 +7,7 @@ import {Opcode} from "swap-vm/libs/OpcodeList.sol";
 import {LimitSwapFullAmount} from "swap-vm/instructions/LimitSwap.sol";
 import {CalldataPtrLib} from "@1inch/solidity-utils/contracts/libraries/CalldataPtr.sol";
 import {IAqua} from "aqua/interfaces/IAqua.sol";
-import {RentalInventory} from "./RentalInventory.sol";
+import {IRentalRights} from "./IRentalRights.sol";
 import {RentalSettlement} from "./RentalSettlement.sol";
 
 /// @notice Specialized SwapVM router: actual upstream VM + full-amount instruction,
@@ -24,7 +24,7 @@ contract RentalSwapVM is RentalSettlement {
 
     error InvalidProgram();
 
-    constructor(IAqua a, RentalInventory i, address token, address fees) RentalSettlement(a, i, token, fees) {}
+    constructor(IAqua a, IRentalRights i, address token, address fees) RentalSettlement(a, i, token, fees) {}
 
     function _quote(bytes calldata program, uint256 durationDays, uint256 quantity)
         internal

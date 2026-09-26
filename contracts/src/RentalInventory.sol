@@ -2,10 +2,11 @@
 pragma solidity 0.8.30;
 
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import {IRentalRights} from "./IRentalRights.sol";
 
 /// @notice Supplier-attested class allotments accounted for by UTC service day.
 /// Capacity and historical issuance are immutable across terms and redemption.
-contract RentalInventory is ERC1155 {
+contract RentalInventory is ERC1155, IRentalRights {
     struct Pool {
         address supplier;
         uint32 startDay;
@@ -58,7 +59,7 @@ contract RentalInventory is ERC1155 {
         pools[pool] = Pool(supplier, start, end, capacity);
     }
 
-    function tokenId(bytes32 pool, uint32 day, bytes32 terms) public pure returns (uint256) {
+    function tokenId(bytes32 pool, uint32 day, bytes32 terms) public pure override returns (uint256) {
         return uint256(keccak256(abi.encode(pool, day, terms)));
     }
 
