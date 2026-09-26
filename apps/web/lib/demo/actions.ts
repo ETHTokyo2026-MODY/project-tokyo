@@ -50,6 +50,17 @@ function checkPrice(price: unknown): number {
   return n;
 }
 
+/** Optional limit; omitted means take the ask. Never charge more than the ask. */
+function fillAtAsk(ask: number, limit: unknown): number {
+  if (limit == null || limit === '') return ask;
+  const n = Number(limit);
+  if (!Number.isInteger(n) || n < 1 || n > 100000) {
+    fail('Limit must be a whole number of dollars between 1 and 100000');
+  }
+  if (n < ask) fail(`Limit $${n} is below the asking price of $${ask}`);
+  return ask;
+}
+
 function futureDay(asset: Asset, date: string, today: string): Day {
   const d = getDay(asset, date);
   if (d.date < today) fail('Past days are locked');
@@ -102,7 +113,7 @@ const actions: Record<string, ActionFn> = {
     const d = futureDay(asset, body.date as string, ctx.today);
     if (d.owner === account) fail("You can't buy your own day");
     if (!d.listed) fail('This day is not for sale');
-    const price = d.salePrice!;
+    const price = fillAtAsk(d.salePrice!, body.limit);
     const buyer = state.accounts[account];
     if (buyer.cash < price) {
       fail(`Not enough cash (need $${price}, have $${buyer.cash})`);
@@ -135,11 +146,12 @@ const actions: Record<string, ActionFn> = {
       ctx.today,
     );
     if ('reason' in q) return fail('Blocks must be continuous listed days');
+    const total = fillAtAsk(q.total, body.limit);
     const buyer = state.accounts[account];
-    if (buyer.cash < q.total) {
-      fail(`Not enough cash (need $${q.total}, have $${buyer.cash})`);
+    if (buyer.cash < total) {
+      fail(`Not enough cash (need $${total}, have $${buyer.cash})`);
     }
-    buyer.cash -= q.total;
+    buyer.cash -= total;
     const groups = new Map<string, Day[]>();
     for (const d of days) {
       if (!groups.has(d.owner)) groups.set(d.owner, []);

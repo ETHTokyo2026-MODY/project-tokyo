@@ -101,6 +101,31 @@ describe('buy', () => {
     expect(dayOf(state, D(3)).owner).toBe('traderA');
   });
 
+  it('fills at the ask when the limit is at or above it', () => {
+    const ask = dayOf(seeded, D(3)).salePrice!;
+    const { state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit: ask + 25,
+    });
+    expect(dayOf(state, D(3)).owner).toBe('traderA');
+    expect(state.accounts.traderA.cash).toBe(1000 - ask);
+    expect(state.accounts.host.cash).toBe(ask);
+    expect(dayOf(state, D(3)).history.at(-1)).toMatchObject({ price: ask });
+  });
+
+  it('rejects a limit below the ask and an invalid limit', () => {
+    const ask = dayOf(seeded, D(3)).salePrice!;
+    expect(
+      err(seeded, 'buy', { account: 'traderA', date: D(3), limit: ask - 1 }),
+    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
+    expect(dayOf(seeded, D(3)).owner).toBe('host');
+    expect(seeded.accounts.traderA.cash).toBe(1000);
+    expect(
+      err(seeded, 'buy', { account: 'traderA', date: D(3), limit: 1.5 }),
+    ).toBe('Limit must be a whole number of dollars between 1 and 100000');
+  });
+
   it('lets the host buy a day back', () => {
     let { state } = act(seeded, 'buy', { account: 'traderA', date: D(3) });
     const price1 = dayOf(seeded, D(3)).salePrice!;
@@ -369,6 +394,27 @@ describe('discount tiers', () => {
     }));
     expect(state.accounts.traderA.cash).toBe(1000 - Math.round(sub * 0.5));
     expect(dayOf(state, D(1)).history.at(-1)).toMatchObject({ block: 2 });
+  });
+
+  it('fills a block at the quote when the limit is above it', () => {
+    const ask = dayOf(seeded, D(0)).salePrice! + dayOf(seeded, D(1)).salePrice!;
+    const { state } = act(seeded, 'buy-block', {
+      account: 'traderA',
+      from: D(0),
+      to: D(1),
+      limit: ask + 10,
+    });
+    expect(state.accounts.traderA.cash).toBe(1000 - ask);
+    expect(dayOf(state, D(0)).owner).toBe('traderA');
+    expect(dayOf(state, D(1)).owner).toBe('traderA');
+    expect(
+      err(seeded, 'buy-block', {
+        account: 'traderA',
+        from: D(0),
+        to: D(1),
+        limit: ask - 1,
+      }),
+    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
   });
 
   it('allows zero tiers and rejects invalid drafts', () => {

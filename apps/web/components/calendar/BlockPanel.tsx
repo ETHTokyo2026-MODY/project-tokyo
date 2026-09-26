@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, type ReactNode } from 'react';
+import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import type { Quote } from '@/lib/demo/quote';
 import type { Day } from '@/lib/demo/types';
@@ -161,7 +162,6 @@ export function BlockPanel({
   } else {
     const { subtotal, total } = quote;
     const publicSum = days.reduce((s, d) => s + d.price, 0);
-    const short = cash < total;
     body = (
       <>
         <div className="kv">
@@ -186,30 +186,23 @@ export function BlockPanel({
             {signed(publicSum - total)}
           </div>
         </div>
-        <button
-          className="buy"
-          type="button"
-          disabled={quote.mixed || short || busy}
-          onClick={() =>
-            onAct(
-              'buy-block',
-              { from, to },
-              `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
-            )
-          }
-        >
-          {!quote.mixed && short
-            ? `Not enough cash · need ${money(total)}`
-            : `Buy ${n} days for ${money(total)}`}
-        </button>
         {quote.mixed ? (
           <div className="note">Block includes your own days.</div>
-        ) : short ? (
-          <div className="warn">
-            You have {money(cash)}. List some of your days for sale to raise
-            cash.
-          </div>
-        ) : null}
+        ) : (
+          <LimitBuy
+            ask={total}
+            resetKey={key}
+            cash={cash}
+            busy={busy}
+            onSubmit={(limit) =>
+              onAct(
+                'buy-block',
+                { from, to, limit },
+                `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
+              )
+            }
+          />
+        )}
       </>
     );
   }
