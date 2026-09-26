@@ -2,6 +2,7 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { parseUnits } from 'viem';
 import type { DemoState } from '../demo/types';
+import { tokyoDay } from '../ens/dates';
 import {
   normalizeAssetId,
   chainState,
@@ -80,6 +81,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
   return value;
 }
 type EnsAssetPayload = {
+  today?: number;
   assets: {
     label: string;
     name: string;
@@ -109,7 +111,12 @@ async function loadEnsAssets() {
   const value = (await response.json()) as EnsAssetPayload & { error?: string };
   if (!response.ok)
     throw new Error(value.error ?? `ENS list failed (${response.status})`);
-  return (value.assets ?? []).filter((a) => !a.label.startsWith('testasset'));
+  return {
+    today: value?.today,
+    assets: (value?.assets ?? []).filter(
+      (a) => !a.label.startsWith('testasset'),
+    ),
+  };
 }
 
 function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
@@ -141,47 +148,75 @@ function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
   }));
 }
 
+function emitEnsReady(assets: EnsAssetPayload['assets'], today: number) {
+  emit({
+    ready: true,
+    state: chainState(
+      {
+        ready: true,
+        today,
+        calendars: ensCalendars(assets),
+        blockNumber: String(snapshot.state?.version ?? 0),
+        blockHash: '',
+      },
+      snapshot.wallet,
+    ),
+    today: dayDate(today),
+    error: '',
+  });
+}
+
 export async function refreshChain(): Promise<void> {
   const revision = ++generation;
   try {
-    const ens = await loadEnsAssets().catch(
-      () => [] as EnsAssetPayload['assets'],
-    );
+    let ensAssets: EnsAssetPayload['assets'] = [];
+    let ensToday: number | undefined;
+    let ensError: Error | undefined;
+    try {
+      const ens = await loadEnsAssets();
+      ensAssets = ens.assets;
+      ensToday = ens.today;
+    } catch (error) {
+      ensError = error instanceof Error ? error : new Error('ENS list failed');
+    }
+    if (revision !== generation) return;
+    const today = ensToday ?? tokyoDay(Math.floor(Date.now() / 1000));
+    if (!ensError) emitEnsReady(ensAssets, today);
+
     const result = await api<ChainSnapshot>(
       `state${snapshot.wallet ? `?account=${snapshot.wallet}` : ''}`,
-    );
+    ).catch(() => null);
     if (revision !== generation) return;
-    if (!result.ready) {
+    if (result?.ready) {
+      const fromEns = ensCalendars(ensAssets);
+      const byAddr = new Map(fromEns.map((c) => [c.address.toLowerCase(), c]));
+      const calendars = result.calendars.map((c) => {
+        const extra = byAddr.get(c.address.toLowerCase());
+        if (!extra) return c;
+        return {
+          ...c,
+          ensLabel: extra.ensLabel,
+          ensName: extra.ensName,
+          metadataURI: extra.metadataURI || c.metadataURI,
+          days: extra.days.length ? extra.days : c.days,
+        };
+      });
+      const known = new Set(calendars.map((c) => c.address.toLowerCase()));
+      for (const c of fromEns) {
+        if (!known.has(c.address.toLowerCase())) calendars.push(c);
+      }
       emit({
-        ready: false,
-        error: 'The Sepolia index is catching up. Refresh shortly.',
+        ready: true,
+        state: chainState({ ...result, calendars }, snapshot.wallet),
+        today: dayDate(result.today),
+        error: '',
       });
       return;
     }
-    const fromEns = ensCalendars(ens);
-    const byAddr = new Map(fromEns.map((c) => [c.address.toLowerCase(), c]));
-    const calendars = result.calendars.map((c) => {
-      const extra = byAddr.get(c.address.toLowerCase());
-      if (!extra) return c;
-      return {
-        ...c,
-        ensLabel: extra.ensLabel,
-        ensName: extra.ensName,
-        metadataURI: extra.metadataURI || c.metadataURI,
-      };
-    });
-    const known = new Set(calendars.map((c) => c.address.toLowerCase()));
-    for (const c of fromEns) {
-      if (!known.has(c.address.toLowerCase())) calendars.push(c);
-    }
-    emit({
-      ready: true,
-      state: chainState({ ...result, calendars }, snapshot.wallet),
-      today: dayDate(result.today),
-      error: '',
-    });
+    if (ensError && !snapshot.ready)
+      emit({ ready: false, error: ensError.message });
   } catch (error) {
-    if (revision === generation)
+    if (revision === generation && !snapshot.ready)
       emit({
         ready: false,
         error:

@@ -26,8 +26,9 @@ function StatsInner() {
     <main className="page">
       <h1>Stats</h1>
       <div className="muted">
-        Charts and profit statistics are unavailable. Confirmed trade prices
-        are shown per day in the calendar and in Profile.
+        {state.historyReady
+          ? 'Charts and profit statistics are unavailable. Confirmed trade prices are shown per day in the calendar and in Profile.'
+          : 'Market activity is loading'}
       </div>
     </main>
   );

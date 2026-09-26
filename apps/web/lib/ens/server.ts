@@ -11,6 +11,7 @@ import {
 } from './lookup';
 import { createAsset, type Deployment } from './names';
 import { rentalAssetAbi } from './abi';
+import { dayRpcUrl } from './rpc';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -41,7 +42,7 @@ export type EnsListedAsset = {
 function clients() {
   const key = process.env.PROJECTTOKYO_DEPLOYER_KEY?.trim();
   const account = key ? privateKeyToAccount(key as `0x${string}`) : undefined;
-  return createEnsClients(undefined, account);
+  return createEnsClients(dayRpcUrl(), account);
 }
 
 export function ensDeployment(): Deployment {

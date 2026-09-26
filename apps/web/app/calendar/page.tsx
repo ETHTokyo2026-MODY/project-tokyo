@@ -191,6 +191,15 @@ function Flash({ text, token }: { text: string; token: number }) {
 }
 
 function History({ day, account }: { day: Day; account: string }) {
+  const { state } = useChainStore();
+  if (state?.chain && !state.historyReady) {
+    return (
+      <>
+        <h2 style={{ marginTop: 8 }}>Trade history</h2>
+        <div className="note">Market activity is loading</div>
+      </>
+    );
+  }
   return (
     <>
       <h2 style={{ marginTop: 8 }}>Trade history</h2>
