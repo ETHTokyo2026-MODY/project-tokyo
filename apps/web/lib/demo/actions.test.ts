@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, assetById, discountsFor, UserError } from './actions';
+import { checkTiers } from './discounts';
+import { discountPct, quoteBlock } from './quote';
 import { DEFAULT_DISCOUNTS, seedState } from './seed';
 import type { DemoState } from './types';
 
@@ -328,6 +330,68 @@ describe('ranges', () => {
     expect(
       err(state, 'unlist', { account: 'traderB', date: D(10), to: D(12) }),
     ).toBe('Only the owner can do that');
+  });
+});
+
+describe('discount tiers', () => {
+  it('quotes custom tiers and applies them on buy-block', () => {
+    expect([1, 2, 3, 7].map((n) => discountPct(DEFAULT_DISCOUNTS, n))).toEqual([
+      0, 0, 5, 10,
+    ]);
+    expect(discountPct({ 2: 8, 10: 18 }, 9)).toBe(8);
+    expect(discountPct({}, 14)).toBe(0);
+    const d = {
+      listed: true,
+      owner: 'host',
+      salePrice: 100,
+      price: 120,
+    };
+    expect(
+      quoteBlock(
+        [
+          { date: '2026-09-27', ...d },
+          { date: '2026-09-28', ...d },
+        ],
+        'traderA',
+        () => ({ 2: 50 }),
+        TODAY,
+      ),
+    ).toMatchObject({ pct: 50, total: 100 });
+    let { state } = act(seeded, 'discounts', {
+      account: 'host',
+      tiers: { 2: 50 },
+    });
+    const sub = dayOf(state, D(0)).salePrice! + dayOf(state, D(1)).salePrice!;
+    ({ state } = act(state, 'buy-block', {
+      account: 'traderA',
+      from: D(0),
+      to: D(1),
+    }));
+    expect(state.accounts.traderA.cash).toBe(1000 - Math.round(sub * 0.5));
+    expect(dayOf(state, D(1)).history.at(-1)).toMatchObject({ block: 2 });
+  });
+
+  it('allows zero tiers and rejects invalid drafts', () => {
+    const empty = act(seeded, 'discounts', { account: 'host', tiers: {} });
+    expect(discountsFor(empty.state.assets[0], 'host')).toEqual({});
+    expect(
+      err(seeded, 'discounts', { account: 'host', tiers: { 1: 10 } }),
+    ).toBe('Nights must be a whole number of 2 or more');
+    expect(
+      err(seeded, 'discounts', { account: 'host', tiers: { 3: 91 } }),
+    ).toBe('Percent must be 0-90');
+    const nine = Object.fromEntries(
+      [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, 5]),
+    );
+    expect(err(seeded, 'discounts', { account: 'host', tiers: nine })).toBe(
+      'At most 8 tiers',
+    );
+    expect(
+      checkTiers([
+        { nights: '3', pct: '5' },
+        { nights: '3', pct: '10' },
+      ]),
+    ).toMatchObject({ error: 'Duplicate nights' });
   });
 });
 

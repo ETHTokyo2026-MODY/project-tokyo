@@ -534,6 +534,7 @@
   }
   .row {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     margin-top: 8px;
   }
@@ -695,18 +696,29 @@
   }
   .disc {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(56px, 1fr) auto minmax(56px, 1fr) auto auto;
     gap: 4px 8px;
     align-items: center;
     font-size: 15px;
     margin-top: 6px;
   }
   .disc input {
-    width: 70px;
+    width: 100%;
+    min-width: 0;
     padding: 4px 6px;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     text-align: right;
+  }
+  .disc .err {
+    grid-column: 1 / -1;
+    min-height: 0;
+    margin: 0 0 4px;
+    font-size: 12px;
+  }
+  .disc button {
+    font-size: 13px;
+    padding: 4px 8px;
   }
   @container cal (max-width: 560px) {
     .cell .price.blk {

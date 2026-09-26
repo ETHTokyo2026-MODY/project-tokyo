@@ -1,9 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { discountsFor } from '@/lib/demo/actions';
-import { TIERS } from '@/lib/demo/seed';
-import type { Asset, Discounts } from '@/lib/demo/types';
+import {
+  checkTiers,
+  MAX_DISCOUNT_TIERS,
+  rowsFromDiscounts,
+} from '@/lib/demo/discounts';
+import { DEFAULT_DISCOUNTS } from '@/lib/demo/seed';
+import type { Asset } from '@/lib/demo/types';
 
 export function DiscountsEditor({
   asset,
@@ -19,48 +24,67 @@ export function DiscountsEditor({
     body: Record<string, unknown>,
   ) => { ok: boolean; error?: string };
 }) {
-  const [dirty, setDirty] = useState(false);
+  const [rows, setRows] = useState(() =>
+    rowsFromDiscounts(discountsFor(asset, account)),
+  );
+  const [rowErrs, setRowErrs] = useState<(string | null)[]>([]);
   const [msg, setMsg] = useState('');
   const [ok, setOk] = useState(true);
-  const refs = useRef<Record<number, HTMLInputElement | null>>({});
-  const saved = discountsFor(asset, account);
-
-  useEffect(() => {
-    if (dirty) return;
-    for (const t of TIERS) {
-      const el = refs.current[t];
-      if (el && document.activeElement !== el) {
-        el.value = String(saved[t as keyof Discounts]);
-      }
-    }
-  }, [dirty, saved]);
+  const touch = (next: typeof rows) => {
+    setRows(next);
+    setRowErrs([]);
+    setMsg('');
+  };
 
   return (
-    <details>
-      <summary>Length discounts</summary>
+    <>
+      <h2>Length discounts</h2>
       <div className="note">
         Your discount on this asset when someone buys a block of your listed
-        days (1-2 days: no discount).
+        days. 1-night blocks have no discount.
       </div>
       <div className="disc">
-        {TIERS.map((t) => (
-          <div key={t} className="contents">
-            <div>{t}+ nights</div>
+        {rows.map((r, i) => (
+          <div key={i} className="contents">
             <input
-              ref={(el) => {
-                refs.current[t] = el;
-              }}
+              type="number"
+              min={2}
+              step={1}
+              aria-label="Minimum nights"
+              value={r.nights}
+              onChange={(e) =>
+                touch(
+                  rows.map((x, j) =>
+                    j === i ? { ...x, nights: e.target.value } : x,
+                  ),
+                )
+              }
+            />
+            <div>+ nights</div>
+            <input
               type="number"
               min={0}
               max={90}
               step={1}
-              defaultValue={saved[t as keyof Discounts]}
-              onInput={() => {
-                setDirty(true);
-                setMsg('');
-              }}
+              aria-label="Percent off"
+              value={r.pct}
+              onChange={(e) =>
+                touch(
+                  rows.map((x, j) =>
+                    j === i ? { ...x, pct: e.target.value } : x,
+                  ),
+                )
+              }
             />
             <div>%</div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => touch(rows.filter((_, j) => j !== i))}
+            >
+              Remove
+            </button>
+            {rowErrs[i] ? <div className="err">{rowErrs[i]}</div> : null}
           </div>
         ))}
       </div>
@@ -70,30 +94,42 @@ export function DiscountsEditor({
           type="button"
           disabled={busy}
           onClick={() => {
-            const tiers: Record<number, string> = {};
-            for (const t of TIERS) {
-              tiers[t] = refs.current[t]?.value ?? '';
-            }
-            const out = onAct('discounts', { tiers });
-            if (out.ok) {
-              setDirty(false);
-              setOk(true);
-              setMsg('Saved');
-            } else {
+            const parsed = checkTiers(rows);
+            setRowErrs(parsed.rowErrs);
+            if (!parsed.next) {
               setOk(false);
-              setMsg(out.error || 'Save failed');
+              setMsg(parsed.error || 'Fix the highlighted tiers');
+              return;
             }
+            const out = onAct('discounts', { tiers: parsed.next });
+            setOk(out.ok);
+            setMsg(out.ok ? 'Saved' : out.error || 'Save failed');
+            if (out.ok) setRows(rowsFromDiscounts(parsed.next));
           }}
         >
           Save
         </button>
-        <span
-          className="note"
-          style={{ color: ok ? 'var(--green)' : 'var(--red)' }}
+        <button
+          type="button"
+          disabled={busy || rows.length >= MAX_DISCOUNT_TIERS}
+          onClick={() => touch([...rows, { nights: '', pct: '' }])}
         >
-          {msg}
-        </span>
+          Add tier
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => touch(rowsFromDiscounts(DEFAULT_DISCOUNTS))}
+        >
+          Reset to defaults
+        </button>
       </div>
-    </details>
+      <span
+        className="note"
+        style={{ color: ok ? 'var(--green)' : 'var(--red)' }}
+      >
+        {msg}
+      </span>
+    </>
   );
 }

@@ -7,15 +7,8 @@ export type Account = {
   startCash: number;
 };
 
-export type DiscountTier = 3 | 7 | 14 | 21 | 30;
-
-export type Discounts = {
-  3: number;
-  7: number;
-  14: number;
-  21: number;
-  30: number;
-};
+/** Nights → percent off. Legacy saves use keys 3/7/14/21/30. */
+export type Discounts = Record<number, number>;
 
 export type CurvePoint = {
   date: string;
