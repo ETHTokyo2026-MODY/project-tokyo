@@ -306,6 +306,10 @@
     margin: 0 0 4px;
     font-size: 21px;
   }
+  .cal-layout h1 a {
+    color: inherit;
+    text-decoration: none;
+  }
   .cal-layout h2 {
     font-size: 15px;
     text-transform: uppercase;
