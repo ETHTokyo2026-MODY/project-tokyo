@@ -1,3 +1,5 @@
+import deployment from '../../../contracts/deployments/sepolia.json' with { type: 'json' };
+import { sepolia } from 'viem/chains';
 import { DatabaseSync } from 'node:sqlite';
 import { createPublicClient, defineChain, getAddress, http } from 'viem';
 import { normalize } from './day-config.mjs';
@@ -10,10 +12,17 @@ import {
   officialAquaAbi,
 } from './day-protocol.mjs';
 
-/** Read cache only: replicas and restarts reconstruct it from canonical chain events. */
+/**
+ * Read cache only: replicas and restarts reconstruct it from canonical chain events.
+ * @param {Record<string, string | undefined>} env
+ */
 export async function createDayWeb(env = process.env) {
-  const config = normalize(JSON.parse(env.DAY_CONFIG_JSON));
-  const rpc = new URL(env.DAY_RPC_URL);
+  const config = normalize(
+    env.DAY_CONFIG_JSON == null ? deployment : JSON.parse(env.DAY_CONFIG_JSON),
+  );
+  if (!env.DAY_RPC_URL && config.chainId !== sepolia.id)
+    throw new Error('A custom chain requires DAY_RPC_URL');
+  const rpc = new URL(env.DAY_RPC_URL ?? sepolia.rpcUrls.default.http[0]);
   if (!['https:', 'http:'].includes(rpc.protocol))
     throw new Error('Invalid RPC protocol');
   const chain = defineChain({
@@ -71,7 +80,12 @@ export async function createDayWeb(env = process.env) {
         usdc: config.usdc,
       },
     });
-    return createDayHandler({ client, config, index });
+    return createDayHandler({
+      client,
+      config,
+      index,
+      syncIndex: boundedIndexSync(index),
+    });
   } catch (error) {
     db.close();
     throw error;
@@ -92,3 +106,52 @@ export function lazyDayWeb(create = createDayWeb) {
   };
 }
 export const handleDayWeb = lazyDayWeb();
+
+/** Requests yield indexing status while one shared batch continues; errors surface on the next poll. */
+export function boundedIndexSync(index, waitMs = 1000) {
+  let pending, failure;
+  let completed = false;
+  return async () => {
+    if (failure) {
+      const error = failure;
+      failure = undefined;
+      throw error;
+    }
+    if (completed) {
+      completed = false;
+      return true;
+    }
+    pending ??= index
+      .sync()
+      .then(() => {
+        completed = true;
+      })
+      .catch((error) => {
+        failure = error;
+      })
+      .finally(() => {
+        pending = undefined;
+      });
+    let timer;
+    try {
+      await Promise.race([
+        pending,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, waitMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (failure) {
+      const error = failure;
+      failure = undefined;
+      throw error;
+    }
+    if (completed) {
+      completed = false;
+      return true;
+    }
+    return false;
+  };
+}
