@@ -42,7 +42,7 @@ export async function createDayWeb(env = process.env) {
   const client = createPublicClient({
     chain,
     cacheTime: 0,
-    transport: http(rpc.href, { timeout: 5000, retryCount: 0 }),
+    transport: http(rpc.href, { timeout: 5000, retryCount: 1 }),
   });
   if ((await client.getChainId()) !== config.chainId)
     throw new Error('Wrong runtime chain');
@@ -182,16 +182,7 @@ export async function withinDeadline(work, waitMs) {
 export function boundedIndexSync(index, waitMs = 1000) {
   let pending, failure;
   let completed = false;
-  return async () => {
-    if (failure) {
-      const error = failure;
-      failure = undefined;
-      throw error;
-    }
-    if (completed) {
-      completed = false;
-      return true;
-    }
+  const start = () => {
     pending ??= index
       .sync()
       .then(() => {
@@ -203,6 +194,22 @@ export function boundedIndexSync(index, waitMs = 1000) {
       .finally(() => {
         pending = undefined;
       });
+  };
+  return async () => {
+    if (failure) {
+      const error = failure;
+      failure = undefined;
+      throw error;
+    }
+    if (completed) {
+      completed = false;
+      return true;
+    }
+    if (index.readiness && (await index.readiness()).ready) {
+      start();
+      return true;
+    }
+    start();
     let timer;
     try {
       await Promise.race([
