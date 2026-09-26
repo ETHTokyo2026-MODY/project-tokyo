@@ -101,12 +101,12 @@ describe('buy', () => {
     expect(dayOf(state, D(3)).owner).toBe('traderA');
   });
 
-  it('fills at the ask when the limit is at or above it', () => {
+  it('fills at the ask when the limit equals it', () => {
     const ask = dayOf(seeded, D(3)).salePrice!;
     const { state } = act(seeded, 'buy', {
       account: 'traderA',
       date: D(3),
-      limit: ask + 25,
+      limit: ask,
     });
     expect(dayOf(state, D(3)).owner).toBe('traderA');
     expect(state.accounts.traderA.cash).toBe(1000 - ask);
@@ -114,11 +114,11 @@ describe('buy', () => {
     expect(dayOf(state, D(3)).history.at(-1)).toMatchObject({ price: ask });
   });
 
-  it('rejects a limit below the ask and an invalid limit', () => {
+  it('rejects a limit above the ask and an invalid limit', () => {
     const ask = dayOf(seeded, D(3)).salePrice!;
     expect(
-      err(seeded, 'buy', { account: 'traderA', date: D(3), limit: ask - 1 }),
-    ).toBe('Below the current price');
+      err(seeded, 'buy', { account: 'traderA', date: D(3), limit: ask + 1 }),
+    ).toBe(`Above the current price of $${ask}`);
     expect(dayOf(seeded, D(3)).owner).toBe('host');
     expect(seeded.accounts.traderA.cash).toBe(1000);
     expect(
@@ -396,13 +396,13 @@ describe('discount tiers', () => {
     expect(dayOf(state, D(1)).history.at(-1)).toMatchObject({ block: 2 });
   });
 
-  it('fills a block at the quote when the limit is above it', () => {
+  it('fills a block at the quote when the limit equals it', () => {
     const ask = dayOf(seeded, D(0)).salePrice! + dayOf(seeded, D(1)).salePrice!;
     const { state } = act(seeded, 'buy-block', {
       account: 'traderA',
       from: D(0),
       to: D(1),
-      limit: ask + 10,
+      limit: ask,
     });
     expect(state.accounts.traderA.cash).toBe(1000 - ask);
     expect(dayOf(state, D(0)).owner).toBe('traderA');
@@ -412,9 +412,9 @@ describe('discount tiers', () => {
         account: 'traderA',
         from: D(0),
         to: D(1),
-        limit: ask - 1,
+        limit: ask + 10,
       }),
-    ).toBe('Below the current price');
+    ).toBe(`Above the current price of $${ask}`);
   });
 
   it('allows zero tiers and rejects invalid drafts', () => {

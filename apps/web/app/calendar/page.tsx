@@ -389,7 +389,9 @@ function TradeBody({
           onAct(
             'buy',
             { date: d.date, limit },
-            `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
+            limit < d.salePrice!
+              ? `Open buy for ${money(limit)}`
+              : `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
           )
         }
       />

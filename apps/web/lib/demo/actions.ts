@@ -50,13 +50,14 @@ function checkPrice(price: unknown): number {
   return n;
 }
 
-/** Optional limit; omitted means take the ask. Never charge more than the ask. */
+/** Optional limit; omitted or equal to the ask fills at the ask. Above is rejected. */
 function fillAtAsk(ask: number, limit: unknown): number {
   if (limit == null || limit === '') return ask;
   const n = Number(limit);
   if (!Number.isInteger(n) || n < 1 || n > 100000) {
     fail('Limit must be a whole number of dollars between 1 and 100000');
   }
+  if (n > ask) fail(`Above the current price of $${ask}`);
   if (n < ask) fail('Below the current price');
   return ask;
 }

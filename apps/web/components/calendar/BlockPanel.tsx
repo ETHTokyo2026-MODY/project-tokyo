@@ -198,7 +198,9 @@ export function BlockPanel({
               onAct(
                 'buy-block',
                 { from, to, limit },
-                `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
+                limit < total
+                  ? `Open buy for ${money(limit)}`
+                  : `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
               )
             }
           />
