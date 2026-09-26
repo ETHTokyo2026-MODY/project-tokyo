@@ -6,6 +6,7 @@ import { after, test } from 'node:test';
 import { keccak256, toHex, verifyTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { OrderBook } from '../src/orders.mjs';
+import { guardProgram } from '../src/collective.mjs';
 import {
   hashMandate,
   orderDomain,
@@ -19,8 +20,12 @@ after(() => rmSync(directory, { recursive: true, force: true }));
 const account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
 const router = '0x1111111111111111111111111111111111111111';
 const usdc = '0x2222222222222222222222222222222222222222';
+const collective = '0x3333333333333333333333333333333333333333';
 const config = { chainId: 11155111, router, usdc };
-const client = { verifyTypedData: (args) => verifyTypedData(args) };
+const client = {
+  verifyTypedData: (args) => verifyTypedData(args),
+  readContract: async () => collective,
+};
 const day = Math.floor(Date.now() / 1000 / 86_400) + 2;
 const expiry = Math.floor(Date.now() / 1000) + 3600;
 const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
@@ -223,5 +228,56 @@ test('backend rejects the same fee, discount, curve, and shape bounds as the VM'
       /invalid/,
     );
   }
+  store.close();
+});
+
+test('guarded orders bind the deployed coordinator, campaign and both thresholds', async () => {
+  const store = new Store(filename());
+  const book = new OrderBook(store, client, config);
+  const campaign = `0x${'aa'.repeat(32)}`;
+  const guarded = guardProgram({
+    coordinator: collective,
+    campaign,
+    minParticipants: 2,
+    minSpend: 2_000_000n,
+    priceProgram: fixedTerms(1_000_000, 250, 0, 0),
+  });
+  const input = await envelope({ programBytes: guarded });
+  assert.equal((await book.submit(input)).program, guarded);
+  await assert.rejects(
+    book.submit({
+      ...input,
+      program: guarded.replace(campaign.slice(2), 'bb'.repeat(32)),
+    }),
+    /program hash mismatch/,
+  );
+  const fakeCoordinator = guardProgram({
+    coordinator: router,
+    campaign,
+    minParticipants: 2,
+    minSpend: 2_000_000n,
+    priceProgram: program,
+  });
+  await assert.rejects(
+    book.submit(await envelope({ programBytes: fakeCoordinator })),
+    /collective coordinator mismatch/,
+  );
+  await assert.rejects(
+    book.submit(
+      await envelope({ programBytes: guarded.replace('0xa280', '0xa27f') }),
+    ),
+    /invalid collective program/,
+  );
+  assert.throws(
+    () =>
+      guardProgram({
+        coordinator: collective,
+        campaign,
+        minParticipants: 9,
+        minSpend: 1n,
+        priceProgram: program,
+      }),
+    /Invalid collective guard/,
+  );
   store.close();
 });

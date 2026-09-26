@@ -100,6 +100,13 @@ export const routerAbi = [
     outputs: [address('')],
   },
   {
+    type: 'function',
+    name: 'collective',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [address('')],
+  },
+  {
     type: 'event',
     name: 'Cancelled',
     inputs: [address('maker', true), { ...uint256('nonce'), indexed: false }],
@@ -118,6 +125,46 @@ export const routerAbi = [
       bytes32('mandate', true),
       uint256('price'),
       uint256('fee'),
+    ],
+  },
+];
+
+export const collectiveAbi = [
+  {
+    type: 'function',
+    name: 'router',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [address('')],
+  },
+  {
+    type: 'function',
+    name: 'activate',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'fills',
+        type: 'tuple[]',
+        components: [
+          tuple('bid', orderFields),
+          { name: 'bidSig', type: 'bytes' },
+          tuple('ask', orderFields),
+          { name: 'askSig', type: 'bytes' },
+          tuple('mandate', mandateFields),
+          { name: 'program', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [uint256('totalPrice'), uint256('totalFee')],
+  },
+  {
+    type: 'event',
+    name: 'Activated',
+    inputs: [
+      bytes32('campaign', true),
+      { ...uint256('participants'), indexed: false },
+      { ...uint256('price'), indexed: false },
+      { ...uint256('fee'), indexed: false },
     ],
   },
 ];

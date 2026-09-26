@@ -9,6 +9,8 @@ import {CalldataPtrLib} from "@1inch/solidity-utils/contracts/libraries/Calldata
 import {IAqua} from "aqua/interfaces/IAqua.sol";
 import {RentalInventory} from "./RentalInventory.sol";
 import {RentalSettlement} from "./RentalSettlement.sol";
+import {RentalCollective} from "./RentalCollective.sol";
+import {RentalCollectiveGuard} from "./RentalCollectiveGuard.sol";
 
 /// @notice Specialized SwapVM router: actual upstream VM + full-amount instruction,
 /// with Aqua USDC / ERC1155 settlement replacing the ERC20/ ERC20 settlement shell.
@@ -21,16 +23,31 @@ contract RentalSwapVM is RentalSettlement {
     uint8 public constant TERMS_DUTCH = 0xa1;
     uint256 public constant MAX_FEE_BPS = 1_000;
     uint256 public constant MAX_DISCOUNT_BPS = 9_000;
+    RentalCollective public immutable collective;
 
     error InvalidProgram();
 
-    constructor(IAqua a, RentalInventory i, address token, address fees) RentalSettlement(a, i, token, fees) {}
+    constructor(IAqua a, RentalInventory i, address token, address fees) RentalSettlement(a, i, token, fees) {
+        collective = new RentalCollective(this);
+    }
+
+    function _authorizeExecution(bytes calldata program) internal view override {
+        if (program.length > 0 && uint8(program[0]) == RentalCollectiveGuard.OPCODE) {
+            (address coordinator,,,) = RentalCollectiveGuard.decode(program);
+            require(coordinator == address(collective) && msg.sender == coordinator, InvalidProgram());
+        }
+    }
 
     function _quote(bytes calldata program, uint256 durationDays, uint256 quantity)
         internal
         override
         returns (uint256 price, uint256 fee)
     {
+        if (program.length > 0 && uint8(program[0]) == RentalCollectiveGuard.OPCODE) {
+            (address coordinator,,,) = RentalCollectiveGuard.decode(program);
+            require(coordinator == address(collective), InvalidProgram());
+            program = program[RentalCollectiveGuard.PREFIX_LENGTH:];
+        }
         require(quantity > 0 && program.length >= 2, InvalidProgram());
         uint8 kind = uint8(program[0]);
         bool termsProgram = kind == TERMS_FIXED || kind == TERMS_DUTCH;
