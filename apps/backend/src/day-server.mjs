@@ -27,7 +27,7 @@ export async function readDayTradeHistory({
   asks,
   blockNumber,
 }) {
-  const readEvents = (name) => {
+  const readEvents = (name, source = config.router) => {
     const result = [];
     let before;
     while (true) {
@@ -35,7 +35,7 @@ export async function readDayTradeHistory({
       result.push(
         ...page.filter(
           (event) =>
-            same(event.address, config.router) &&
+            same(event.address, source) &&
             BigInt(event.blockNumber) <= blockNumber,
         ),
       );
@@ -43,6 +43,16 @@ export async function readDayTradeHistory({
       before = page.at(-1);
     }
   };
+  const bids = new Map();
+  for (const event of readEvents('Shipped', config.aqua)) {
+    try {
+      const publication = decodeDayPublication(event.args, config);
+      if (publication.kind === 'bid')
+        bids.set(publication.hash, { event, strategy: publication.strategy });
+    } catch {
+      // Foreign or malformed publications cannot establish a completed range.
+    }
+  }
   const tokens = new Map();
   for (const calendar of calendars)
     for (const day of calendar.days)
@@ -73,7 +83,25 @@ export async function readDayTradeHistory({
   const history = [];
   const blocks = new Map();
   for (const { event: settled, days } of settlements.values()) {
+    const bid = bids.get(settled.args.bidHash.toLowerCase());
+    const firstLog = Math.min(...days.map(({ event }) => event.logIndex));
+    // A sum alone cannot prove completeness: a missing day may have cost zero.
     if (
+      !bid ||
+      !same(bid.strategy.buyer, settled.args.buyer) ||
+      !same(bid.strategy.asset, settled.args.asset) ||
+      !(
+        bid.event.blockNumber < settled.blockNumber ||
+        (bid.event.blockNumber === settled.blockNumber &&
+          same(bid.event.blockHash, settled.blockHash) &&
+          bid.event.logIndex < firstLog)
+      ) ||
+      days.length !== bid.strategy.endDayExclusive - bid.strategy.startDay ||
+      days.some(
+        ({ position }) =>
+          position.day < bid.strategy.startDay ||
+          position.day >= bid.strategy.endDayExclusive,
+      ) ||
       !days.length ||
       new Set(days.map(({ position }) => position.day)).size !== days.length ||
       days.reduce((sum, { event }) => sum + BigInt(event.args.payment), 0n) !==
