@@ -76,7 +76,7 @@ On-chain: day ownership, trades, discounts and payouts.
 - Big work lands as a sequence of small PRs, each leaving `main` working.
 - Full agent rules are in `AGENTS.md`. Every teammate's agents follow them.
 - Squash merge: one PR becomes one commit on `main`.
-- After each merge to `main`, CI runs lint, type check, tests, Next.js build, `forge build` and `forge test`, and a secret scan. PRs only get a PR-format check; checks never block merging.
+- After each merge to `main`, CI runs format, lint, type check, unit tests, `forge build` and `forge test`, and backend tests against Anvil, and a separate check confirms the DigitalOcean deploy (which runs the Next.js build) succeeded. PRs only get a PR-format check; checks never block merging.
 - Never commit keys or `.env`. Contracts are deployed by hand from a wallet holding only test ETH.
 - Each PR description says what changed, how it was tested, and where AI was used.
 - Libraries and forked code are listed as reused in the README.
