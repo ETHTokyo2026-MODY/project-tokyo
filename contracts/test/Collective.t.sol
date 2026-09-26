@@ -106,6 +106,15 @@ contract CollectiveTest is Fixture {
         assertEq(inventory.balanceOf(fills[0].bid.maker, inventory.tokenId(COLLECTIVE_POOL, day, TERMS)), 0);
     }
 
+    function testSpendThresholdIncludesFeesRatherThanNetSellerProceeds() public {
+        RentalCollective.Fill[] memory fills = _fills(2, 1, 2, 2_020_000);
+        (uint256 price, uint256 fee) = coordinator.activate(fills);
+        assertEq(price, 2_000_000);
+        assertEq(fee, 20_000);
+        assertEq(usd.balanceOf(seller), price);
+        assertLt(price, 2_020_000);
+    }
+
     function testGuardedEconomicTermsUseTheSameBatchQuote() public {
         RentalCollective.Fill[] memory fills = _fills(2, 1, 2, 2e6);
         bytes memory pricing = bytes.concat(hex"a080", abi.encode(1e6, 250, 0, 0), LimitSwapFullAmount.build(true));
