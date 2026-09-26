@@ -1,0 +1,98 @@
+name: DigitalOcean deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: DigitalOcean deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Wait for DigitalOcean deployment
+        env:
+          APP_ID: c4551058-d68c-4a50-9425-ab199d7b1539
+        run: |
+          set -euo pipefail
+
+          sha7="${GITHUB_SHA:0:7}"
+          poll_seconds=20
+          max_seconds=$((22 * 60))
+          match_deadline_seconds=$((8 * 60))
+          started_at="${SECONDS}"
+
+          echo "Looking for a DigitalOcean deployment whose cause contains ${sha7}"
+
+          while true; do
+            elapsed=$((SECONDS - started_at))
+            if [ "${elapsed}" -ge "${max_seconds}" ]; then
+              echo "Timed out after 22 minutes waiting for DigitalOcean deployment ${sha7} to finish."
+              exit 1
+            fi
+
+            deployments="$(doctl apps list-deployments "${APP_ID}" -o json)"
+            match="$(jq -c --arg sha "${sha7}" '
+              (if type == "array" then . else (.deployments // []) end)
+              | map(select((.cause // "") | contains($sha)))
+              | sort_by(.created_at)
+              | last // empty
+            ' <<<"${deployments}")"
+
+            if [ -z "${match}" ]; then
+              if [ "${elapsed}" -ge "${match_deadline_seconds}" ]; then
+                echo "No DigitalOcean deployment whose cause contains ${sha7} appeared within 8 minutes."
+                echo "Recent deployment causes:"
+                jq -r '
+                  (if type == "array" then . else (.deployments // []) end)
+                  | sort_by(.created_at)
+                  | reverse
+                  | .[:10][]
+                  | "\(.created_at // "?") \(.phase // "?") \(.cause // "?")"
+                ' <<<"${deployments}"
+                exit 1
+              fi
+
+              echo "No matching deployment yet (${elapsed}s elapsed). Retrying in ${poll_seconds}s..."
+              sleep "${poll_seconds}"
+              continue
+            fi
+
+            dep_id="$(jq -r '.id' <<<"${match}")"
+            phase="$(jq -r '.phase' <<<"${match}")"
+            cause="$(jq -r '.cause' <<<"${match}")"
+            echo "Matched deployment ${dep_id} phase=${phase} cause=${cause}"
+
+            case "${phase}" in
+              ACTIVE)
+                echo "DigitalOcean deployment is ACTIVE."
+                exit 0
+                ;;
+              CANCELED|SUPERSEDED)
+                echo "DigitalOcean deployment is ${phase}; a newer commit replaced it."
+                exit 0
+                ;;
+              ERROR)
+                echo "DigitalOcean deployment failed."
+                jq -r '.progress.steps[]? | "\(.name): \(.status)"' <<<"${match}"
+                doctl apps logs "${APP_ID}" --deployment "${dep_id}" --type build || true
+                exit 1
+                ;;
+              *)
+                echo "Deployment still in progress (${phase}). Retrying in ${poll_seconds}s..."
+                sleep "${poll_seconds}"
+                ;;
+            esac
+          done

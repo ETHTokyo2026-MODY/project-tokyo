@@ -803,6 +803,7 @@ function AssetGrid({
         </section>
         <section>
           <DiscountsEditor
+            key={`${asset.id}:${account}`}
             asset={asset}
             account={account}
             busy={busy}

@@ -1,4 +1,5 @@
 import { priceFromCurve } from './curve';
+import { checkTiers } from './discounts';
 import { quoteBlock } from './quote';
 import { hashSeed } from './rng';
 import {
@@ -7,7 +8,6 @@ import {
   MAX_ASSETS,
   seedDaysFor,
   seedState,
-  TIERS,
   TYPES,
 } from './seed';
 import type { Asset, Day, DemoState, Discounts } from './types';
@@ -278,17 +278,16 @@ const actions: Record<string, ActionFn> = {
   },
   discounts(state, asset, body) {
     const account = checkAccount(state, body.account as string);
-    const tiers = body.tiers as Record<string, unknown> | undefined;
-    const next: Discounts = { ...DEFAULT_DISCOUNTS };
-    for (const min of TIERS) {
-      const raw = tiers ? tiers[min] : undefined;
-      const v = Number(raw);
-      if (raw == null || raw === '' || !Number.isFinite(v) || v < 0 || v > 90) {
-        fail(`Discount for ${min}+ days must be 0-90%`);
-      }
-      next[min as keyof Discounts] = v;
+    const tiers = body.tiers;
+    if (tiers == null || typeof tiers !== 'object' || Array.isArray(tiers)) {
+      fail('Tiers must be a map of nights to percent');
     }
-    asset.discounts[account] = next;
+    const rows = Object.entries(tiers as Record<string, unknown>).map(
+      ([nights, pct]) => ({ nights, pct: pct == null ? '' : String(pct) }),
+    );
+    const parsed = checkTiers(rows);
+    asset.discounts[account] =
+      parsed.next ?? fail(parsed.error || 'Invalid tiers');
   },
   'create-asset'(state, _asset, body, ctx) {
     const account = checkAccount(state, body.account as string);
