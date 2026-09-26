@@ -40,6 +40,7 @@ test('supplier authenticates immutable recurrence, calendar dates cross DST with
   };
   const client = {
     verifyTypedData,
+    getChainId: async () => config.chainId,
     getBlock: async () => block,
     readContract: async ({ functionName }) =>
       functionName === 'pools'
@@ -76,5 +77,33 @@ test('supplier authenticates immutable recurrence, calendar dates cross DST with
   const consumed = await book.reconcile(result.hash);
   assert.equal(consumed.slots[0].outstanding, '1');
   assert.ok(consumed.slots.every((x) => x.transaction === null));
+  client.getChainId = async () => 1;
+  await assert.rejects(book.reconcile(result.hash), /chain mismatch/);
+  await assert.rejects(book.publish(envelope), /chain mismatch/);
+  store.close();
+});
+
+test('publication rejects an orphaned authorization snapshot without persisting capacity', async () => {
+  const store = new Store(':memory:');
+  let reads = 0;
+  const client = {
+    verifyTypedData,
+    getChainId: async () => config.chainId,
+    getBlock: async () => ({
+      number: 1n,
+      timestamp: BigInt((startDay - 1) * 86400),
+      hash: ++reads === 1 ? '0xaaa' : '0xbbb',
+    }),
+    readContract: async () => [supplier.address, startDay, startDay + 90, 3],
+  };
+  const book = new SupplyBook(store, client, config);
+  await assert.rejects(
+    book.publish({ schedule, signature: await sign(schedule) }),
+    /snapshot reorganized/,
+  );
+  assert.equal(
+    store.db.prepare('SELECT count(*) AS n FROM supply_schedules').get().n,
+    0,
+  );
   store.close();
 });
