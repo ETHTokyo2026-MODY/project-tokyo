@@ -79,6 +79,8 @@ function LimitForm({
         <div className="warn">
           You have {money(cash)}. List some of your days for sale to raise cash.
         </div>
+      ) : valid && limit < ask ? (
+        <div className="note">Below the ask — this rests as an open bid.</div>
       ) : null}
     </div>
   );

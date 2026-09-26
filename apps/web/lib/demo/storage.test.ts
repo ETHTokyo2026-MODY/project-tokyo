@@ -20,4 +20,14 @@ describe('storage', () => {
     expect(await decodeState('{"foo":1}')).toBeNull();
     expect(await decodeState('null')).toBeNull();
   });
+
+  it('adds an empty bids list to older saved state', async () => {
+    const raw = JSON.stringify({
+      version: 1,
+      accounts: { host: { name: 'H', role: 'r', cash: 0, startCash: 0 } },
+      assets: [],
+    });
+    const decoded = await decodeState(raw);
+    expect(decoded?.bids).toEqual([]);
+  });
 });

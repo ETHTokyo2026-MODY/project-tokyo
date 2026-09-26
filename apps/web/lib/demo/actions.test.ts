@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, assetById, discountsFor, UserError } from './actions';
+import { addDays } from './dates';
 import { checkTiers } from './discounts';
 import { discountPct, quoteBlock } from './quote';
 import { DEFAULT_DISCOUNTS, seedState } from './seed';
@@ -114,13 +115,7 @@ describe('buy', () => {
     expect(dayOf(state, D(3)).history.at(-1)).toMatchObject({ price: ask });
   });
 
-  it('rejects a limit below the ask and an invalid limit', () => {
-    const ask = dayOf(seeded, D(3)).salePrice!;
-    expect(
-      err(seeded, 'buy', { account: 'traderA', date: D(3), limit: ask - 1 }),
-    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
-    expect(dayOf(seeded, D(3)).owner).toBe('host');
-    expect(seeded.accounts.traderA.cash).toBe(1000);
+  it('rejects an invalid limit', () => {
     expect(
       err(seeded, 'buy', { account: 'traderA', date: D(3), limit: 1.5 }),
     ).toBe('Limit must be a whole number of dollars between 1 and 100000');
@@ -407,14 +402,6 @@ describe('discount tiers', () => {
     expect(state.accounts.traderA.cash).toBe(1000 - ask);
     expect(dayOf(state, D(0)).owner).toBe('traderA');
     expect(dayOf(state, D(1)).owner).toBe('traderA');
-    expect(
-      err(seeded, 'buy-block', {
-        account: 'traderA',
-        from: D(0),
-        to: D(1),
-        limit: ask - 1,
-      }),
-    ).toBe(`Limit $${ask - 1} is below the asking price of $${ask}`);
   });
 
   it('allows zero tiers and rejects invalid drafts', () => {
@@ -438,6 +425,121 @@ describe('discount tiers', () => {
         { nights: '3', pct: '10' },
       ]),
     ).toMatchObject({ error: 'Duplicate nights' });
+  });
+});
+
+describe('resting bids', () => {
+  it('rests below the ask, reserves cash, and lets the owner accept', () => {
+    const legacy = { ...seeded };
+    delete legacy.bids;
+    expect(
+      act(legacy, 'buy', { account: 'traderA', date: D(5) }).state.bids,
+    ).toEqual([]);
+    const ask = dayOf(seeded, D(3)).salePrice!;
+    const limit = ask - 1;
+    let { state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    });
+    expect(dayOf(state, D(3)).owner).toBe('host');
+    expect(state.accounts.traderA.cash).toBe(1000 - limit);
+    expect(state.bids).toMatchObject([
+      { buyer: 'traderA', from: D(3), to: D(3), limit },
+    ]);
+    ({ state } = act(state, 'accept-bid', {
+      account: 'host',
+      id: state.bids![0].id,
+    }));
+    expect(dayOf(state, D(3))).toMatchObject({
+      owner: 'traderA',
+      listed: false,
+    });
+    expect(state.accounts.host.cash).toBe(limit);
+    expect(state.accounts.traderA.cash).toBe(1000 - limit);
+    expect(state.bids).toEqual([]);
+  });
+
+  it('cancels with a refund and drops bids that unlist, book, sell, or go past', () => {
+    const ask = dayOf(seeded, D(3)).salePrice!;
+    const limit = Math.max(1, ask - 5);
+    let { state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    });
+    ({ state } = act(state, 'cancel-bid', {
+      account: 'traderA',
+      id: state.bids![0].id,
+    }));
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+
+    ({ state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    }));
+    ({ state } = act(state, 'unlist', { account: 'host', date: D(3) }));
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+
+    ({ state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    }));
+    ({ state } = act(state, 'book', { account: 'host', date: D(3) }));
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+
+    ({ state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    }));
+    ({ state } = act(state, 'buy', { account: 'traderB', date: D(3) }));
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+    expect(dayOf(state, D(3)).owner).toBe('traderB');
+
+    ({ state } = act(seeded, 'buy', {
+      account: 'traderA',
+      date: D(3),
+      limit,
+    }));
+    state = applyAction(
+      state,
+      'list',
+      { account: 'host', date: D(8), price: 40 },
+      { today: addDays(D(3), 1), now: NOW },
+    ).state;
+    expect(state.bids).toEqual([]);
+    expect(state.accounts.traderA.cash).toBe(1000);
+  });
+
+  it('accepts an all-or-nothing block bid at the bid price', () => {
+    const ask = dayOf(seeded, D(0)).salePrice! + dayOf(seeded, D(1)).salePrice!;
+    const limit = ask - 2;
+    let { state } = act(seeded, 'buy-block', {
+      account: 'traderA',
+      from: D(0),
+      to: D(1),
+      limit,
+    });
+    expect(dayOf(state, D(0)).owner).toBe('host');
+    expect(state.accounts.traderA.cash).toBe(1000 - limit);
+    expect(
+      err(state, 'accept-bid', { account: 'traderB', id: state.bids![0].id }),
+    ).toBe('Only an owner can accept');
+    ({ state } = act(state, 'accept-bid', {
+      account: 'host',
+      id: state.bids![0].id,
+    }));
+    expect(dayOf(state, D(0)).owner).toBe('traderA');
+    expect(dayOf(state, D(1)).owner).toBe('traderA');
+    expect(state.accounts.host.cash).toBe(limit);
+    expect(state.bids).toEqual([]);
   });
 });
 

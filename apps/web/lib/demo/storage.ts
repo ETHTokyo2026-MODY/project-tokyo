@@ -24,6 +24,7 @@ function asState(value: unknown): DemoState | null {
   const s = value as DemoState;
   if (!Array.isArray(s.assets) || typeof s.version !== 'number') return null;
   if (!s.accounts || typeof s.accounts !== 'object') return null;
+  if (!Array.isArray(s.bids)) s.bids = [];
   return s;
 }
 

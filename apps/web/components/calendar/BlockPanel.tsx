@@ -2,6 +2,7 @@
 
 import { useRef, type ReactNode } from 'react';
 import { LimitBuy } from '@/components/calendar/LimitBuy';
+import { OpenBids } from '@/components/calendar/OpenBids';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import type { Quote } from '@/lib/demo/quote';
 import type { Day } from '@/lib/demo/types';
@@ -34,6 +35,7 @@ function pred(d: Day): number {
 }
 
 export function BlockPanel({
+  assetId,
   days,
   account,
   today,
@@ -42,6 +44,7 @@ export function BlockPanel({
   busy,
   onAct,
 }: {
+  assetId: string;
   days: Day[];
   account: string;
   today: string;
@@ -153,6 +156,15 @@ export function BlockPanel({
             Unlist all
           </button>
         </div>
+        <OpenBids
+          assetId={assetId}
+          from={from}
+          to={to}
+          account={account}
+          today={today}
+          busy={busy}
+          onAct={onAct}
+        />
       </>
     );
   } else if ('reason' in quote) {
@@ -186,6 +198,15 @@ export function BlockPanel({
             {signed(publicSum - total)}
           </div>
         </div>
+        <OpenBids
+          assetId={assetId}
+          from={from}
+          to={to}
+          account={account}
+          today={today}
+          busy={busy}
+          onAct={onAct}
+        />
         {quote.mixed ? (
           <div className="note">Block includes your own days.</div>
         ) : (

@@ -70,10 +70,24 @@ export type Asset = {
   custom?: CustomAssetSpec;
 };
 
+export type BidSnap = { owner: string; status: DayStatus };
+
+export type Bid = {
+  id: string;
+  asset: string;
+  buyer: string;
+  from: string;
+  to: string;
+  limit: number;
+  snap: Record<string, BidSnap>;
+};
+
 export type DemoState = {
   seededOn: string;
   curveDay: string;
   version: number;
   accounts: Record<string, Account>;
   assets: Asset[];
+  /** Open limit bids. Missing on old localStorage saves. */
+  bids?: Bid[];
 };

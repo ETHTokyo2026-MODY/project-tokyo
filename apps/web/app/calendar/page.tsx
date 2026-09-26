@@ -16,6 +16,7 @@ import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
 import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { LimitBuy } from '@/components/calendar/LimitBuy';
+import { OpenBids } from '@/components/calendar/OpenBids';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { discountsFor } from '@/lib/demo/actions';
@@ -355,7 +356,18 @@ function TradeBody({
       </>
     );
     controls = (
-      <OwnerControls d={d} booked={booked} busy={busy} onAct={onAct} />
+      <>
+        <OwnerControls d={d} booked={booked} busy={busy} onAct={onAct} />
+        <OpenBids
+          assetId={assetId}
+          from={d.date}
+          to={d.date}
+          account={account}
+          today={today}
+          busy={busy}
+          onAct={onAct}
+        />
+      </>
     );
   } else if (d.listed) {
     const gain = d.price - d.salePrice!;
@@ -381,19 +393,30 @@ function TradeBody({
       </>
     );
     controls = (
-      <LimitBuy
-        ask={d.salePrice!}
-        resetKey={d.date}
-        cash={cash}
-        busy={busy}
-        onSubmit={(limit) =>
-          onAct(
-            'buy',
-            { date: d.date, limit },
-            `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
-          )
-        }
-      />
+      <>
+        <OpenBids
+          assetId={assetId}
+          from={d.date}
+          to={d.date}
+          account={account}
+          today={today}
+          busy={busy}
+          onAct={onAct}
+        />
+        <LimitBuy
+          ask={d.salePrice!}
+          resetKey={d.date}
+          cash={cash}
+          busy={busy}
+          onSubmit={(limit) =>
+            onAct(
+              'buy',
+              { date: d.date, limit },
+              `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
+            )
+          }
+        />
+      </>
     );
   } else {
     rows = (
@@ -764,6 +787,7 @@ function AssetGrid({
           <div className="hint">Shift-click to select a block of days</div>
           {selDays.length > 1 && quote ? (
             <BlockPanel
+              assetId={asset.id}
               days={selDays}
               account={account}
               today={today}

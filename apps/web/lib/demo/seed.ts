@@ -276,5 +276,12 @@ export function seedState(today: string): DemoState {
     discounts: {},
     days: seedAssetDays(spec, idx, today),
   }));
-  return { seededOn: today, curveDay: today, version: 0, accounts, assets };
+  return {
+    seededOn: today,
+    curveDay: today,
+    version: 0,
+    accounts,
+    assets,
+    bids: [],
+  };
 }

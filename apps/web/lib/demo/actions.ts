@@ -10,7 +10,7 @@ import {
   seedState,
   TYPES,
 } from './seed';
-import type { Asset, Day, DemoState, Discounts } from './types';
+import type { Asset, Bid, Day, DemoState, Discounts } from './types';
 
 export class UserError extends Error {}
 
@@ -50,15 +50,117 @@ function checkPrice(price: unknown): number {
   return n;
 }
 
-/** Optional limit; omitted means take the ask. Never charge more than the ask. */
-function fillAtAsk(ask: number, limit: unknown): number {
-  if (limit == null || limit === '') return ask;
+function readLimit(limit: unknown): number | undefined {
+  if (limit == null || limit === '') return undefined;
   const n = Number(limit);
   if (!Number.isInteger(n) || n < 1 || n > 100000) {
     fail('Limit must be a whole number of dollars between 1 and 100000');
   }
-  if (n < ask) fail(`Limit $${n} is below the asking price of $${ask}`);
-  return ask;
+  return n;
+}
+
+export function bidLive(asset: Asset, bid: Bid, today: string): boolean {
+  if (bid.from < today) return false;
+  const days = asset.days.filter((d) => d.date >= bid.from && d.date <= bid.to);
+  return (
+    days.length === Object.keys(bid.snap).length &&
+    days.every((d) => {
+      const s = bid.snap[d.date];
+      return !!(s && d.listed && d.owner === s.owner && d.status === s.status);
+    })
+  );
+}
+
+export function purgeBids(state: DemoState, today: string): boolean {
+  const bids = state.bids ?? (state.bids = []);
+  const keep: Bid[] = [];
+  let changed = false;
+  for (const b of bids) {
+    const a = state.assets.find((x) => x.id === b.asset);
+    if (a && bidLive(a, b, today)) {
+      keep.push(b);
+      continue;
+    }
+    if (state.accounts[b.buyer]) state.accounts[b.buyer].cash += b.limit;
+    changed = true;
+  }
+  state.bids = keep;
+  return changed;
+}
+
+function restBid(
+  state: DemoState,
+  asset: Asset,
+  account: string,
+  days: Day[],
+  limit: number,
+) {
+  const from = days[0].date;
+  const to = days.at(-1)!.date;
+  const bids = state.bids ?? (state.bids = []);
+  if (
+    bids.some(
+      (b) =>
+        b.buyer === account &&
+        b.asset === asset.id &&
+        b.from === from &&
+        b.to === to,
+    )
+  ) {
+    fail('You already have an open bid on these days');
+  }
+  const buyer = state.accounts[account];
+  if (buyer.cash < limit) {
+    fail(`Not enough cash (need $${limit}, have $${buyer.cash})`);
+  }
+  buyer.cash -= limit;
+  bids.push({
+    id: `${asset.id}:${account}:${from}:${to}:${state.version}`,
+    asset: asset.id,
+    buyer: account,
+    from,
+    to,
+    limit,
+    snap: Object.fromEntries(
+      days.map((d) => [d.date, { owner: d.owner, status: d.status }]),
+    ),
+  });
+}
+
+function takeBid(state: DemoState, id: unknown): Bid {
+  const bids = state.bids ?? [];
+  const i = bids.findIndex((b) => b.id === id);
+  if (i < 0) fail('Unknown bid');
+  return bids.splice(i, 1)[0];
+}
+
+function settleBid(
+  state: DemoState,
+  days: Day[],
+  buyer: string,
+  total: number,
+  ctx: { now: string },
+) {
+  const w = days.map((d) => d.salePrice!);
+  const sum = w.reduce((s, n) => s + n, 0);
+  let left = total;
+  days.forEach((d, i) => {
+    const price =
+      i === days.length - 1 ? left : Math.round((total * w[i]) / sum);
+    left -= price;
+    const seller = d.owner;
+    state.accounts[seller].cash += price;
+    d.history.push({
+      type: 'trade',
+      from: seller,
+      to: buyer,
+      price,
+      ...(days.length > 1 ? { block: days.length } : {}),
+      at: ctx.now,
+    });
+    d.owner = buyer;
+    d.listed = false;
+  });
 }
 
 function futureDay(asset: Asset, date: string, today: string): Day {
@@ -113,7 +215,13 @@ const actions: Record<string, ActionFn> = {
     const d = futureDay(asset, body.date as string, ctx.today);
     if (d.owner === account) fail("You can't buy your own day");
     if (!d.listed) fail('This day is not for sale');
-    const price = fillAtAsk(d.salePrice!, body.limit);
+    const ask = d.salePrice!;
+    const cap = readLimit(body.limit);
+    if (cap != null && cap < ask) {
+      restBid(state, asset, account, [d], cap);
+      return;
+    }
+    const price = ask;
     const buyer = state.accounts[account];
     if (buyer.cash < price) {
       fail(`Not enough cash (need $${price}, have $${buyer.cash})`);
@@ -146,7 +254,12 @@ const actions: Record<string, ActionFn> = {
       ctx.today,
     );
     if ('reason' in q) return fail('Blocks must be continuous listed days');
-    const total = fillAtAsk(q.total, body.limit);
+    const cap = readLimit(body.limit);
+    if (cap != null && cap < q.total) {
+      restBid(state, asset, account, days, cap);
+      return;
+    }
+    const total = q.total;
     const buyer = state.accounts[account];
     if (buyer.cash < total) {
       fail(`Not enough cash (need $${total}, have $${buyer.cash})`);
@@ -173,6 +286,24 @@ const actions: Record<string, ActionFn> = {
         d.listed = false;
       });
     }
+  },
+  'cancel-bid'(state, _asset, body) {
+    const account = checkAccount(state, body.account as string);
+    const bid = takeBid(state, body.id);
+    if (bid.buyer !== account) fail('Only the buyer can cancel');
+    state.accounts[account].cash += bid.limit;
+  },
+  'accept-bid'(state, asset, body, ctx) {
+    const account = checkAccount(state, body.account as string);
+    const bid =
+      (state.bids ?? []).find((b) => b.id === body.id) ?? fail('Unknown bid');
+    if (bid.asset !== asset.id) fail('Unknown bid');
+    if (!bidLive(asset, bid, ctx.today)) fail('This bid is no longer valid');
+    const days = range(asset, bid.from, bid.to);
+    if (!days.some((d) => d.owner === account))
+      fail('Only an owner can accept');
+    takeBid(state, bid.id);
+    settleBid(state, days, bid.buyer, bid.limit, ctx);
   },
   'set-price'(state, asset, body, ctx) {
     const p = checkPrice(body.price);
@@ -427,7 +558,10 @@ export function applyAction(
     typeof raw === 'string' || raw == null ? raw : String(raw),
   );
   if (!asset) throw new UserError('Unknown asset');
+  if (!next.bids) next.bids = [];
+  purgeBids(next, ctx.today);
   const out = action(next, asset, body, ctx) ?? {};
+  purgeBids(next, ctx.today);
   next.version += 1;
   return { state: next, out };
 }

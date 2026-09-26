@@ -582,6 +582,14 @@
     min-width: 90px;
     max-width: 160px;
   }
+  .bids .row {
+    align-items: center;
+    justify-content: space-between;
+  }
+  .bids .note {
+    margin: 0;
+    flex: 1 1 auto;
+  }
   .panel button.markbooked {
     width: 100%;
     margin-top: 8px;
