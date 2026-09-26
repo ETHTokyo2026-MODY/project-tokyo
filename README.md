@@ -4,7 +4,8 @@ Hosts presell future room-nights and get paid now. Traders buy those nights and 
 
 ## Status
 
-Early demo. The web app shows sample data.
+The web app is a working demo with sample data that lives in your browser
+(reset from the calendar panel). No on-chain parts yet.
 
 ## Develop
 
@@ -27,7 +28,7 @@ npm run build
 
 ## Contributing
 
-Changes go through PRs only. See `AGENTS.md` and the PR template. Squash merged through the merge queue once the `checks`, `pr-format` and `secrets` checks pass.
+Changes go through PRs only. See `AGENTS.md` and the PR template. Squash merged directly, with no merge queue or required checks; CI still runs on PRs and `main` but does not block merges.
 
 ## Plan
 

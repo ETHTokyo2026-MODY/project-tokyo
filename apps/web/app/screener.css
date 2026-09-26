@@ -1,0 +1,124 @@
+.scr-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.scr-bar input[type='search'] {
+  flex: 1 1 280px;
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.scr-bar select {
+  font: inherit;
+  font-size: 14px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+}
+.seg {
+  display: inline-flex;
+}
+.seg button {
+  border-radius: 0;
+}
+.seg button:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.seg button:last-child {
+  border-radius: 0 8px 8px 0;
+  border-left: 0;
+}
+.seg button.on {
+  background: #111827;
+  color: #fff;
+  border-color: #111827;
+}
+#scrFilters {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+#scrFilters summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.scr-f {
+  padding-top: 8px;
+}
+.scr-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.scr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 6px 16px;
+}
+.scr-grid label {
+  display: grid;
+  grid-template-columns: 1fr 70px 70px;
+  gap: 6px;
+  align-items: center;
+}
+.scr-grid input {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  width: 100%;
+}
+.scr-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+.scr-table {
+  font-size: 13px;
+}
+.scr-table th,
+.scr-table td {
+  padding: 7px 7px !important;
+}
+.scr-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  vertical-align: bottom;
+}
+.scr-table th.sortable:hover {
+  color: #111827;
+}
+.scr-table th.sorted {
+  color: #111827;
+}
+.scr-table td {
+  white-space: nowrap;
+}
+.mine-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mine);
+  background: #eff6ff;
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.scr-table th .thbtn {
+  all: unset;
+  cursor: pointer;
+}
+.scr-table th .thbtn:focus-visible {
+  outline: 2px solid var(--mine);
+  outline-offset: 2px;
+}
+.contents {
+  display: contents;
+}
