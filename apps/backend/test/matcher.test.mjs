@@ -7,13 +7,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Matcher, ensureSubmissions } from '../src/matcher.mjs';
 import { StoredSubmission } from '../src/submission.mjs';
-import {
-  hashMandate,
-  hashOrder,
-  orderDomain,
-  orderTypes,
-  ZERO_HASH,
-} from '../src/protocol.mjs';
+import { fixedProgram, hashStrategy, ZERO_HASH } from '../src/protocol.mjs';
 import { Store } from '../src/store.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'rental-matcher-'));
@@ -176,55 +170,31 @@ test('saved but unbroadcast ordinary transaction blocks later conversion', async
 });
 
 async function pair() {
-  const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
-  const mandate = {
-    buyer: buyer.address,
-    app: config.router,
-    token: config.usdc,
-    limit: '100000000',
-    expiry: '4102444800',
-    salt: `0x${'66'.repeat(32)}`,
-  };
-  const common = {
-    pool: `0x${'77'.repeat(32)}`,
-    startDay: '40000',
-    endDay: '40001',
-    quantity: '1',
-    terms: `0x${'88'.repeat(32)}`,
-    priceLimit: '2000000',
-    maxFee: '20000',
-    expiry: '4102444800',
-    group: ZERO_HASH,
-    programHash: keccak256(program),
-  };
-  const make = async (account, buy, nonce) => {
-    const order = {
-      ...common,
+  const inventory = '0x7777777777777777777777777777777777777777';
+  const make = (account, buy, price) => {
+    const strategy = {
       maker: account.address,
+      inventory,
+      ids: ['1'],
+      quantity: '1',
       buy,
-      recipient: account.address,
-      nonce,
-      mandate: buy ? hashMandate(mandate) : ZERO_HASH,
-    };
-    return {
-      hash: hashOrder(order, config).toLowerCase(),
-      order,
-      signature: await account.signTypedData({
-        domain: orderDomain(config),
-        types: orderTypes,
-        primaryType: 'Order',
-        message: order,
+      salt: ZERO_HASH,
+      program: fixedProgram({
+        usdc: config.usdc,
+        inventory,
+        price,
+        expiry: 10000n,
+        nonce: 1,
       }),
-      program,
-      ...(buy ? { mandate } : {}),
     };
+    return { hash: hashStrategy(strategy), strategy };
   };
-  const bid = await make(buyer, true, '1');
-  const ask = await make(seller, false, '2');
+  const bid = make(buyer, true, 1100000n),
+    ask = make(seller, false, 1000000n);
   return {
     bid,
     ask,
-    book: { get: (hash) => [bid, ask].find((entry) => entry.hash === hash) },
+    book: { get: (hash) => [bid, ask].find((e) => e.hash === hash) },
   };
 }
 
@@ -236,7 +206,7 @@ function fakeClient() {
       return config.chainId;
     },
     async simulateContract() {
-      return { result: [1_000_000n, 10_000n] };
+      return { result: 1_000_000n };
     },
     async getTransactionCount() {
       return this.sent.length;

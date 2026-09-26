@@ -1,7 +1,7 @@
 import { createServer as createHttpServer } from 'node:http';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createPublicClient, getAddress, http } from 'viem';
+import { createPublicClient, http } from 'viem';
 import { ChainIndex } from './chain.mjs';
 import {
   DiscoveryInputError,
@@ -11,7 +11,13 @@ import {
 } from './discovery.mjs';
 import { Market, MarketInputError } from './market.mjs';
 import { OrderBook, OrderInputError } from './orders.mjs';
-import { routerAbi } from './protocol.mjs';
+import {
+  rentalStrategy,
+  registration,
+  serialize,
+  verifyDeployment,
+} from './protocol.mjs';
+export { verifyDeployment } from './protocol.mjs';
 import { Store } from './store.mjs';
 import { SupplyBook, SupplyInputError } from './supply.mjs';
 
@@ -23,7 +29,7 @@ function json(response, status, body) {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
   });
-  response.end(JSON.stringify(body));
+  response.end(serialize(body));
 }
 
 function pageInteger(value, fallback, { min, max }) {
@@ -59,7 +65,7 @@ async function readJson(request) {
 /**
  * Internal intake/read API. This process has no booking or relayer signing key.
  * Authentication, quotas and TLS belong at the gateway before exposing it beyond localhost.
- * Signed order admission and market reads do not reserve funds or execute a trade.
+ * Shipped strategy admission and market reads do not reserve funds or execute a trade.
  */
 export function createServer({ book, index, supply, market, discovery }) {
   if (!book || !index) throw new Error('Order book and chain index required');
@@ -148,6 +154,20 @@ export function createServer({ book, index, supply, market, discovery }) {
           });
         }
       }
+      if (request.method === 'GET' && url.pathname === '/deployment') {
+        return json(response, 200, book.config);
+      }
+      if (request.method === 'POST' && url.pathname === '/orders/prepare') {
+        try {
+          const draft = await readJson(request);
+          const strategy = rentalStrategy(draft, book.config);
+          return json(response, 200, registration(strategy, book.config));
+        } catch (error) {
+          return json(response, error.status === 413 ? 413 : 400, {
+            error: 'invalid rental strategy draft',
+          });
+        }
+      }
       if (request.method === 'POST' && url.pathname === '/orders') {
         let payload;
         try {
@@ -163,11 +183,11 @@ export function createServer({ book, index, supply, market, discovery }) {
           if (error instanceof OrderInputError) {
             return json(
               response,
-              error.message === 'conflicting signed order' ? 409 : 400,
+              error.message === 'Conflicting strategy' ? 409 : 400,
               {
                 error:
-                  error.message === 'conflicting signed order'
-                    ? 'conflicting signed order'
+                  error.message === 'Conflicting strategy'
+                    ? 'Conflicting strategy'
                     : 'invalid order',
               },
             );
@@ -227,7 +247,7 @@ export function createServer({ book, index, supply, market, discovery }) {
         try {
           return json(response, 200, {
             ...order,
-            status: await index.status({ hash: order.hash, ...order.order }),
+            status: await index.status(order),
           });
         } catch {
           return json(response, 503, { error: 'chain status unavailable' });
@@ -246,18 +266,6 @@ export function createServer({ book, index, supply, market, discovery }) {
     }
   };
   return server;
-}
-
-export async function verifyDeployment(client, config) {
-  if (Number(await client.getChainId()) !== config.chainId)
-    throw new Error('RPC chain ID differs from configured chain');
-  const token = await client.readContract({
-    address: getAddress(config.router),
-    abi: routerAbi,
-    functionName: 'usdc',
-  });
-  if (getAddress(token) !== getAddress(config.usdc))
-    throw new Error('Router USDC differs from configured token');
 }
 
 function required(name) {
@@ -287,6 +295,7 @@ async function main() {
   const config = {
     chainId,
     router: required('ROUTER_ADDRESS'),
+    aqua: required('AQUA_ADDRESS'),
     usdc: required('USDC_ADDRESS'),
   };
   const client = createPublicClient({ transport: http(required('RPC_URL')) });
@@ -295,7 +304,12 @@ async function main() {
   let server;
   try {
     const book = new OrderBook(store, client, config);
-    const index = new ChainIndex(store, client, { ...config, startBlock });
+    const index = new ChainIndex(
+      store,
+      client,
+      { ...config, startBlock },
+      book,
+    );
     const market = new Market(book, index, client, config);
     const supply = process.env.INVENTORY_ADDRESS
       ? new SupplyBook(store, client, {
@@ -314,6 +328,8 @@ async function main() {
           poolResolver: process.env.ENS_POOL_RESOLVER,
           inventory: required('INVENTORY_ADDRESS'),
           router: config.router,
+          aqua: config.aqua,
+          usdc: config.usdc,
           parentName: required('ENS_PARENT_NAME'),
         })
       : undefined;

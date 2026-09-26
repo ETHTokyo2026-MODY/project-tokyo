@@ -4,14 +4,18 @@ import { StoredSubmission } from './submission.mjs';
 export { ensureSubmissions } from './submission.mjs';
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
-// Structural compatibility only; signatures, current balances and price limits are checked by settlement.
+// Programs may differ. The contract checks registered authority, funding and the buyer cap.
 export function compatible(bid, ask) {
+  const b = bid.strategy,
+    a = ask.strategy;
   return (
-    bid.order.buy &&
-    !ask.order.buy &&
-    ['pool', 'startDay', 'endDay', 'quantity', 'terms', 'programHash'].every(
-      (key) => same(bid.order[key], ask.order[key]),
-    )
+    b.buy &&
+    !a.buy &&
+    !same(b.maker, a.maker) &&
+    same(b.inventory, a.inventory) &&
+    same(b.quantity, a.quantity) &&
+    b.ids.length === a.ids.length &&
+    b.ids.every((id, i) => same(id, a.ids[i]))
   );
 }
 
@@ -41,16 +45,15 @@ export class Matcher {
       throw new Error('Invalid limit');
     const orders = this.book.list({ limit: 100, offset });
     const matches = [];
-    for (const bid of orders.filter((o) => o.order.buy)) {
-      for (const ask of orders.filter((o) => !o.order.buy)) {
+    for (const bid of orders.filter((o) => o.strategy.buy)) {
+      for (const ask of orders.filter((o) => !o.strategy.buy)) {
         if (!compatible(bid, ask)) continue;
         try {
           const { result } = await this.simulate(bid, ask);
           matches.push({
             bidHash: bid.hash,
             askHash: ask.hash,
-            price: result[0].toString(),
-            fee: result[1].toString(),
+            price: result.toString(),
           });
           if (matches.length === limit) return matches;
         } catch (error) {
@@ -74,15 +77,8 @@ export class Matcher {
     return this.client.simulateContract({
       address: this.config.router,
       abi: routerAbi,
-      functionName: 'settle',
-      args: [
-        bid.order,
-        bid.signature,
-        ask.order,
-        ask.signature,
-        bid.mandate,
-        bid.program,
-      ],
+      functionName: 'swap',
+      args: [bid.strategy, ask.strategy],
       account: this.wallet.account,
     });
   }
@@ -96,15 +92,8 @@ export class Matcher {
     const id = keccak256(concatHex([bid.hash, ask.hash]));
     const data = encodeFunctionData({
       abi: routerAbi,
-      functionName: 'settle',
-      args: [
-        bid.order,
-        bid.signature,
-        ask.order,
-        ask.signature,
-        bid.mandate,
-        bid.program,
-      ],
+      functionName: 'swap',
+      args: [bid.strategy, ask.strategy],
     });
     const { job, receipt } = await this.submissions.submit({
       id,

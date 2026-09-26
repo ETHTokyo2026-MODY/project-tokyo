@@ -50,4 +50,4 @@ Reused code: [1inch Aqua](https://github.com/1inch/aqua), [1inch SwapVM](https:/
 
 ## Order backend
 
-[`apps/backend`](apps/backend/README.md) provides persistent signed orders, a local HTTP API, chain reconciliation, and a relayer library using [viem](https://viem.sh/) and Node SQLite. It consumes the contract schemas and has a real-contract Anvil integration test. The web app is not connected to it.
+[`apps/backend`](apps/backend/README.md) discovers shipped AquaVapor strategies and provides a local HTTP API, chain reconciliation, and a relayer library using [viem](https://viem.sh/) and Node SQLite. It consumes the contract schemas and has a real-contract Anvil integration test. The web app is not connected to it.

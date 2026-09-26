@@ -8,13 +8,11 @@ import { OrderInputError } from '../src/orders.mjs';
 const hash = `0x${'ab'.repeat(32)}`;
 const order = {
   hash,
-  order: {
+  strategy: {
     maker: '0x1111111111111111111111111111111111111111',
     nonce: '1',
     group: `0x${'0'.repeat(64)}`,
   },
-  signature: '0x1234',
-  program: '0x1234',
 };
 const records = new Map();
 const book = {
@@ -152,25 +150,25 @@ test('startup verifies RPC chain and deployed router USDC', async () => {
     chainId: 11155111,
     router: '0x1111111111111111111111111111111111111111',
     usdc: '0x2222222222222222222222222222222222222222',
+    aqua: '0x3333333333333333333333333333333333333333',
   };
   const client = {
     getChainId: async () => 11155111,
     readContract: async ({ functionName }) => {
-      assert.equal(functionName, 'usdc');
-      return config.usdc;
+      return functionName === 'AQUA' ? config.aqua : config.usdc;
     },
   };
   await verifyDeployment(client, config);
   await assert.rejects(
     verifyDeployment({ ...client, getChainId: async () => 1 }, config),
-    /chain ID/,
+    /Wrong chain/,
   );
   await assert.rejects(
     verifyDeployment(
       { ...client, readContract: async () => config.router },
       config,
     ),
-    /Router USDC/,
+    /deployment mismatch/,
   );
   await assert.rejects(
     verifyDeployment(

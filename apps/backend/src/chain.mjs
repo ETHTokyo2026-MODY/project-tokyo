@@ -1,12 +1,17 @@
 import { getAddress } from 'viem';
-import { routerAbi } from './protocol.mjs';
+import { routerAbi, aquaAbi, assetsFor, programTerms } from './protocol.mjs';
 
 const BATCH_SIZE = 64;
-const EVENTS = new Set(['Settled', 'Cancelled', 'GroupClosed']);
-const EVENT_ABI = routerAbi.filter(
+const EVENTS = new Set([
+  'Swapped',
+  'InvalidateBitUpdated',
+  'Shipped',
+  'Docked',
+  'Moved',
+]);
+const EVENT_ABI = [...routerAbi, ...aquaAbi].filter(
   (item) => item.type === 'event' && EVENTS.has(item.name),
 );
-const ZERO_GROUP = `0x${'0'.repeat(64)}`;
 
 function integer(value, name) {
   const number = Number(value);
@@ -48,12 +53,16 @@ export class ChainIndex {
   constructor(
     store,
     client,
-    { chainId, router, startBlock, confirmations = 2 },
+    { chainId, router, aqua, usdc, startBlock, confirmations = 2 },
+    book,
   ) {
     this.db = store.db;
     this.client = client;
     this.chainId = integer(chainId, 'chainId');
     this.router = getAddress(router);
+    this.aqua = getAddress(aqua);
+    this.usdc = getAddress(usdc);
+    this.book = book;
     this.startBlock = integer(startBlock, 'startBlock');
     this.confirmations = integer(confirmations, 'confirmations');
     if (!this.db || !client) throw new Error('Store and chain client required');
@@ -95,13 +104,33 @@ export class ChainIndex {
       if (
         integer(configured.chainId, 'stored chainId') !== this.chainId ||
         getAddress(configured.router).toLowerCase() !==
-          this.router.toLowerCase()
+          this.router.toLowerCase() ||
+        configured.aqua?.toLowerCase() !== this.aqua.toLowerCase() ||
+        configured.usdc?.toLowerCase() !== this.usdc.toLowerCase()
       ) {
         throw new Error(
           'Chain index configuration differs from order store scope',
         );
       }
     }
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
+    const identity = JSON.stringify({
+      chainId: this.chainId,
+      router: this.router,
+      aqua: this.aqua,
+      usdc: this.usdc,
+    });
+    const priorIdentity = this.db
+      .prepare("SELECT value FROM metadata WHERE key='chain_scope'")
+      .get();
+    if (priorIdentity && priorIdentity.value !== identity)
+      throw new Error('Chain deployment identity differs');
+    if (!priorIdentity)
+      this.db
+        .prepare("INSERT INTO metadata VALUES ('chain_scope', ?)")
+        .run(identity);
     const meta = this.db
       .prepare(
         'SELECT chain_id, router, start_block FROM chain_meta WHERE id = 1',
@@ -191,7 +220,7 @@ export class ChainIndex {
         return this.tip()?.number ?? null;
       }
       const logs = await this.client.getLogs({
-        address: this.router,
+        address: [this.router, this.aqua],
         events: EVENT_ABI,
         blockHash: block.hash,
       });
@@ -211,11 +240,21 @@ export class ChainIndex {
           if (
             log.blockHash?.toLowerCase() !== hash ||
             integer(log.blockNumber, 'log block number') !== number ||
-            log.address?.toLowerCase() !== this.router.toLowerCase()
+            log.address?.toLowerCase() !==
+              (['Shipped', 'Docked', 'Moved'].includes(log.eventName)
+                ? this.aqua
+                : this.router
+              ).toLowerCase()
           ) {
             throw new Error(`Log does not match block ${number} or router`);
           }
           if (!EVENTS.has(log.eventName)) continue;
+          if (
+            log.args.app &&
+            log.args.app.toLowerCase() !== this.router.toLowerCase()
+          )
+            continue;
+          if (log.eventName === 'Shipped') this.book?.ingestShipped(log.args);
           insert.run(
             number,
             integer(log.logIndex, 'log index'),
@@ -243,8 +282,8 @@ export class ChainIndex {
     const needle = hash.toLowerCase();
     return !!this.db
       .prepare(
-        `SELECT 1 FROM chain_events WHERE name = 'Settled'
-      AND (json_extract(args, '$.buyHash') = ? OR json_extract(args, '$.sellHash') = ?) LIMIT 1`,
+        `SELECT 1 FROM chain_events WHERE name = 'Swapped'
+      AND (json_extract(args, '$.bidHash') = ? OR json_extract(args, '$.askHash') = ?) LIMIT 1`,
       )
       .get(needle, needle);
   }
@@ -254,8 +293,8 @@ export class ChainIndex {
     if (!tip || !(await this.#isCanonical(tip))) return false;
     const matched = !!this.db
       .prepare(
-        `SELECT 1 FROM chain_events WHERE transaction_hash = ? AND name = 'Settled'
-      AND json_extract(args, '$.buyHash') = ? AND json_extract(args, '$.sellHash') = ? LIMIT 1`,
+        `SELECT 1 FROM chain_events WHERE transaction_hash = ? AND name = 'Swapped'
+      AND json_extract(args, '$.bidHash') = ? AND json_extract(args, '$.askHash') = ? LIMIT 1`,
       )
       .get(
         transactionHash.toLowerCase(),
@@ -267,59 +306,53 @@ export class ChainIndex {
     return matched && stillCanonical;
   }
 
-  /** "open" means unconsumed at the indexed block; it says nothing about expiry, funds or current approval. */
-  async status(order) {
+  /** Open means active virtual authority at the indexed block, not reserved funds or guaranteed execution. */
+  async status(envelope) {
     const tip = this.tip();
-    if (!tip) return 'unknown';
-    const fields = order.order ?? order;
-    const hash = order.hash.toLowerCase();
-    const maker = getAddress(fields.maker);
-    const nonce = BigInt(fields.nonce);
-    const group = (fields.group ?? ZERO_GROUP).toLowerCase();
-    if (!(await this.#isCanonical(tip))) return 'unknown';
-
-    const filled = this.settled(hash);
-    const cancelledNonce = !!this.db
-      .prepare(
-        `SELECT 1 FROM chain_events WHERE name = 'Cancelled'
-      AND json_extract(args, '$.maker') = ? AND json_extract(args, '$.nonce') = ? LIMIT 1`,
-      )
-      .get(maker.toLowerCase(), nonce.toString());
-    const cancelledGroup =
-      group !== ZERO_GROUP &&
-      !!this.db
-        .prepare(
-          `SELECT 1 FROM chain_events WHERE name = 'GroupClosed'
-      AND json_extract(args, '$.maker') = ? AND json_extract(args, '$.group') = ? LIMIT 1`,
-        )
-        .get(maker.toLowerCase(), group);
-
-    let closed = false;
-    if (!filled && !cancelledNonce && !cancelledGroup) {
-      const blockNumber = BigInt(tip.number);
-      const used = await this.client.readContract({
-        address: this.router,
-        abi: routerAbi,
-        functionName: 'used',
-        args: [maker, nonce],
-        blockNumber,
-      });
-      const groupClosed =
-        group !== ZERO_GROUP &&
-        (await this.client.readContract({
-          address: this.router,
-          abi: routerAbi,
-          functionName: 'closedGroup',
-          args: [maker, group],
-          blockNumber,
-        }));
-      closed = !!(used || groupClosed);
-    }
+    if (!tip || !(await this.#isCanonical(tip))) return 'unknown';
+    const s = envelope.strategy,
+      hash = envelope.hash;
+    const at = { blockNumber: BigInt(tip.number) };
+    const terms = programTerms(s, this.usdc);
+    const block = await this.client.getBlock(at);
+    const balances = await Promise.all(
+      assetsFor(s, this.usdc).map((asset) =>
+        this.client.readContract({
+          address: this.aqua,
+          abi: aquaAbi,
+          functionName: 'rawBalances',
+          args: [s.maker, this.router, hash, asset],
+          ...at,
+        }),
+      ),
+    );
+    const bitmap =
+      terms.nonce === undefined
+        ? 0n
+        : await this.client.readContract({
+            address: this.router,
+            abi: routerAbi,
+            functionName: 'bitInvalidators',
+            args: [s.maker, terms.nonce >> 8n],
+            ...at,
+          });
     if (this.tip()?.hash !== tip.hash || !(await this.#isCanonical(tip)))
       return 'unknown';
-    if (filled) return 'filled';
-    if (cancelledNonce || cancelledGroup) return 'cancelled';
-    return closed ? 'closed' : 'open';
+    if (balances.some(([, count]) => Number(count) === 0))
+      return 'unregistered';
+    if (balances.some(([, count]) => Number(count) === 255)) return 'cancelled';
+    const used =
+      terms.nonce !== undefined &&
+      (bitmap & (1n << (terms.nonce & 255n))) !== 0n;
+    if (used) return this.settled(hash) ? 'filled' : 'cancelled';
+    if (
+      balances.some(
+        ([amount]) => BigInt(amount) < (s.buy ? 1n : BigInt(s.quantity)),
+      )
+    )
+      return this.settled(hash) ? 'filled' : 'exhausted';
+    if (BigInt(block.timestamp) > terms.expiry) return 'expired';
+    return 'open';
   }
 
   async #isCanonical(tip) {
