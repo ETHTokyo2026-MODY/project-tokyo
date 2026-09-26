@@ -221,6 +221,7 @@ test(
       nonce,
       endDay,
       maker = wallet.account.address,
+      programBytes = program,
     ) {
       const o = {
         maker,
@@ -237,7 +238,7 @@ test(
         nonce: BigInt(nonce),
         group: ZERO_HASH,
         mandate: buy ? hashMandate(mandate) : ZERO_HASH,
-        programHash: keccak256(program),
+        programHash: keccak256(programBytes),
       };
       const signature = await wallet.signTypedData({
         domain: orderDomain(config),
@@ -249,7 +250,12 @@ test(
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
-          json({ order: o, signature, program, ...(buy ? { mandate } : {}) }),
+          json({
+            order: o,
+            signature,
+            program: programBytes,
+            ...(buy ? { mandate } : {}),
+          }),
         ),
       });
       assert.equal(response.status, 201);
@@ -273,6 +279,34 @@ test(
       seller.account.address,
     ]);
     await order(seller, false, 3, day + 1, smartWallet.address);
+    const economicProgram = `0xa080${[100_000n, 250n, 7n, 1000n]
+      .map((value) => toHex(value, { size: 32 }).slice(2))
+      .join('')}540180`;
+    assert.deepEqual(
+      await client.readContract({
+        ...router,
+        functionName: 'quote',
+        args: [economicProgram, 7n, 1n],
+      }),
+      [630_000n, 15_750n],
+    );
+    const economicBid = await order(
+      buyer,
+      true,
+      4,
+      day + 7,
+      buyer.account.address,
+      economicProgram,
+    );
+    const economicAsk = await order(
+      seller,
+      false,
+      4,
+      day + 7,
+      seller.account.address,
+      economicProgram,
+    );
+    assert.equal(economicBid.order.programHash, economicAsk.order.programHash);
     const balance = () =>
       client.readContract({
         ...usd,
@@ -287,7 +321,7 @@ test(
     index = new ChainIndex(store, client, config);
     const matcher = new Matcher(store, book, client, relayer, config);
     assert.deepEqual(book.get(bid.hash), bid);
-    assert.equal((await matcher.candidates()).length, 2);
+    assert.equal((await matcher.candidates()).length, 3);
     await send(buyer, usd, 'transfer', [seller.account.address, 10_000_000n]);
     await assert.rejects(matcher.submit(bid.hash, ask.hash));
     assert.equal(

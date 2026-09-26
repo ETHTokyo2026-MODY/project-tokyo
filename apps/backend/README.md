@@ -17,6 +17,8 @@ The integration test launches a disposable Anvil, deploys real Aqua and the rent
 
 Run the internal order API with `RPC_URL`, `CHAIN_ID`, `ROUTER_ADDRESS`, `USDC_ADDRESS`, `START_BLOCK`, and an absolute `DATABASE_PATH` outside the repository. `START_BLOCK` must be the router's deployment block or earlier. Sepolia's chain ID is 11155111; published addresses are in `../../contracts/deployments/sepolia.json`.
 
+The published Sepolia router predates economic-terms programs. Use a deployment of the current contracts for `0xa0` and `0xa1` orders.
+
 ```sh
 npm start --workspace=@project-tokyo/backend
 ```
@@ -51,4 +53,4 @@ The index processes up to 64 blocks per sync and defaults to two confirmations. 
 
 ## Boundaries
 
-Whole units, one seller, exact basket/program matching, fixed or Dutch pricing, and the contract's 1–31-day limit. No automatic fee replacement, public relayer, multi-seller routing, supplier booking, reservation cancellation/refunds or production deployment. The database contains executable signed orders and transactions; protect its access and backups. Contracts and backend have not been independently audited.
+Whole units, one seller, exact basket/program matching, fixed or Dutch pricing, and the contract's 1–31-day limit. Program opcodes `0xa0` and `0xa1` carry authenticated unit prices, fee bps, and duration discounts. For these programs call `quote(program,durationDays,quantity)` with the signed basket duration and quantity; the older two-argument quote works for legacy basket prices. Discount applies only when the current basket reaches the signed duration threshold, including on resale. No automatic fee replacement, public relayer, multi-seller routing, supplier booking, reservation cancellation/refunds or production deployment. The database contains executable signed orders and transactions; protect its access and backups. Contracts and backend have not been independently audited.

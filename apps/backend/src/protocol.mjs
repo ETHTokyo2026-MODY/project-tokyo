@@ -55,6 +55,17 @@ export const routerAbi = [
   },
   {
     type: 'function',
+    name: 'quote',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'program', type: 'bytes' },
+      uint256('durationDays'),
+      uint256('quantity'),
+    ],
+    outputs: [uint256('price'), uint256('fee')],
+  },
+  {
+    type: 'function',
     name: 'hashOrder',
     stateMutability: 'view',
     inputs: [tuple('o', orderFields)],

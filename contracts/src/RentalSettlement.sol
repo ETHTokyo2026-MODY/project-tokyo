@@ -43,7 +43,6 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
     RentalInventory public immutable inventory;
     address public immutable usdc;
     address public immutable feeRecipient;
-    uint256 public constant FEE_BPS = 100;
     mapping(address => mapping(uint256 => bool)) public used;
     mapping(address => mapping(bytes32 => bool)) public closedGroup;
     mapping(bytes32 => uint256) public spent;
@@ -130,8 +129,7 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         );
         (uint248 remaining, uint8 status) = aqua.rawBalances(m.buyer, address(this), mandateHash, usdc);
         require(status > 0 && status != 255, InvalidMandate());
-        price = _price(program, uint256(bid.endDay - bid.startDay) * bid.quantity);
-        fee = price * FEE_BPS / 10_000;
+        (price, fee) = _quote(program, bid.endDay - bid.startDay, bid.quantity);
         uint256 total = price + fee;
         require(
             price > 0 && total <= bid.priceLimit && price >= ask.priceLimit && fee <= bid.maxFee && fee <= ask.maxFee,
@@ -155,9 +153,20 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
     }
 
     function quote(bytes calldata program, uint256 units) external returns (uint256 price, uint256 fee) {
-        price = _price(program, units);
-        fee = price * FEE_BPS / 10_000;
+        return _quote(program, 0, units);
     }
 
-    function _price(bytes calldata program, uint256 units) internal virtual returns (uint256);
+    /// @notice Quote the same duration and quantity that settle derives from a signed order.
+    function quote(bytes calldata program, uint256 durationDays, uint256 quantity)
+        external
+        returns (uint256 price, uint256 fee)
+    {
+        require(durationDays > 0 && durationDays <= 31 && quantity > 0 && quantity <= type(uint32).max, InvalidOrder());
+        return _quote(program, durationDays, quantity);
+    }
+
+    function _quote(bytes calldata program, uint256 durationDays, uint256 quantity)
+        internal
+        virtual
+        returns (uint256 price, uint256 fee);
 }
