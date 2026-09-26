@@ -89,7 +89,7 @@ export class SupplyBook {
     const { schedule, signature } = payload;
     if (
       typeof signature !== 'string' ||
-      !/^0x(?:[0-9a-fA-F]{2})+$/.test(signature)
+      !/^0x(?:[0-9a-fA-F]{2})*$/.test(signature)
     )
       throw new SupplyInputError('invalid supplier signature');
     await this.verifyChain();

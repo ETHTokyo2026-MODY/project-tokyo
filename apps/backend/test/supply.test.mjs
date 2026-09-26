@@ -203,3 +203,28 @@ test('malformed supply envelopes fail as input errors before RPC verification', 
     store.close();
   }
 });
+
+test('empty smart-wallet signature reaches contract verification', async () => {
+  const store = new Store(':memory:');
+  const unavailable = new Error('verification RPC unavailable');
+  try {
+    const book = new SupplyBook(
+      store,
+      {
+        getChainId: async () => config.chainId,
+        getBlock: async () => ({ number: 1n }),
+        verifyTypedData: async ({ signature }) => {
+          assert.equal(signature, '0x');
+          throw unavailable;
+        },
+      },
+      config,
+    );
+    await assert.rejects(
+      book.publish({ schedule, signature: '0x' }),
+      (error) => error === unavailable,
+    );
+  } finally {
+    store.close();
+  }
+});
