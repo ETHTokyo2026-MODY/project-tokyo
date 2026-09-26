@@ -93,10 +93,12 @@ it('invalidates pending reads immediately on wallet change and refreshes after e
   });
   finish(response());
   await pending;
-  await vi.waitFor(() => expect(useChainStore()).toMatchObject({
-    wallet: '',
-    ready: true,
-  }));
+  await vi.waitFor(() =>
+    expect(useChainStore()).toMatchObject({
+      wallet: '',
+      ready: true,
+    }),
+  );
   expect(useChainStore().state?.accounts).not.toHaveProperty(account);
   expect(fetcher).toHaveBeenLastCalledWith('/api/day/state', expect.anything());
   await switchNetwork();

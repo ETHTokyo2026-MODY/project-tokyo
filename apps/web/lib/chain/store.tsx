@@ -3,9 +3,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { parseUnits } from 'viem';
 import type { DemoState } from '../demo/types';
 import {
-  bookingMessage,
   normalizeAssetId,
-  type BookingRequest,
   chainState,
   dayDate,
   exactDay,
@@ -53,7 +51,6 @@ let session: WalletSession | undefined;
 let unsubscribeSession: (() => void) | undefined;
 let walletRefresh: Promise<void> = Promise.resolve();
 let generation = 0;
-let pendingBooking: { key: string; request: BookingRequest } | undefined;
 const emit = (patch: Partial<Snapshot>) => {
   snapshot = { ...snapshot, ...patch };
   for (const listener of listeners) listener();
@@ -126,7 +123,6 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
     unsubscribeSession = next.subscribe((account) => {
       if (session !== next) return;
       generation++;
-      pendingBooking = undefined;
       emit({
         wallet: account ?? '',
         hasWalletSession: true,
@@ -171,7 +167,6 @@ export async function disconnectWallet(): Promise<void> {
   unsubscribeSession = undefined;
   session = undefined;
   generation++;
-  pendingBooking = undefined;
   emit({
     wallet: '',
     hasWalletSession: false,
@@ -208,10 +203,14 @@ export async function waitForReceipt(hash: string): Promise<Receipt> {
 const randomSalt = () =>
   `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), (n) => n.toString(16).padStart(2, '0')).join('')}`;
 export function parseWETH(value: unknown): string {
-  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)(\.[0-9]{1,18})?$/.test(value))
+  if (
+    typeof value !== 'string' ||
+    !/^(0|[1-9][0-9]*)(\.[0-9]{1,18})?$/.test(value)
+  )
     throw new Error('Enter exact WETH with up to eighteen decimal places');
   const raw = parseUnits(value, 18);
-  if (raw <= BigInt(0) || raw >= BigInt(1) << BigInt(256)) throw new Error('WETH input must be positive and bounded');
+  if (raw <= BigInt(0) || raw >= BigInt(1) << BigInt(256))
+    throw new Error('WETH input must be positive and bounded');
   return raw.toString();
 }
 export function command(name: string, body: Record<string, unknown>) {
@@ -253,6 +252,23 @@ export function command(name: string, body: Record<string, unknown>) {
               : Array(7).fill(parseUSDC(body.sellingPrice)),
         },
         discounts: [],
+      },
+    };
+  }
+  if (name === 'book' || name === 'unbook') {
+    const item = snapshot.state?.assets.find((item) => item.id === asset);
+    if (!item || item.provider !== snapshot.wallet)
+      throw new Error('Only the host can report a booking');
+    const date = String(body.day ?? body.date);
+    const day = item.days.find((day) => day.date === date);
+    if (!day || day.listedPriceRaw === undefined)
+      throw new Error('Booking day or current price is unavailable');
+    return {
+      action: name,
+      body: {
+        asset,
+        day: exactDay(date),
+        expectedListedPrice: day.listedPriceRaw,
       },
     };
   }
@@ -301,8 +317,17 @@ export function command(name: string, body: Record<string, unknown>) {
         ...base,
         maxTotal: parseUSDC(body.limit),
         nonce: BigInt(salt).toString(),
-        deadline: name === 'buy-weth' ? String(Math.floor(Date.now() / 1000) + 900) : '1099511627775',
-        ...(name === 'buy-weth' ? { maxInput: parseWETH(body.weth), minOutput: parseUSDC(body.minOutput), fundingNonce: BigInt(randomSalt()).toString() } : {}),
+        deadline:
+          name === 'buy-weth'
+            ? String(Math.floor(Date.now() / 1000) + 900)
+            : '1099511627775',
+        ...(name === 'buy-weth'
+          ? {
+              maxInput: parseWETH(body.weth),
+              minOutput: parseUSDC(body.minOutput),
+              fundingNonce: BigInt(randomSalt()).toString(),
+            }
+          : {}),
         salt,
       },
     };
@@ -358,80 +383,60 @@ export async function dispatch(
   const actingWallet = snapshot.wallet;
   try {
     await session.verifySession();
-    const config = await api<{ chainId: number | string; factory: string; conversion?: { converter: string } }>(
-      'config',
-    );
+    const config = await api<{
+      chainId: number | string;
+      factory: string;
+      conversion?: { converter: string };
+    }>('config');
     if (Number(config.chainId) !== 11155111)
       throw new Error('Backend must use Sepolia');
-    let created: string | undefined;
-    if (name === 'book' || name === 'unbook') {
-      const asset = snapshot.state?.assets.find(
-        (a) => a.id === String(body.asset).toLowerCase(),
+    const request = command(name, body);
+    const result = await api<{
+      transactions: PreparedTransaction[];
+      asset?: string;
+      funding?: { typedData: FundingTypedData; [key: string]: unknown };
+    }>('prepare', { actor: snapshot.wallet, ...request });
+    emit({
+      progress: `Confirm ${result.transactions.length} wallet transaction(s), one at a time`,
+    });
+    const created =
+      (await sendConfirmed(result.transactions, session, (hash) =>
+        emit({
+          hashes: [...snapshot.hashes, hash],
+          progress: 'Waiting for confirmation before the next wallet request',
+        }),
+      )) ?? result.asset;
+    if (name === 'buy-weth') {
+      fundingPublished = true;
+      if (!config.conversion || !result.funding)
+        throw new Error(
+          'Conversion configuration or funding request is unavailable',
+        );
+      emit({ progress: 'Sign the exact WETH funding intent in your wallet' });
+      const signature = await session.signFunding(
+        result.funding.typedData,
+        config.conversion.converter,
       );
-      if (!asset || asset.provider !== snapshot.wallet)
-        throw new Error('Only the host can report a mock booking');
-      const date = String(body.day ?? body.date),
-        day = asset.days.find((d) => d.date === date);
-      if (!day) throw new Error('Unknown booking day');
-      if (!day.listedPriceRaw) throw new Error('Booking price is unavailable');
-      const fields = {
-        host: snapshot.wallet,
-        asset: asset.id,
-        day: exactDay(date),
-        booked: name === 'book',
-        expectedListedPrice: day.listedPriceRaw,
-      };
-      const key = JSON.stringify({ config, ...fields });
-      if (pendingBooking?.key !== key)
-        pendingBooking = { key, request: { ...fields, eventId: randomSalt() } };
-      const request = pendingBooking.request;
-      emit({ progress: 'Sign the mock booking report in your wallet' });
-      const signature = await session.signMessage(
-        bookingMessage(config, request),
+      const execution = await api<{ transactions: PreparedTransaction[] }>(
+        'prepare',
+        {
+          actor: snapshot.wallet,
+          action: 'execute-conversion',
+          body: { ...result.funding, signature },
+        },
       );
-      const result = await api<{ hash: string }>('webhook', {
-        ...request,
-        signature,
-      });
       emit({
-        hashes: [result.hash],
-        progress: 'Waiting for mock booking confirmation',
+        progress: 'Confirm atomic WETH conversion and purchase in your wallet',
       });
-      await waitForReceipt(result.hash);
-      pendingBooking = undefined;
-    } else {
-      const request = command(name, body);
-      const result = await api<{
-        transactions: PreparedTransaction[];
-        asset?: string;
-        funding?: { typedData: FundingTypedData; [key: string]: unknown };
-      }>('prepare', { actor: snapshot.wallet, ...request });
-      emit({
-        progress: `Confirm ${result.transactions.length} wallet transaction(s), one at a time`,
+      await sendConfirmed(execution.transactions, session, (hash) => {
+        conversionSubmitted = true;
+        emit({
+          hashes: [...snapshot.hashes, hash],
+          progress: 'Waiting for conversion and purchase confirmation',
+        });
       });
-      created =
-        (await sendConfirmed(result.transactions, session, (hash) =>
-          emit({
-            hashes: [...snapshot.hashes, hash],
-            progress: 'Waiting for confirmation before the next wallet request',
-          }),
-        )) ?? result.asset;
-      if (name === 'buy-weth') {
-        fundingPublished = true;
-        if (!config.conversion || !result.funding) throw new Error('Conversion configuration or funding request is unavailable');
-        emit({ progress: 'Sign the exact WETH funding intent in your wallet' });
-        const signature = await session.signFunding(result.funding.typedData, config.conversion.converter);
-        const execution = await api<{ transactions: PreparedTransaction[] }>('prepare', {
-          actor: snapshot.wallet, action: 'execute-conversion', body: { ...result.funding, signature },
-        });
-        emit({ progress: 'Confirm atomic WETH conversion and purchase in your wallet' });
-        await sendConfirmed(execution.transactions, session, (hash) => {
-          conversionSubmitted = true;
-          emit({ hashes: [...snapshot.hashes, hash], progress: 'Waiting for conversion and purchase confirmation' });
-        });
-      }
-
     }
+
     await refreshChain();
     const message =
       name === 'create-asset'
@@ -455,17 +460,33 @@ export async function dispatch(
       emit({ hashes: [...snapshot.hashes, ...error.hashes] });
     if (name === 'buy-weth') {
       await refreshChain();
-      const asset = snapshot.state?.assets.find((a) => a.id === String(body.asset).toLowerCase());
-      const days = asset?.days.filter((d) => d.date >= String(body.from) && d.date <= String(body.to ?? body.from));
-      if (fundingPublished && !conversionSubmitted && snapshot.ready && snapshot.wallet === actingWallet && days?.length === exactDay(body.to ?? body.from) - exactDay(body.from) + 1 && days.every((d) => d.owner === actingWallet)) {
-        const message = 'The published USDC order filled and these days are now yours. No WETH conversion transaction was submitted.';
+      const asset = snapshot.state?.assets.find(
+        (a) => a.id === String(body.asset).toLowerCase(),
+      );
+      const days = asset?.days.filter(
+        (d) =>
+          d.date >= String(body.from) && d.date <= String(body.to ?? body.from),
+      );
+      if (
+        fundingPublished &&
+        !conversionSubmitted &&
+        snapshot.ready &&
+        snapshot.wallet === actingWallet &&
+        days?.length ===
+          exactDay(body.to ?? body.from) - exactDay(body.from) + 1 &&
+        days.every((d) => d.owner === actingWallet)
+      ) {
+        const message =
+          'The published USDC order filled and these days are now yours. No WETH conversion transaction was submitted.';
         emit({ progress: message, error: '' });
         return { ok: true, version: snapshot.state?.version ?? 0, message };
       }
     }
     const message =
       (error instanceof Error ? error.message : 'Wallet action failed') +
-      (name === 'buy-weth' ? ' WETH conversion was not confirmed. The published USDC order may remain open or have filled; check ownership and cancel it if unwanted.' : '');
+      (name === 'buy-weth'
+        ? ' WETH conversion was not confirmed. The published USDC order may remain open or have filled; check ownership and cancel it if unwanted.'
+        : '');
     emit({ error: message, progress: '' });
     return { ok: false, error: message };
   } finally {
