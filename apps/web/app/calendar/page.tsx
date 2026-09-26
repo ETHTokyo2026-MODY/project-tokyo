@@ -509,6 +509,8 @@ function CalendarInner() {
     : undefined;
   const meta = asset ? list.find((a) => a.id === asset.id) : undefined;
   const unknown = Boolean(assetId && ready && state && !asset);
+  const initialDay =
+    asset?.days.find((day) => day.date === params.get('day'))?.date ?? null;
 
   useEffect(() => {
     if (!asset) document.title = TITLE;
@@ -557,11 +559,13 @@ function CalendarInner() {
 
   return (
     <AssetGrid
+      key={`${asset.id}:${initialDay ?? ''}`}
       asset={asset}
       metaName={meta.providerName}
       account={account}
       acct={state.accounts[account]}
       today={today}
+      initialDay={initialDay}
     />
   );
 }
@@ -572,17 +576,19 @@ function AssetGrid({
   account,
   acct,
   today,
+  initialDay,
 }: {
   asset: Asset;
   metaName: string;
   account: string;
   acct: Account;
   today: string;
+  initialDay: string | null;
 }) {
   const { dispatch, reset, busy: walletBusy } = useDemo();
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const [focus, setFocus] = useState<string | null>(null);
-  const [kbd, setKbd] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<string | null>(initialDay);
+  const [focus, setFocus] = useState<string | null>(initialDay);
+  const [kbd, setKbd] = useState<string | null>(initialDay);
   const [error, setError] = useState('');
   const [localBusy, setBusy] = useState(false);
   const busy = localBusy || walletBusy;
@@ -636,11 +642,13 @@ function AssetGrid({
   }, [asset.title]);
   useEffect(() => {
     if (scrolled.current) return;
-    const el = document.getElementById(`m-${today.slice(0, 7)}`);
+    const el = document.getElementById(
+      `m-${(initialDay ?? today).slice(0, 7)}`,
+    );
     if (!el) return;
     scrolled.current = true;
     el.scrollIntoView({ block: 'start' });
-  }, [today, asset.days]);
+  }, [today, asset.days, initialDay]);
 
   const pick = useCallback(
     (date: string, shift: boolean) => {

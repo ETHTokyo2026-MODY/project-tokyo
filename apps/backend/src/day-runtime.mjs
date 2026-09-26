@@ -23,6 +23,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { EventIndex } from './event-index.mjs';
 import { DayTaker, transactionGasLimit } from './day-taker.mjs';
 import { createDayServer } from './day-server.mjs';
+import { normalize as normalizeName } from 'viem/ens';
 import {
   dayFactoryAbi,
   dayRouterAbi,
@@ -97,6 +98,23 @@ function normalize(config) {
     result[key] = getAddress(config[key]);
     if (result[key] === zeroAddress)
       throw new Error('Runtime deployment address is zero');
+  }
+  if (config.ens != null) {
+    const ens = config.ens;
+    if (
+      typeof ens.parentName !== 'string' ||
+      ens.parentName.length > 253 ||
+      ens.parentName.split('.').length < 2 ||
+      normalizeName(ens.parentName) !== ens.parentName ||
+      ens.parentName
+        .split('.')
+        .some((part) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(part))
+    )
+      throw new Error('Invalid ENS parent name');
+    const resolver = getAddress(ens.resolver);
+    if (resolver === zeroAddress)
+      throw new Error('ENS resolver address is zero');
+    result.ens = { parentName: ens.parentName, resolver };
   }
   if (config.conversion != null) {
     const conversion = {

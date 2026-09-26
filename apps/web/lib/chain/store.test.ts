@@ -4,6 +4,7 @@ import {
   connectWallet,
   dispatch,
   refreshChain,
+  resolveCalendarName,
   sendConfirmed,
 } from './store';
 import { normalizeAssetId } from './model';
@@ -233,6 +234,55 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
   }
 });
 
+it('ENS navigation uses the resolved canonical asset and exact day, independently of the alias', async () => {
+  const asset = '0xAbCdEf1234567890aBcDeF1234567890AbCdEf12';
+  const fetcher = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      name: '2026-09-27.car.example.eth',
+      asset,
+      day: 20723,
+      address: txs[0].to,
+      deployed: false,
+      chainId: 11155111,
+    }),
+  });
+  vi.stubGlobal('fetch', fetcher);
+  try {
+    const result = await resolveCalendarName(' 2026-09-27.Car.Example.eth ');
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/day/resolve?name=2026-09-27.car.example.eth',
+      expect.anything(),
+    );
+    expect(result.href).toBe(
+      `/calendar?asset=${asset.toLowerCase()}&day=2026-09-27`,
+    );
+    expect(result.deployed).toBe(false);
+    fetcher.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: 'car.example.eth',
+        asset,
+        day: null,
+        address: asset,
+        deployed: true,
+        chainId: 11155111,
+      }),
+    });
+    expect((await resolveCalendarName('car.example.eth')).href).toBe(
+      `/calendar?asset=${asset.toLowerCase()}`,
+    );
+    fetcher.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'ENS discovery is not configured' }),
+    });
+    await expect(resolveCalendarName('car.example.eth')).rejects.toThrow(
+      'not configured',
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 it('maps exact WETH and USDC funding bounds without floating point', () => {
   const result = command('buy-weth', {

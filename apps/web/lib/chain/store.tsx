@@ -81,6 +81,27 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     );
   return value;
 }
+/** Navigation keeps the concrete resolved address; later alias edits cannot redirect a prepared action. */
+export async function resolveCalendarName(value: string) {
+  const result = await api<{
+    name: string;
+    asset: string;
+    day: number | null;
+    address: string;
+    deployed: boolean;
+    chainId: number;
+  }>(`resolve?name=${encodeURIComponent(value.trim().toLowerCase())}`);
+  if (
+    result.chainId !== 11155111 ||
+    !/^0x[0-9a-fA-F]{40}$/.test(result.asset) ||
+    (result.day !== null &&
+      (!Number.isSafeInteger(result.day) || result.day < 0))
+  )
+    throw new Error('Invalid ENS calendar result');
+  const query = new URLSearchParams({ asset: normalizeAssetId(result.asset) });
+  if (result.day !== null) query.set('day', dayDate(result.day));
+  return { ...result, href: `/calendar?${query}` };
+}
 export async function refreshChain(): Promise<void> {
   const revision = ++generation;
   try {

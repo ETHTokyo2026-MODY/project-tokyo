@@ -12,7 +12,7 @@ async function forward(
   const route = path.join('/');
   const allowed =
     request.method === 'GET'
-      ? /^(config|state|curve|receipt\/0x[0-9a-fA-F]{64})$/.test(route)
+      ? /^(config|state|curve|resolve|receipt\/0x[0-9a-fA-F]{64})$/.test(route)
       : /^(prepare|webhook)$/.test(route);
   if (!allowed) return Response.json({ error: 'Not found' }, { status: 404 });
   const base = process.env.DAY_BACKEND_URL;

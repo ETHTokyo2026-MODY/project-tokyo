@@ -98,3 +98,13 @@ USDC is present, another taker can fill it before conversion. The converter then
 rejects the spent bid without consuming WETH. Only converter execution atomically
 combines the swap and purchase. Failed conversion leaves earlier approvals and
 an unfilled published bid intact; the normal order cancellation remains available.
+
+## ENS discovery
+
+Optionally add `ens: { parentName, resolver }` to the external deployment JSON.
+The navigation lookup calls `GET /resolve?name=…`, verifies the canonical ENSv2
+Universal Resolver and configured factory, and opens the concrete asset calendar.
+An ISO-date label also selects that Tokyo service day. A predicted token address
+resolves before materialization; lookup does not deploy it. Orders retain the
+resolved asset address even if an alias is later changed. The event index still
+enumerates markets; ENS supplies readable names.

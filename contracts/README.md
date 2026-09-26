@@ -24,4 +24,6 @@ The bootstrap pins Aqua, SwapVM, Solidity utilities, OpenZeppelin and forge-std 
 
 Powered by Aqua and SwapVM, © Degensoft Ltd 2025. `DaySwapVM` reuses upstream execution primitives with a rental-day pricing opcode and settlement shell. It is not ABI-compatible with the stock SwapVM router. See the [SwapVM license](LICENSES/SwapVM-1.1.txt) and retained [Aqua license](src/native/LICENSE-Aqua.txt).
 
-The earlier ERC-1155 implementation remains in Git at `checkpoint/erc1155-aquavapor` (`8a794ef62dd2f6df12efe470938fabcf16761796`). Active contracts use official Aqua and item-day ERC-20s. ENS discovery and token conversion require new implementations against this model.
+The earlier ERC-1155 implementation remains in Git at `checkpoint/erc1155-aquavapor` (`8a794ef62dd2f6df12efe470938fabcf16761796`). Active contracts use official Aqua and item-day ERC-20s. `DayAtomicConverter` funds purchases through a configured WETH/USDC route.
+`DayNameResolver` provides ENSv2 wildcard discovery of assets and deterministic
+day-token addresses; it does not change ERC-20 ownership or deploy tokens.

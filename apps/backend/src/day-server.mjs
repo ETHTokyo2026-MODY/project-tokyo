@@ -4,6 +4,7 @@ import { decodeEventLog, getAddress, verifyMessage } from 'viem';
 import { bookingMessage } from './day-booking-auth.mjs';
 import { readDayAsset } from './day-catalog.mjs';
 import { prepareDayAction } from './day-commands.mjs';
+import { resolveDayName } from './day-names.mjs';
 import {
   dayAssetAbi,
   dayFactoryAbi,
@@ -176,7 +177,21 @@ export function createDayServer({
           usdc: config.usdc,
           bookingReporter: config.bookingReporter ?? null,
           conversion: config.conversion ?? null,
+          ens: config.ens
+            ? {
+                parentName: config.ens.parentName,
+                resolver: config.ens.resolver,
+              }
+            : null,
         });
+      }
+      if (req.method === 'GET' && url.pathname === '/resolve') {
+        if (!config.ens)
+          return reply(503, { error: 'ENS discovery is not configured' });
+        return reply(
+          200,
+          await resolveDayName(client, config, url.searchParams.get('name')),
+        );
       }
       if (req.method === 'GET' && url.pathname === '/curve') {
         const asset = getAddress(url.searchParams.get('asset'));

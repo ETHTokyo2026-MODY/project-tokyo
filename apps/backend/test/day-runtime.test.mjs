@@ -328,3 +328,32 @@ test('HTTP drain tracks a handler after its client disconnects', async () => {
   await done;
   assert.equal(drained, true);
 });
+
+test('runtime keeps optional ENS deployment fields and rejects unusable parent configuration', (t) => {
+  const f = setup(t);
+  const path = join(f.directory, 'ens-config.json');
+  const ens = { parentName: 'rental-proof-73e27831.eth', resolver: address(5) };
+  const env = {
+    DAY_CONFIG: path,
+    DAY_DB: f.options.databasePath,
+    DAY_RPC_URL: 'http://127.0.0.1:8545',
+  };
+  writeFileSync(
+    path,
+    JSON.stringify({
+      ...config,
+      ens: { ...ens, unusedPrivateField: 'excluded' },
+    }),
+  );
+  assert.deepEqual(loadDayRuntimeOptions(env).config.ens, ens);
+  writeFileSync(
+    path,
+    JSON.stringify({ ...config, ens: { ...ens, parentName: 'UPPER.eth' } }),
+  );
+  assert.throws(() => loadDayRuntimeOptions(env), /ENS parent/);
+  writeFileSync(
+    path,
+    JSON.stringify({ ...config, ens: { ...ens, resolver: address(0) } }),
+  );
+  assert.throws(() => loadDayRuntimeOptions(env), /ENS resolver/);
+});

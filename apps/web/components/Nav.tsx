@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ACCOUNT_KEY, linkTo, useAccount } from '@/lib/demo/account';
 import { useDemo } from '@/lib/demo/store';
 import {
   connectWallet,
+  api,
   disconnectWallet,
   refreshChain,
+  resolveCalendarName,
   switchNetwork,
   walletChoices,
 } from '@/lib/chain/store';
@@ -26,6 +28,7 @@ export function Nav() {
   const { state, mode, busy, error, progress, hashes } = demo;
   const hasWalletSession = 'hasWalletSession' in demo && demo.hasWalletSession;
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [providers, setProviders] = useState<ReturnType<typeof walletChoices>>(
     [],
@@ -33,12 +36,29 @@ export function Nav() {
   const [choice, setChoice] = useState('');
   const [waiting, setWaiting] = useState(false);
   const [message, setMessage] = useState('');
+  const [ensParent, setEnsParent] = useState('');
+  const [ensName, setEnsName] = useState('');
+  const [ensResult, setEnsResult] = useState('');
   useEffect(() => {
     if (mode !== 'chain') return;
     const update = () => setProviders(walletChoices());
     update();
     const timer = setInterval(update, 2000);
     return () => clearInterval(timer);
+  }, [mode]);
+  useEffect(() => {
+    if (mode !== 'chain') return;
+    let active = true;
+    void api<{ ens: { parentName: string } | null }>('config')
+      .then((config) => {
+        if (active) setEnsParent(config.ens?.parentName ?? '');
+      })
+      .catch(() => {
+        if (active) setEnsParent('');
+      });
+    return () => {
+      active = false;
+    };
   }, [mode]);
   async function act(fn: () => Promise<void>) {
     setWaiting(true);
@@ -149,6 +169,44 @@ export function Nav() {
       </nav>
       {mode === 'chain' ? (
         <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
+          {ensParent ? (
+            <form
+              className="row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setEnsResult('');
+                void act(async () => {
+                  const result = await resolveCalendarName(ensName);
+                  setEnsResult(
+                    `${result.name} → ${result.address}${result.day !== null && !result.deployed ? ' (day token not yet deployed)' : ''}`,
+                  );
+                  await refreshChain();
+                  router.push(result.href);
+                });
+              }}
+            >
+              <label htmlFor="ens-calendar-name">Asset or day ENS name</label>
+              <input
+                id="ens-calendar-name"
+                value={ensName}
+                placeholder={`car.${ensParent}`}
+                onChange={(event) => setEnsName(event.target.value)}
+                disabled={busy || waiting}
+                required
+              />
+              <button
+                type="submit"
+                disabled={busy || waiting || !ensName.trim()}
+              >
+                Open ENS name
+              </button>
+            </form>
+          ) : null}
+          {ensResult ? (
+            <div className="note" role="status">
+              {ensResult}
+            </div>
+          ) : null}
           <div className="row">
             <span>
               {account
