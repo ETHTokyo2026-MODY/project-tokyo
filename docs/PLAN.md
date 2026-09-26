@@ -60,5 +60,5 @@ On-chain: day ownership, trades, discounts and payouts.
 - Libraries and forked code are listed as reused in the README.
 
 ## Deploy
-- Web app on Vercel: a preview link per PR, and `main` deploys to the live site.
+- Web app on Vercel: a preview link per PR, and GitHub Actions deploys every `main` push to the live site.
 - Contracts on Sepolia, so anyone can try the live site with a browser wallet.
