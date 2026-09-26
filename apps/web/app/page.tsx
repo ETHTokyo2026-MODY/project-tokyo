@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { AddAssetForm } from '@/components/dashboard/AddAssetForm';
 import { Screener } from '@/components/dashboard/Screener';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
@@ -9,11 +10,12 @@ import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import './dash.css';
 import './screener.css';
+import './add.css';
 
 const TITLE = 'Dashboard · Project Tokyo (demo)';
 
 export default function DashboardPage() {
-  const { ready, state, today } = useDemo();
+  const { ready, state, today, dispatch } = useDemo();
   const accountId = useAccount();
 
   useEffect(() => {
@@ -60,9 +62,7 @@ export default function DashboardPage() {
         {acct.name} · {acct.role} · cash {money(acct.cash)} · P/L{' '}
         <span className={pl >= 0 ? 'pos' : 'neg'}>{signed(pl)}</span>
       </div>
-      <div className="h2row" id="mineHead">
-        <h2>My assets</h2>
-      </div>
+      <AddAssetForm account={accountId} today={today} />
       <div className="scroll-x">
         {!provided.length && !holding.length ? (
           <div className="empty">
@@ -111,7 +111,36 @@ export default function DashboardPage() {
                     <td className="n">{p.booked}</td>
                     <td className="n">{a.futureDays - p.owned}</td>
                     <td className="n">{money(p.received)}</td>
-                    <td />
+                    <td className="n">
+                      {a.custom && a.provider === accountId ? (
+                        <button
+                          type="button"
+                          className="del"
+                          disabled={a.othersOwn > 0}
+                          title={
+                            a.othersOwn
+                              ? `Other accounts own ${a.othersOwn} day(s) of this asset`
+                              : 'Delete this asset (nobody else owns its days)'
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (
+                              !confirm(
+                                'Delete this asset and its calendar? This cannot be undone.',
+                              )
+                            )
+                              return;
+                            const out = dispatch('delete-asset', {
+                              account: accountId,
+                              asset: a.id,
+                            });
+                            if (!out.ok) alert(out.error);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
                 );
               })}
