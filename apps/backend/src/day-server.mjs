@@ -25,7 +25,8 @@ export function createDayServer({
   bookingReporter,
   webhookToken,
 }) {
-  return createServer(async (req, res) => {
+  const pending = new Set();
+  const handle = async (req, res) => {
     const reply = (status, body) => {
       res.writeHead(status, {
         'content-type': 'application/json',
@@ -268,5 +269,15 @@ export function createDayServer({
           : 'Unable to read or prepare this chain operation';
       reply(400, { error: safe });
     }
+  };
+  const server = createServer((req, res) => {
+    const work = handle(req, res);
+    pending.add(work);
+    void work.finally(() => pending.delete(work)).catch(() => res.destroy());
   });
+  // A disconnected socket can leave an async chain operation running.
+  server.drain = async () => {
+    while (pending.size) await Promise.allSettled([...pending]);
+  };
+  return server;
 }

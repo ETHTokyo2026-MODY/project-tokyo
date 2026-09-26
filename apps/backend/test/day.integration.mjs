@@ -466,10 +466,11 @@ test(
 // The same unsigned plans consumed by the website execute against real contracts.
 test('HTTP create, list, conditional bid and taker fill use canonical calendars', async (t) => {
   const { createDayServer } = await import('../src/day-server.mjs');
+  const { DayBookingReporter } = await import('../src/day-booking.mjs');
   const chain = await localChain(t);
   const {
     client,
-    wallets: [host, trader, , relayer],
+    wallets: [host, trader, reporter, relayer],
     deploy,
     write,
     receipt,
@@ -489,7 +490,7 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
     aqua: aqua.address,
     factory: factory.address,
     router: router.address,
-    bookingReporter: relayer.account.address,
+    bookingReporter: reporter.account.address,
   };
   const db = new DatabaseSync(':memory:');
   t.after(() => db.close());
@@ -504,7 +505,21 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
       { address: router.address, events: events(dayRouterAbi) },
     ],
   });
-  const server = createDayServer({ client, index, config });
+  const bookingDb = new DatabaseSync(':memory:');
+  t.after(() => bookingDb.close());
+  const bookingReporter = new DayBookingReporter(
+    bookingDb,
+    client,
+    reporter,
+    config,
+  );
+  const server = createDayServer({
+    client,
+    index,
+    config,
+    bookingReporter,
+    webhookToken: 'local-test-adapter',
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -514,7 +529,12 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
       body
         ? {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: {
+              'content-type': 'application/json',
+              ...(path === '/webhook'
+                ? { authorization: 'Bearer local-test-adapter' }
+                : {}),
+            },
             body: JSON.stringify(body),
           }
         : {},
@@ -566,7 +586,7 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
   await execute(host, 'authorize-reporter', { asset });
   assert.equal(
     await read({ address: asset, abi: dayAssetAbi }, 'bookingRelayers', [
-      relayer.account.address,
+      reporter.account.address,
     ]),
     true,
   );
@@ -594,6 +614,32 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
   assert.equal(filled.usdcBalance, '0');
   assert.equal(
     filled.calendars[0].days.find((d) => d.day === day).owner.toLowerCase(),
+    trader.account.address.toLowerCase(),
+  );
+  const booking = {
+    eventId: 'host-booking-1',
+    host: host.account.address,
+    asset,
+    day,
+    booked: true,
+    expectedListedPrice: filled.calendars[0].days.find((d) => d.day === day)
+      .listedPrice,
+  };
+  const unauthorized = await fetch(base + '/webhook', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(booking),
+  });
+  assert.equal(unauthorized.status, 401);
+  const reported = await request('/webhook', booking);
+  await receipt(reported.hash);
+  assert.equal((await request('/webhook', booking)).hash, reported.hash);
+  const booked = (await request('/state')).calendars[0].days.find(
+    (d) => d.day === day,
+  );
+  assert.equal(booked.booked, true);
+  assert.equal(
+    booked.owner.toLowerCase(),
     trader.account.address.toLowerCase(),
   );
 });
