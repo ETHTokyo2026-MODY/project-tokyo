@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useDemo } from './store';
 
@@ -45,12 +45,26 @@ export function linkTo(
   return `${path}?${new URLSearchParams({ ...extra, account }).toString()}`;
 }
 
+function subscribeStoredAccount(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== ACCOUNT_KEY && event.key !== null) return;
+    onStoreChange();
+  };
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}
+
 export function useAccount(): string {
   const params = useSearchParams();
   const { state, ready } = useDemo();
+  const stored = useSyncExternalStore(
+    subscribeStoredAccount,
+    storedAccount,
+    () => null,
+  );
   const account = pickAccount(
     params.get('account'),
-    storedAccount(),
+    stored,
     ready && state ? state.accounts : undefined,
   );
 
