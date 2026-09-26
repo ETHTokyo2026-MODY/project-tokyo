@@ -14,7 +14,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
-import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
+import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { discountsFor } from '@/lib/demo/actions';
@@ -358,7 +358,6 @@ function TradeBody({
     );
   } else if (d.listed) {
     const gain = d.price - d.salePrice!;
-    const short = cash < d.salePrice!;
     rows = (
       <>
         <div>Status</div>
@@ -381,30 +380,21 @@ function TradeBody({
       </>
     );
     controls = (
-      <>
-        <button
-          className="buy"
-          type="button"
-          disabled={short || busy}
-          onClick={() =>
-            onAct(
-              'buy',
-              { date: d.date },
-              `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
-            )
-          }
-        >
-          {short
-            ? `Not enough cash · need ${money(d.salePrice!)}`
-            : `Buy for ${money(d.salePrice!)}`}
-        </button>
-        {short ? (
-          <div className="warn">
-            You have {money(cash)}. List some of your days for sale to raise
-            cash.
-          </div>
-        ) : null}
-      </>
+      <LimitBuy
+        ask={d.salePrice!}
+        resetKey={d.date}
+        cash={cash}
+        busy={busy}
+        onSubmit={(limit) =>
+          onAct(
+            'buy',
+            { date: d.date, limit },
+            limit < d.salePrice!
+              ? `Open buy for ${money(limit)}`
+              : `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
+          )
+        }
+      />
     );
   } else {
     rows = (
@@ -800,15 +790,6 @@ function AssetGrid({
             </>
           )}
           <div className="err">{error}</div>
-        </section>
-        <section>
-          <DiscountsEditor
-            key={`${asset.id}:${account}`}
-            asset={asset}
-            account={account}
-            busy={busy}
-            onAct={onAct}
-          />
         </section>
         <button className="reset" type="button" onClick={onReset}>
           Master reset

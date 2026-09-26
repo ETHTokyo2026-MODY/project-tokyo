@@ -569,6 +569,19 @@
     padding: 10px;
     margin-top: 8px;
   }
+  .limit-buy .row {
+    align-items: center;
+  }
+  .limit-buy .row label {
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .limit-buy .row input {
+    width: 110px;
+    flex: 1 1 90px;
+    min-width: 90px;
+    max-width: 160px;
+  }
   .panel button.markbooked {
     width: 100%;
     margin-top: 8px;
