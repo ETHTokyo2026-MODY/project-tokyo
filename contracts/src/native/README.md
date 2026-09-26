@@ -1,4 +1,4 @@
-# Native ERC-1155 Aqua liquidity
+# AquaVapor: native ERC-1155 Aqua liquidity
 
 Powered by Aqua — © Degensoft Ltd 2025. SwapVM — © Degensoft Ltd 2025.
 
@@ -6,17 +6,17 @@ This experimental protocol extension registers and transfers ERC-1155 assets in 
 
 ## Source and changes
 
-- `AquaAssets.sol` adapts [Aqua.sol at ef24220](https://github.com/1inch/aqua/blob/ef24220ed9647555727b06867bf509cd6959d84b/src/Aqua.sol). Asset identity becomes `(kind, token, id)`. It retains wallet/app/strategy virtual balances, ship/dock/pull/push and the upstream packed balance library. Changes add canonical asset lists, batch transfers, manifest validation and callback protection.
-- `AssetSwapVM.sol` adapts the quote, interpreter and transfer flow of [SwapVM.sol at feb1641](https://github.com/1inch/swap-vm/blob/feb16411738331f7d05ae71d4a664154068018fc/contracts/SwapVM.sol). It reuses the actual interpreter and StaticBalances, LimitSwapFullAmount, Deadline, Salt and InvalidateBit instructions. Its execution shell matches two shipped strategies and transfers both asset types through AquaAssets. It is not the full upstream router: ERC-20-only traits, native ETH, Permit2, hooks, AMM curves and protocol-fee instructions are omitted.
+- `AquaVapor.sol` adapts [Aqua.sol at ef24220](https://github.com/1inch/aqua/blob/ef24220ed9647555727b06867bf509cd6959d84b/src/Aqua.sol). Asset identity becomes `(kind, token, id)`. It retains wallet/app/strategy virtual balances, ship/dock/pull/push and the upstream packed balance library. Changes add canonical asset lists, batch transfers, manifest validation and callback protection.
+- `AssetSwapVM.sol` adapts the quote, interpreter and transfer flow of [SwapVM.sol at feb1641](https://github.com/1inch/swap-vm/blob/feb16411738331f7d05ae71d4a664154068018fc/contracts/SwapVM.sol). It reuses the actual interpreter and StaticBalances, LimitSwapFullAmount, Deadline, Salt and InvalidateBit instructions. Its execution shell matches two shipped strategies and transfers both asset types through AquaVapor. It is not the full upstream router: ERC-20-only traits, native ETH, Permit2, hooks, AMM curves and protocol-fee instructions are omitted.
 - No ERC-1155-specific opcode is needed for this fixed-price basket proof. Basket identity belongs to the authenticated strategy and transfer/accounting layer. The existing VM executes pricing and optional invalidation. Additional instructions should be introduced only for behavior the retained instructions cannot express.
 
 Modified 2026-09-26. Original notices are preserved; applicable license texts are [Aqua](LICENSE-Aqua.txt) and [SwapVM](LICENSE-SwapVM.txt). Dependency revisions and compiler settings remain pinned by the existing bootstrap and Foundry configuration.
 
 ## Authorization and execution
 
-A seller ships virtual quantities for each inventory ID. A buyer independently ships USDC for its chosen basket. Shipping is an onchain authorization transaction and moves no tokens. Both wallets approve AquaAssets for their corresponding token standard. Programs and basket contents are included in the shipped strategy hash.
+A seller ships virtual quantities for each inventory ID. A buyer independently ships USDC for its chosen basket. Shipping is an onchain authorization transaction and moves no tokens. Both wallets approve AquaVapor for their corresponding token standard. Programs and basket contents are included in the shipped strategy hash.
 
-Any matcher may submit a pair. The router evaluates each program independently, checks that the basket and quantity agree and that the seller's price is within the buyer's cap, then calls AquaAssets for both transfers. The buyer always receives the rights and the seller always receives USDC. No caller-supplied destination can redirect them. A later seller program can match an earlier buyer cap without replacing the buyer strategy.
+Any matcher may submit a pair. The router evaluates each program independently, checks that the basket and quantity agree and that the seller's price is within the buyer's cap, then calls AquaVapor for both transfers. The buyer always receives the rights and the seller always receives USDC. No caller-supplied destination can redirect them. A later seller program can match an earlier buyer cap without replacing the buyer strategy.
 
 Virtual quantities remain independent across strategies. Filling one does not rewrite other strategies' balances. Missing real inventory or insufficient wallet funds causes a later conflicting fill to revert. Registration is conditional purchasing power, not reserved collateral. The router's quote checks balances; a full swap simulation is still needed to check approvals and receiver acceptance.
 
@@ -26,10 +26,10 @@ Upstream InvalidateBit can make a strategy single-use, or implement OCO when alt
 
 | Existing responsibility                                  | Native path                                                                                                                      |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| ERC-1155 transfer in RentalSettlement                    | AquaAssets.pull performs the actual transfer and debits per-ID authorization                                                     |
+| ERC-1155 transfer in RentalSettlement                    | AquaVapor.pull performs the actual transfer and debits per-ID authorization                                                      |
 | Exact shared program between buyer and seller            | Independent programs; compatible basket and price bounds suffice                                                                 |
 | Custom per-order used bitmap / OCO mapping               | Upstream InvalidateBit can provide this policy                                                                                   |
-| Custom strategy spend counter                            | AquaAssets tracks remaining spending permission per strategy                                                                     |
+| Custom strategy spend counter                            | AquaVapor tracks remaining spending permission per strategy                                                                      |
 | EIP-712 order authorization                              | Shipped authorization suffices here, at the cost of an onchain registration; this does not prove offchain-only order publication |
 | Daily issuance, capacity and redemption                  | Existing RentalInventory works unchanged                                                                                         |
 | Aggregate budget across several distinct strategies      | Not automatically provided by per-strategy balances; still requires an explicit policy if requested                              |
@@ -66,7 +66,7 @@ Observed local receipt gas with Solidity 0.8.30, optimizer 200, via IR and Cancu
 | 90        |      ~154k |      ~2.55m |      ~4.26m |
 | 254       |      ~283k |      ~7.12m |     ~11.95m |
 
-Addresses and calldata change exact gas. These are measured workloads, not guarantees for arbitrary token contracts or target-chain limits. The separate seven-day scenario consumed about 447k swap gas and 518k reservation gas. The runtime sizes are approximately 4.1k bytes for AquaAssets and 6.5k bytes for AssetSwapVM, below EIP-170's 24,576-byte limit.
+Addresses and calldata change exact gas. These are measured workloads, not guarantees for arbitrary token contracts or target-chain limits. The separate seven-day scenario consumed about 447k swap gas and 518k reservation gas. The runtime sizes are approximately 4.1k bytes for AquaVapor and 6.5k bytes for AssetSwapVM, below EIP-170's 24,576-byte limit.
 
 The native path has no 31-day trading cap. Aqua's inherited packed status/count format supports at most 254 distinct registered assets per strategy; this is a representation bound, not a demonstrated gas maximum. RentalInventory still caps each issuance/reservation call at 31 days. The smoke script chunks issuance for longer baskets but transfers each complete basket in one transaction; it does not claim longer reservation support.
 

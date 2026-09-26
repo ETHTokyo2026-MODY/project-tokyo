@@ -99,7 +99,7 @@ try {
     client.readContract({ ...c, functionName, args });
   const usd = await deploy('ProofUSDC', [], 'NativeAqua.t');
   const inventory = await deploy('RentalInventory');
-  const aqua = await deploy('AquaAssets');
+  const aqua = await deploy('AquaVapor');
   const router = await deploy('AssetSwapVM', [aqua.address, usd.address]);
   for (const w of [buyer, other]) {
     await write(host, usd, 'mint', [w.account.address, 10000n * USD]);

@@ -11,7 +11,7 @@ import {Balance, BalanceLib} from "aqua/libs/Balance.sol";
 /// @notice Fork of Aqua.sol at ef24220ed9647555727b06867bf509cd6959d84b.
 /// @dev Aqua — © Degensoft Ltd 2025. Modified 2026-09-26: typed asset keys,
 /// batches, complete-list docking and callback protection. This is a separate deployment.
-contract AquaAssets is ReentrancyGuard {
+contract AquaVapor is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
     using BalanceLib for Balance;

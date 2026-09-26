@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
-import {AquaAssets} from "../../src/native/AquaAssets.sol";
+import {AquaVapor} from "../../src/native/AquaVapor.sol";
 import {AssetSwapVM} from "../../src/native/AssetSwapVM.sol";
 import {StaticBalances} from "swap-vm/instructions/Balances.sol";
 import {LimitSwapFullAmount} from "swap-vm/instructions/LimitSwap.sol";
@@ -33,7 +33,7 @@ contract ProofInventory is ERC1155 {
 }
 
 abstract contract NativeAquaFixture is Test {
-    AquaAssets aqua;
+    AquaVapor aqua;
     AssetSwapVM router;
     ProofUSDC usdc;
     ProofInventory rights;
@@ -43,7 +43,7 @@ abstract contract NativeAquaFixture is Test {
     uint256 salt;
 
     function setUp() public {
-        aqua = new AquaAssets();
+        aqua = new AquaVapor();
         usdc = new ProofUSDC();
         rights = new ProofInventory();
         router = new AssetSwapVM(aqua, address(usdc));
@@ -83,15 +83,15 @@ abstract contract NativeAquaFixture is Test {
         s = AssetSwapVM.Strategy(maker, address(rights), ids, 1, buy, bytes32(++salt), program(price, 1, group));
     }
 
-    function money(uint256 amount) internal view returns (AquaAssets.Asset[] memory a, uint256[] memory v) {
-        a = new AquaAssets.Asset[](1);
+    function money(uint256 amount) internal view returns (AquaVapor.Asset[] memory a, uint256[] memory v) {
+        a = new AquaVapor.Asset[](1);
         v = new uint256[](1);
-        a[0] = AquaAssets.Asset(AquaAssets.Kind.ERC20, address(usdc), 0);
+        a[0] = AquaVapor.Asset(AquaVapor.Kind.ERC20, address(usdc), 0);
         v[0] = amount;
     }
 
     function ship(AssetSwapVM.Strategy memory s, uint256 budget) internal {
-        AquaAssets.Asset[] memory a;
+        AquaVapor.Asset[] memory a;
         uint256[] memory v;
         if (s.buy) (a, v) = money(budget);
         else (a, v) = router.basket(s);
@@ -114,9 +114,9 @@ abstract contract NativeAquaFixture is Test {
         view
         returns (uint256 amount)
     {
-        AquaAssets.Asset memory asset = payment
-            ? AquaAssets.Asset(AquaAssets.Kind.ERC20, address(usdc), 0)
-            : AquaAssets.Asset(AquaAssets.Kind.ERC1155, address(rights), id);
+        AquaVapor.Asset memory asset = payment
+            ? AquaVapor.Asset(AquaVapor.Kind.ERC20, address(usdc), 0)
+            : AquaVapor.Asset(AquaVapor.Kind.ERC1155, address(rights), id);
         (amount,) = aqua.rawBalances(s.maker, address(router), keccak256(abi.encode(s)), asset);
     }
 }
@@ -214,7 +214,7 @@ contract NativeAquaTest is NativeAquaFixture {
         router.invalidateBit(9);
         vm.expectRevert();
         router.swap(bid, ask);
-        (AquaAssets.Asset[] memory a,) = router.basket(ask);
+        (AquaVapor.Asset[] memory a,) = router.basket(ask);
         vm.prank(seller);
         aqua.dock(address(router), keccak256(abi.encode(ask)), a);
         assertEq(remaining(ask, false, 1), 0);
@@ -265,7 +265,7 @@ contract NativeAquaTest is NativeAquaFixture {
     function testDuplicateIDsAndMalformedProgramRejected() public {
         AssetSwapVM.Strategy memory ask = strategy(seller, false, 1, 2, 100e6, 1);
         ask.ids[1] = ask.ids[0];
-        (AquaAssets.Asset[] memory a, uint256[] memory v) = router.basket(ask);
+        (AquaVapor.Asset[] memory a, uint256[] memory v) = router.basket(ask);
         vm.prank(seller);
         vm.expectRevert();
         aqua.ship(address(router), abi.encode(ask), a, v);
@@ -278,7 +278,7 @@ contract NativeAquaTest is NativeAquaFixture {
 
     function testWrongAppCannotPullRegisteredInventory() public {
         (, AssetSwapVM.Strategy memory ask) = pair(1, 1, 100e6, 1);
-        (AquaAssets.Asset[] memory a, uint256[] memory v) = router.basket(ask);
+        (AquaVapor.Asset[] memory a, uint256[] memory v) = router.basket(ask);
         vm.prank(other);
         vm.expectRevert();
         aqua.pull(seller, keccak256(abi.encode(ask)), a, v, other);
@@ -319,7 +319,7 @@ contract NativeAquaTest is NativeAquaFixture {
         rights.mint(other, 1, 1);
         vm.prank(other);
         rights.setApprovalForAll(address(aqua), true);
-        (AquaAssets.Asset[] memory a, uint256[] memory v) = router.basket(ask);
+        (AquaVapor.Asset[] memory a, uint256[] memory v) = router.basket(ask);
         vm.prank(other);
         aqua.push(seller, address(router), keccak256(abi.encode(ask)), a, v);
         assertEq(remaining(ask, false, 1), 2);
@@ -367,8 +367,8 @@ contract NativeAquaTest is NativeAquaFixture {
 
     function testIncompleteDockAndPushAfterDockRejected() public {
         (, AssetSwapVM.Strategy memory ask) = pair(1, 7, 100e6, 1);
-        (AquaAssets.Asset[] memory full, uint256[] memory v) = router.basket(ask);
-        AquaAssets.Asset[] memory subset = new AquaAssets.Asset[](1);
+        (AquaVapor.Asset[] memory full, uint256[] memory v) = router.basket(ask);
+        AquaVapor.Asset[] memory subset = new AquaVapor.Asset[](1);
         subset[0] = full[0];
         bytes32 h = keccak256(abi.encode(ask));
         vm.prank(seller);
@@ -382,8 +382,8 @@ contract NativeAquaTest is NativeAquaFixture {
     }
 
     function testAssetTypeSeparatesTokenIDZeroAndERC20() public view {
-        bytes32 fungible = aqua.assetKey(AquaAssets.Asset(AquaAssets.Kind.ERC20, address(rights), 0));
-        bytes32 semiFungible = aqua.assetKey(AquaAssets.Asset(AquaAssets.Kind.ERC1155, address(rights), 0));
+        bytes32 fungible = aqua.assetKey(AquaVapor.Asset(AquaVapor.Kind.ERC20, address(rights), 0));
+        bytes32 semiFungible = aqua.assetKey(AquaVapor.Asset(AquaVapor.Kind.ERC1155, address(rights), 0));
         assertTrue(fungible != semiFungible);
     }
 
@@ -447,13 +447,13 @@ contract NativeAquaTest is NativeAquaFixture {
         assertLt(gasUsed, 15_000_000);
         assertLt(address(router).code.length, 24_576);
         assertLt(address(aqua).code.length, 24_576);
-        emit log_named_uint("AquaAssets runtime bytes", address(aqua).code.length);
+        emit log_named_uint("AquaVapor runtime bytes", address(aqua).code.length);
         emit log_named_uint("AssetSwapVM runtime bytes", address(router).code.length);
     }
 }
 
 contract CallbackBuyer is ERC1155Holder {
-    AquaAssets immutable aqua;
+    AquaVapor immutable aqua;
     AssetSwapVM immutable router;
     bool public reject;
     bool public routerBlocked;
@@ -461,7 +461,7 @@ contract CallbackBuyer is ERC1155Holder {
     bytes private nested;
     bytes private nestedAqua;
 
-    constructor(AquaAssets a, AssetSwapVM r) {
+    constructor(AquaVapor a, AssetSwapVM r) {
         aqua = a;
         router = r;
     }
@@ -470,9 +470,9 @@ contract CallbackBuyer is ERC1155Holder {
         external
     {
         token.approve(address(aqua), type(uint256).max);
-        AquaAssets.Asset[] memory a = new AquaAssets.Asset[](1);
+        AquaVapor.Asset[] memory a = new AquaVapor.Asset[](1);
         uint256[] memory v = new uint256[](1);
-        a[0] = AquaAssets.Asset(AquaAssets.Kind.ERC20, address(token), 0);
+        a[0] = AquaVapor.Asset(AquaVapor.Kind.ERC20, address(token), 0);
         v[0] = 300e6;
         aqua.ship(address(router), abi.encode(bid), a, v);
         nested = abi.encodeCall(router.swap, (bid, ask));

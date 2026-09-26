@@ -11,12 +11,12 @@ import {StaticBalances} from "swap-vm/instructions/Balances.sol";
 import {LimitSwapFullAmount} from "swap-vm/instructions/LimitSwap.sol";
 import {InvalidateBit, InvalidateBitExternal} from "swap-vm/instructions/Invalidators.sol";
 import {Deadline, Salt} from "swap-vm/instructions/Controls.sol";
-import {AquaAssets} from "./AquaAssets.sol";
+import {AquaVapor} from "./AquaVapor.sol";
 
 /// @title Native Aqua basket execution through SwapVM
 /// @notice Adapted quote/runLoop/transfer shell from SwapVM.sol at feb16411738331f7d05ae71d4a664154068018fc.
 /// @dev SwapVM — © Degensoft Ltd 2025. Modified 2026-09-26: two independently
-/// authorized strategies, ERC-1155 baskets and AquaAssets transfers replace ERC-20-only traits.
+/// authorized strategies, ERC-1155 baskets and AquaVapor transfers replace ERC-20-only traits.
 /// The upstream interpreter and supported instruction implementations are reused unchanged.
 contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
     struct Strategy {
@@ -29,7 +29,7 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
         bytes program;
     }
 
-    AquaAssets public immutable AQUA;
+    AquaVapor public immutable AQUA;
     address public immutable USDC;
 
     error InvalidStrategy();
@@ -39,13 +39,13 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
 
     event Swapped(bytes32 indexed bidHash, bytes32 indexed askHash, uint256 payment, uint256 quantity);
 
-    constructor(AquaAssets aqua, address usdc) {
+    constructor(AquaVapor aqua, address usdc) {
         require(address(aqua) != address(0) && usdc != address(0), InvalidStrategy());
         AQUA = aqua;
         USDC = usdc;
     }
 
-    /// @notice Hash exactly the bytes registered by the maker using AquaAssets.ship.
+    /// @notice Hash exactly the bytes registered by the maker using AquaVapor.ship.
     function hash(Strategy calldata strategy) public pure returns (bytes32) {
         return keccak256(abi.encode(strategy));
     }
@@ -60,9 +60,9 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
     /// @dev Maker identity and destinations cannot be supplied separately from the registered strategy.
     function swap(Strategy calldata bid, Strategy calldata ask) external nonReentrant returns (uint256 payment) {
         payment = _evaluate(bid, ask, false);
-        (AquaAssets.Asset[] memory money, uint256[] memory amounts) = _money(payment);
+        (AquaVapor.Asset[] memory money, uint256[] memory amounts) = _money(payment);
         AQUA.pull(bid.maker, hash(bid), money, amounts, ask.maker);
-        (AquaAssets.Asset[] memory rights, uint256[] memory quantities) = basket(ask);
+        (AquaVapor.Asset[] memory rights, uint256[] memory quantities) = basket(ask);
         AQUA.pull(ask.maker, hash(ask), rights, quantities, bid.maker);
         emit Swapped(hash(bid), hash(ask), payment, ask.quantity);
     }
@@ -71,12 +71,12 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
     function basket(Strategy calldata s)
         public
         pure
-        returns (AquaAssets.Asset[] memory assets, uint256[] memory quantities)
+        returns (AquaVapor.Asset[] memory assets, uint256[] memory quantities)
     {
-        assets = new AquaAssets.Asset[](s.ids.length);
+        assets = new AquaVapor.Asset[](s.ids.length);
         quantities = new uint256[](s.ids.length);
         for (uint256 i; i < s.ids.length; ++i) {
-            assets[i] = AquaAssets.Asset(AquaAssets.Kind.ERC1155, s.inventory, s.ids[i]);
+            assets[i] = AquaVapor.Asset(AquaVapor.Kind.ERC1155, s.inventory, s.ids[i]);
             quantities[i] = s.quantity;
         }
     }
@@ -95,10 +95,10 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
         price = _run(ask, readOnly);
         require(price <= cap, IncompatibleStrategies());
         // Virtual balances are permissions, not reserved assets. Both are checked separately.
-        (AquaAssets.Asset[] memory money,) = _money(price);
+        (AquaVapor.Asset[] memory money,) = _money(price);
         _available(bid.maker, bidHash, money[0], price);
         require(IERC20(USDC).balanceOf(bid.maker) >= price, UnavailableAsset());
-        (AquaAssets.Asset[] memory rights,) = basket(ask);
+        (AquaVapor.Asset[] memory rights,) = basket(ask);
         for (uint256 i; i < rights.length; ++i) {
             _available(ask.maker, askHash, rights[i], ask.quantity);
             require(IERC1155(ask.inventory).balanceOf(ask.maker, ask.ids[i]) >= ask.quantity, UnavailableAsset());
@@ -116,7 +116,7 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
         }
     }
 
-    function _available(address maker, bytes32 strategyHash, AquaAssets.Asset memory asset, uint256 needed)
+    function _available(address maker, bytes32 strategyHash, AquaVapor.Asset memory asset, uint256 needed)
         private
         view
     {
@@ -151,10 +151,10 @@ contract AssetSwapVM is ReentrancyGuard, InvalidateBitExternal {
         else revert UnsupportedInstruction(opcode);
     }
 
-    function _money(uint256 amount) private view returns (AquaAssets.Asset[] memory assets, uint256[] memory amounts) {
-        assets = new AquaAssets.Asset[](1);
+    function _money(uint256 amount) private view returns (AquaVapor.Asset[] memory assets, uint256[] memory amounts) {
+        assets = new AquaVapor.Asset[](1);
         amounts = new uint256[](1);
-        assets[0] = AquaAssets.Asset(AquaAssets.Kind.ERC20, USDC, 0);
+        assets[0] = AquaVapor.Asset(AquaVapor.Kind.ERC20, USDC, 0);
         amounts[0] = amount;
     }
 }
