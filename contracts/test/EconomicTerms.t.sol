@@ -99,6 +99,10 @@ contract EconomicTermsTest is Fixture {
         (price, fee) = router.quote(p, 3, 1);
         assertEq(price, 18);
         assertEq(fee, 1);
+        (RentalSettlement.Order memory b, RentalSettlement.Order memory s) = _orders(day, day + 3, 1, p);
+        _fill(b, s, p);
+        assertEq(usd.balanceOf(seller), price);
+        assertEq(usd.balanceOf(fees), fee);
         vm.warp(start + 100);
         (price, fee) = router.quote(p, 3, 1);
         assertEq(price, 14);
