@@ -1,5 +1,5 @@
 # Node / Next.js
-node_modules/
+node_modules
 .next/
 out/
 coverage/
@@ -24,7 +24,7 @@ Thumbs.db
 .vscode/
 
 # Contract dependency checkouts and proof logs
-contracts/lib/
+contracts/lib
 *.log
 
 # Generated contract proof output
@@ -40,3 +40,7 @@ deployment-secrets/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Next.js generated local agent guidance
+/apps/web/AGENTS.md
+/apps/web/CLAUDE.md
