@@ -1,5 +1,6 @@
 import {
   encodeAbiParameters,
+  encodeFunctionData,
   getAddress,
   isHex,
   keccak256,
@@ -83,6 +84,7 @@ export class RevenueClient {
       !publicClient?.readContract ||
       !publicClient?.waitForTransactionReceipt ||
       !publicClient?.getBlock ||
+      !publicClient?.getTransaction ||
       !walletClient?.writeContract ||
       !walletClient?.getChainId ||
       !walletClient?.account
@@ -156,6 +158,21 @@ export class RevenueClient {
     });
     if (block.hash.toLowerCase() !== receipt.blockHash.toLowerCase())
       throw new Error('Revenue block is no longer canonical');
+    const mined = await this.publicClient.getTransaction({
+      hash: transactionHash,
+    });
+    const expectedData = encodeFunctionData({ abi, functionName, args });
+    if (
+      mined?.hash?.toLowerCase() !== transactionHash.toLowerCase() ||
+      mined?.blockHash?.toLowerCase() !== receipt.blockHash.toLowerCase() ||
+      mined?.blockNumber !== receipt.blockNumber ||
+      mined?.to?.toLowerCase() !== contract.toLowerCase() ||
+      mined?.from?.toLowerCase() !==
+        this.walletClient.account.address.toLowerCase() ||
+      Number(mined?.chainId) !== this.chainId ||
+      mined?.input?.toLowerCase() !== expectedData.toLowerCase()
+    )
+      throw new Error('Revenue transaction call mismatched');
     if (!eventName) return { transactionHash, blockHash: receipt.blockHash };
     const events = parseEventLogs({
       abi,

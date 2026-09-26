@@ -172,6 +172,21 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         emit RevenuePaid(claimId, msg.sender, amount);
     }
 
+    function _update(address from, address to, uint256[] memory ids, uint256[] memory values) internal override {
+        if (from != address(0) && to != address(0) && from != to) {
+            for (uint256 i; i < ids.length; ++i) {
+                if (values[i] == 0) continue;
+                Claim storage c = _claim(ids[i]);
+                if (c.state == State.Booked) require(msg.sender == from, InvalidClaim());
+                if (c.state == State.Open && c.price != 0) {
+                    c.price = 0;
+                    emit PriceSet(ids[i], 0);
+                }
+            }
+        }
+        super._update(from, to, ids, values);
+    }
+
     function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata)
         external
         view

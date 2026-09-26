@@ -123,9 +123,68 @@ contract RevenueTest is Fixture {
         revenue.setPrice(claimId, 1);
         vm.prank(seller);
         revenue.safeTransferFrom(seller, other, claimId, 1, "");
+        (,,, uint256 fundedPrice,,) = revenue.claims(claimId);
+        assertEq(fundedPrice, PRICE);
         vm.warp((uint256(day) + 1) * 1 days);
         vm.prank(other);
         assertEq(revenue.claimRevenue(claimId), PRICE);
+    }
+
+    function testOpenTransferClearsOldPriceAndCheapMandateCannotBookNewOwner() public {
+        RentalRevenue.BookingMandate memory cheap = _mandate(claimId, buyer, PRICE, keccak256("old-price"));
+        _ship(cheap, PRICE);
+        vm.prank(other);
+        revenue.safeTransferFrom(other, buyer, claimId, 0, "");
+        (,,, uint256 unchangedPrice,,) = revenue.claims(claimId);
+        assertEq(unchangedPrice, PRICE);
+        vm.prank(seller);
+        revenue.safeTransferFrom(seller, seller, claimId, 1, "");
+        (,,, unchangedPrice,,) = revenue.claims(claimId);
+        assertEq(unchangedPrice, PRICE);
+
+        vm.prank(seller);
+        revenue.safeTransferFrom(seller, other, claimId, 1, "");
+        (,,, uint256 clearedPrice,,) = revenue.claims(claimId);
+        assertEq(clearedPrice, 0);
+        vm.expectRevert(RentalRevenue.InvalidClaim.selector);
+        revenue.book(claimId, cheap);
+        vm.prank(other);
+        revenue.setPrice(claimId, 2 * PRICE);
+        vm.expectRevert(RentalRevenue.InvalidMandate.selector);
+        revenue.book(claimId, cheap);
+        assertEq(inventory.consumed(POOL, day), 0);
+    }
+
+    function testBookingBeforeSignedOpenClaimSaleRollsBackRouterPayment() public {
+        RentalSwapVM claimRouter = new RentalSwapVM(aqua, revenue, address(usd), fees);
+        vm.prank(seller);
+        revenue.setApprovalForAll(address(claimRouter), true);
+        bytes memory saleProgram = fixedProgram(50e6);
+        RentalSettlement.Mandate memory saleMandate = RentalSettlement.Mandate(
+            buyer, address(claimRouter), address(usd), 51e6, block.timestamp + 1 days, keccak256("pending-sale")
+        );
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(usd);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 51e6;
+        vm.prank(buyer);
+        aqua.ship(address(claimRouter), abi.encode(saleMandate), tokens, amounts);
+        (RentalSettlement.Order memory bid, RentalSettlement.Order memory ask) = _orders(day, day + 1, 78, saleProgram);
+        bid.mandate = keccak256(abi.encode(saleMandate));
+        (uint8 bidV, bytes32 bidR, bytes32 bidS) = vm.sign(BUY_KEY, claimRouter.hashOrder(bid));
+        (uint8 askV, bytes32 askR, bytes32 askS) = vm.sign(SELL_KEY, claimRouter.hashOrder(ask));
+
+        RentalRevenue.BookingMandate memory booking = _mandate(claimId, other, PRICE, keccak256("race"));
+        _ship(booking, PRICE);
+        revenue.book(claimId, booking);
+        uint256 buyerBefore = usd.balanceOf(buyer);
+        vm.expectRevert(RentalRevenue.InvalidClaim.selector);
+        claimRouter.settle(
+            bid, abi.encodePacked(bidR, bidS, bidV), ask, abi.encodePacked(askR, askS, askV), saleMandate, saleProgram
+        );
+        assertEq(usd.balanceOf(buyer), buyerBefore);
+        assertEq(revenue.balanceOf(seller, claimId), 1);
+        assertFalse(claimRouter.used(buyer, 78));
     }
 
     function testFundingFailureRollsBackAndCannotBookTwice() public {
