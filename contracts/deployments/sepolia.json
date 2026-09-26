@@ -1,34 +1,29 @@
 {
   "chainId": 11155111,
   "aqua": "0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a",
-  "aquaRuntimeHash": "0x720bc02d220db318164dc3bade86eec1f3655bdc00fc1174de7d816a95c341f8",
   "usdc": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-  "inventory": "0x3ec8e7d506fd74a25a445e234b1eafcf67cbb5eb",
-  "router": "0xf70a2289eabc7960e49b47f5f3c40664d1f19c4d",
-  "routerRuntimeBytes": 9210,
-  "proofTransactions": {
-    "purchase": "0xe0723e23a3d6bcf27cb5e3a20befc3b4300aa077c1242f3b440f0ba64fb2c7ed",
-    "resale": "0x43557781baf095e4ca5060969d8ec8855a3ccb44dc863ba0b3c7adb396c0c3ba",
-    "thirtyOneDays": "0xa94d90b026acc3df6a0b9775dba6cf419220271c07b4f6813a6b323dc4d4c15e"
+  "factory": "0x45a2982217399379155078b0e42dE055A7f11993",
+  "router": "0x861dF11Ef031F96a58a52baF88E1De957DDE87EA",
+  "dayTokenImplementation": "0x80532e9D46505399dD6E95B1b0eb30B9f6f2FB90",
+  "startBlock": 11788439,
+  "confirmations": 2,
+  "sourceRevision": "2106c3c24e33d4e26f7be1dded1e461e1e0050a3",
+  "runtimeHashes": {
+    "aqua": "0x720bc02d220db318164dc3bade86eec1f3655bdc00fc1174de7d816a95c341f8",
+    "factory": "0x17ffafdec954f157c782a9003980c19ba335643037dc82ba5b38dc90f654ce81",
+    "router": "0x1f8e93e05893cdd8f623bfa28fa8279eb39322def05b04fcfdec6d4b89ec4a5c",
+    "dayTokenImplementation": "0x63a26618822180b2295f6d57b87ac780e1b87443881dd05d3eb717de18ee6564"
   },
-  "ensV2Discovery": {
-    "universalResolver": "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
-    "rootRegistry": "0x9703dbd26dab89504490994138cf2c575251a9ce",
-    "registrar": "0xabe76f6c8dfced81aa5a2bb8034202a7136b94ca",
-    "parent": "rental-proof-73e27831.eth",
-    "resolver": "0x58b09e0a39dc962d6b3d3caef8e5018714f7e5e2",
-    "name": "demo-room.rental-proof-73e27831.eth",
-    "initialPool": "0xb23e2cde557bde62259a770474154f21d3d6dc216fbee9cb0a8f20e76cbe945f",
-    "remappedPool": "0xbfbee1279116d4e881a5d75e03d5d6a050e1857979ec81067f80484095db31ce",
-    "initialResolutionBlock": 11786662,
-    "remappedResolutionBlock": 11786665,
-    "proofTransactions": {
-      "deployResolver": "0x4c46e016b2549397789de0eef6beb754a30d906e922259f3c98027b1cee40ec8",
-      "mapInitialPool": "0x57aae3a4f9eac14606521c6fdd7e48cd838736e60fade5dc74fe0231923ce897",
-      "registerParent": "0x2aa114ca54d307543d5b838265b1a3f605f817aa17ba451c14d91313446f280e",
-      "remapPool": "0x44d9fc9f5a66dfeff841630143ddab77d308ee5befc5333365cd28a4d25c37b5",
-      "shipMandate": "0x2e66740c321b9698a939a87742d0662d4f64b9a55edb62b8600c5b46b3bf989f",
-      "settleOriginalPool": "0x5d488c32d00f64830d78e3c06f0a940f220171a930f27ad1e2407289c320ec18"
+  "deploymentTransactions": {
+    "factory": {
+      "hash": "0x10afc1861e1a3fb8b07a375d2052dfb8db01b7c27052e817b200681db9623e3c",
+      "blockNumber": 11788439,
+      "blockHash": "0xabf990850c13866d81cc9ee5a89b6fcb032f3062526d0c7b8037f1767714d64c"
+    },
+    "router": {
+      "hash": "0x08e949554c45e0a13284bd0115f57194c332c11b99ae1c1397a87a9de59461ce",
+      "blockNumber": 11788442,
+      "blockHash": "0x5e85c9a101397926772b7aaa1b49b4e82f8c3a39145b2b42568c36ca70c4314f"
     }
   }
 }
