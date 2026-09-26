@@ -87,14 +87,15 @@ export default function DashboardPage() {
             <tbody>
               {provided.map((a) => {
                 const p = pos(a.id);
-                const href = linkTo('/calendar', { asset: a.id }, accountId);
+                const href = linkTo('/asset', { asset: a.id }, accountId);
+                const cal = linkTo('/calendar', { asset: a.id }, accountId);
                 return (
                   <tr
                     key={a.id}
                     className="link"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('a,button')) return;
-                      location.href = href;
+                      location.href = cal;
                     }}
                   >
                     <td>
@@ -166,14 +167,15 @@ export default function DashboardPage() {
               {holding.map((a) => {
                 const p = pos(a.id);
                 const rpl = p.received - p.paid;
-                const href = linkTo('/calendar', { asset: a.id }, accountId);
+                const href = linkTo('/asset', { asset: a.id }, accountId);
+                const cal = linkTo('/calendar', { asset: a.id }, accountId);
                 return (
                   <tr
                     key={a.id}
                     className="link"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('a')) return;
-                      location.href = href;
+                      location.href = cal;
                     }}
                   >
                     <td>

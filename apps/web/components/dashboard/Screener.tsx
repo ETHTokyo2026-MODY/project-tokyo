@@ -473,7 +473,7 @@ export function Screener({
                   <td>
                     <a
                       className="rowlink"
-                      href={linkTo('/calendar', { asset: a.id }, account)}
+                      href={linkTo('/asset', { asset: a.id }, account)}
                     >
                       <b>{a.title}</b>
                     </a>
@@ -500,7 +500,7 @@ export function Screener({
             <a
               key={a.id}
               className="card"
-              href={linkTo('/calendar', { asset: a.id }, account)}
+              href={linkTo('/asset', { asset: a.id }, account)}
             >
               <div className="t">
                 {a.title} <TypeBadge type={a.type} />
