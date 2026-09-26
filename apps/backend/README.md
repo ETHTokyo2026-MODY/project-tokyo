@@ -78,8 +78,8 @@ journals there. Run the existing worker on a Droplet with persistent disk, retai
 SQLite journals across restarts. Keeping the worker on App Platform instead
 requires migrating these journals to a managed database such as PostgreSQL. Never put signer keys in Next.js. See [DigitalOcean storage limits](https://docs.digitalocean.com/products/app-platform/how-to/store-data/).
 
-Default web mode reads the chain; `NEXT_PUBLIC_DATA_MODE=sample` selects the
-labeled sample mode. This PR changes application code, not deployment settings.
+The web mode is set by the `DATA_MODE` constant in apps/web/lib/demo/store.tsx
+('live' reads this backend, 'sample' shows labelled sample data).
 
 ## Indexed reads and execution
 

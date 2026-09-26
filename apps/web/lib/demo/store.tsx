@@ -10,7 +10,8 @@ import {
   type ActionResult,
 } from '../chain/store';
 export type DemoDispatchResult = ActionResult;
-export const SAMPLE_MODE = process.env.NEXT_PUBLIC_DATA_MODE === 'sample';
+export const DATA_MODE: 'sample' | 'live' = 'sample';
+export const SAMPLE_MODE = DATA_MODE === 'sample';
 export function DemoProvider({ children }: { children: ReactNode }) {
   return SAMPLE_MODE ? (
     <SampleProvider>{children}</SampleProvider>
