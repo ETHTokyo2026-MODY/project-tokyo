@@ -12,7 +12,7 @@ const TABS: { href: string; label: string }[] = [
   { href: '/stats', label: 'Stats' },
 ];
 
-const EXISTING_TAB_HREFS = new Set<string>(['/']);
+const EXISTING_TAB_HREFS = new Set<string>(['/', '/calendar']);
 
 const FALLBACK_ACCOUNTS: [string, string][] = [
   ['host', 'Turo Host'],
