@@ -4,7 +4,8 @@ Hosts presell future room-nights and get paid now. Traders buy those nights and 
 
 ## Status
 
-Early demo. The web app shows sample data.
+The web app is a working demo with sample data that lives in your browser
+(reset from the calendar panel). No on-chain parts yet.
 
 ## Develop
 
