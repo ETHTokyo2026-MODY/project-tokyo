@@ -1,0 +1,204 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { Market, MarketInputError } from '../src/market.mjs';
+import { Store } from '../src/store.mjs';
+
+const HASH = `0x${'ab'.repeat(32)}`;
+const MAKER = '0x1111111111111111111111111111111111111111';
+const ROUTER = '0x2222222222222222222222222222222222222222';
+const config = { chainId: 31337, router: ROUTER };
+const block = { number: 42n, hash: HASH, timestamp: 100n };
+const hash = (n) => `0x${n.toString(16).padStart(64, '0')}`;
+
+function order(n, buy, programHash = hash(9), overrides = {}) {
+  return {
+    hash: hash(n),
+    order: {
+      maker: MAKER,
+      buy,
+      pool: hash(1),
+      startDay: '100',
+      endDay: '101',
+      quantity: '1',
+      terms: hash(2),
+      expiry: '1000',
+      programHash,
+      mandate: hash(3),
+      ...overrides,
+    },
+    signature: '0x1234',
+    program: '0x1234',
+    ...(buy ? { mandate: { expiry: '1000' } } : {}),
+  };
+}
+
+function market(orders, simulate) {
+  const calls = [];
+  const client = {
+    async getChainId() {
+      return 31337;
+    },
+    async getBlock() {
+      return block;
+    },
+    async simulateContract(request) {
+      calls.push(request);
+      return simulate(request);
+    },
+  };
+  const book = {
+    list: ({ limit, offset }) => orders.slice(offset, offset + limit),
+  };
+  const instance = new Market(book, { tip: () => null }, client, config);
+  return { instance, calls, client };
+}
+
+test('ranks individual signed alternatives by buyer total at one block', async () => {
+  const orders = [
+    order(1, true, hash(9)),
+    order(2, false, hash(9)),
+    order(3, true, hash(10)),
+    order(4, false, hash(10)),
+  ];
+  const { instance, calls } = market(orders, ({ args }) => ({
+    result:
+      args[0].programHash === hash(9)
+        ? [1_000_000n, 10_000n]
+        : [990_000n, 9_900n],
+  }));
+  const result = await instance.quotes();
+  assert.equal(result.quotes.length, 2);
+  assert.equal(result.best.bidHash, hash(3));
+  assert.equal(result.best.total, '999900');
+  assert.deepEqual(
+    result.quotes.map(({ bidMaker, mandate }) => [bidMaker, mandate]),
+    [
+      [MAKER, hash(3)],
+      [MAKER, hash(3)],
+    ],
+  );
+  assert.match(result.execution, /alternatives/);
+  assert.equal(result.window.checkedPairs, 2);
+  assert.ok(calls.every(({ blockNumber }) => blockNumber === 42n));
+});
+
+test('filters expiry and contract failures, surfaces RPC failure and reorg', async () => {
+  const expired = order(1, true, hash(9), { expiry: '100' });
+  const liveBid = order(2, true);
+  const ask = order(3, false);
+  const { instance, calls, client } = market(
+    [expired, liveBid, ask],
+    async () => {
+      const error = new Error('cancelled or unfunded');
+      error.name = 'ContractFunctionRevertedError';
+      throw error;
+    },
+  );
+  assert.deepEqual((await instance.quotes()).quotes, []);
+  assert.equal(calls.length, 1);
+  client.simulateContract = async () => {
+    throw new Error('RPC unavailable');
+  };
+  await assert.rejects(instance.quotes(), /RPC unavailable/);
+  client.getChainId = async () => 1;
+  await assert.rejects(instance.quotes(), /chain ID/);
+  client.getChainId = async () => 31337;
+  client.simulateContract = async () => ({ result: [1n, 0n] });
+  client.getBlock = async (request) =>
+    request?.blockNumber ? { ...block, hash: hash(99) } : block;
+  await assert.rejects(instance.quotes(), /reorganized/);
+});
+
+test('caps each order window at twenty and at most one hundred pair checks', async () => {
+  const orders = [
+    ...Array.from({ length: 10 }, (_, i) => order(i + 1, true)),
+    ...Array.from({ length: 11 }, (_, i) => order(i + 20, false)),
+  ];
+  const { instance, calls } = market(orders, async () => ({
+    result: [1n, 0n],
+  }));
+  const first = await instance.quotes();
+  assert.equal(first.window.checkedPairs, 100);
+  assert.equal(calls.length, 100);
+  assert.equal(first.quotes.length, 100);
+  assert.deepEqual(
+    [first.quotes[0].bidHash, first.quotes[0].askHash],
+    [hash(1), hash(20)],
+  );
+  assert.deepEqual(
+    [first.quotes.at(-1).bidHash, first.quotes.at(-1).askHash],
+    [hash(10), hash(29)],
+  );
+  assert.equal(
+    (await instance.quotes({ limit: 1, offset: 20 })).quotes.length,
+    0,
+  );
+  await assert.rejects(instance.quotes({ limit: 21 }), MarketInputError);
+  await assert.rejects(instance.quotes({ offset: 1001 }), MarketInputError);
+});
+
+test('history joins canonical settlement events to stored baskets only', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rental-market-'));
+  const store = new Store(join(directory, 'orders.db'));
+  try {
+    store.db.exec(`CREATE TABLE chain_events (
+      block_number INTEGER, log_index INTEGER, transaction_hash TEXT,
+      name TEXT, args TEXT
+    )`);
+    for (const record of [order(1, true), order(2, false)]) {
+      store.db
+        .prepare('INSERT INTO orders(hash,payload,created_at) VALUES(?,?,?)')
+        .run(record.hash, JSON.stringify(record), 1);
+    }
+    const insert = store.db.prepare(
+      'INSERT INTO chain_events VALUES(?,?,?,?,?)',
+    );
+    insert.run(
+      42,
+      0,
+      hash(8),
+      'Settled',
+      JSON.stringify({
+        buyHash: hash(1),
+        sellHash: hash(2),
+        price: '1000000',
+        fee: '10000',
+      }),
+    );
+    insert.run(
+      42,
+      1,
+      hash(9),
+      'Settled',
+      JSON.stringify({
+        buyHash: hash(1),
+        sellHash: hash(99),
+        price: '2000000',
+        fee: '20000',
+      }),
+    );
+    const book = { store, list: () => [] };
+    const index = { tip: () => ({ number: 42, hash: HASH }) };
+    const client = {
+      getChainId: async () => 31337,
+      getBlock: async () => block,
+      simulateContract: async () => null,
+    };
+    const result = await new Market(book, index, client, config).history();
+    assert.equal(result.sales.length, 1);
+    assert.equal(result.sales[0].price, '1000000');
+    assert.equal(result.sales[0].startDay, '100');
+    assert.equal(result.bookingHistory, 'unavailable');
+    store.db.prepare('DELETE FROM chain_events').run();
+    assert.deepEqual(
+      (await new Market(book, index, client, config).history()).sales,
+      [],
+    );
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

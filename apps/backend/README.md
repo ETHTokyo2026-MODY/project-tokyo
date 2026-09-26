@@ -25,12 +25,14 @@ npm start --workspace=@project-tokyo/backend
 
 It binds to `127.0.0.1:8787` (`PORT` overrides the port). This is an internal service: put authentication, request quotas and transport security at the gateway before exposing it beyond the host. The HTTP service holds no signing key and offers no transaction-submission endpoint.
 
-| Route                            | Behavior                                                                                                                                                                                   |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /orders`                   | Accept `{order, signature, program, mandate?}`. Numeric fields use decimal strings. Validate canonical fields and current EOA/ERC-1271 signature; persist idempotently by typed-data hash. |
-| `GET /orders?limit=100&offset=0` | List persisted orders; maximum page size 1000.                                                                                                                                             |
-| `GET /orders/:hash`              | Return the order and its status at the indexed block.                                                                                                                                      |
-| `GET /health`                    | Return indexed cursor, last sync time and whether sync is stale.                                                                                                                           |
+| Route                                   | Behavior                                                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /orders`                          | Accept `{order, signature, program, mandate?}`. Numeric fields use decimal strings. Validate canonical fields and current EOA/ERC-1271 signature; persist idempotently by typed-data hash.       |
+| `GET /orders?limit=100&offset=0`        | List persisted orders; maximum page size 1000.                                                                                                                                                   |
+| `GET /orders/:hash`                     | Return the order and its status at the indexed block.                                                                                                                                            |
+| `GET /health`                           | Return indexed cursor, last sync time and whether sync is stale.                                                                                                                                 |
+| `GET /market/quotes?limit=20&offset=0`  | Simulate compatible signed bid/ask pairs against one chain block. Rank by buyer total (`price + fee`), then price and order hashes. At most 20 stored orders and 100 pairs are checked per page. |
+| `GET /market/history?limit=20&offset=0` | Return canonical indexed settlement prices only where both signed order baskets remain stored. Booking price history is unavailable.                                                             |
 
 Admission reserves neither money nor inventory. Canonical envelopes are immutable; replacements use a new signed order. Onchain nonce/group cancellation is authoritative. `open` only means unconsumed at the indexed block, not currently executable: expiry, wallet funds, inventory, approval and ERC-1271 validity can change.
 
@@ -44,6 +46,8 @@ Admission reserves neither money nor inventory. Canonical envelopes are immutabl
 - `status(id, index)` distinguishes prepared, broadcast, mined, reverted and confirmed. Confirmed means the exact transaction and both order hashes occur together in a canonical indexed settlement event, with the index's confirmation policy. It can change after a reorg.
 
 A successful simulation cannot guarantee a later fill: competing orders, wallet spending and price movement can win the race. The contract's atomic checks are decisive. A reverted transaction can consume relayer gas without moving rental inventory or USDC.
+
+The market quotes use the signed fixed or Dutch VM program and the buyer's signed price and fee limits. Bid and ask must agree on the exact program hash and basket. `best` is the cheapest executable pair within the requested order page at its reported block; each quote is independent. Pages have an offset of at most 1000 orders. Multiple bids can share one wallet's unreserved USDC, so quote counts and prices do not establish simultaneous liquidity or aggregate demand. A secondary holder can sell only while the contract simulation confirms its current inventory and approval. Programs requiring a collective batch cannot appear as executable single-pair quotes. `Matcher.submit` revalidates the chosen pair at submission. The history route reports right-sale prices, not booking revenue or an appraisal; RPC errors and reorgs make market reads unavailable rather than silently removing quotes.
 
 The index processes up to 64 blocks per sync and defaults to two confirmations. It records empty blocks, validates block-hash-scoped logs, removes orphaned history, and consults nonce/group state at the indexed block. RPC outages propagate as unavailable status, not as empty history. Two confirmations are a configurable operational policy, not Ethereum finality.
 

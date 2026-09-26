@@ -45,7 +45,17 @@ const supply = {
     throw new Error('RPC credential');
   },
 };
-const server = createServer({ book, index, supply });
+let marketFails = false;
+const market = {
+  async quotes(page) {
+    if (marketFails) throw new Error('RPC secret');
+    return { page, quotes: [] };
+  },
+  async history(page) {
+    return { page, sales: [] };
+  },
+};
+const server = createServer({ book, index, market, supply });
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 after(() => server.close());
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -84,6 +94,26 @@ test('bounded intake, pagination, indexed detail and health', async () => {
   assert.equal((await request(`/orders/${'0x' + 'cc'.repeat(32)}`)).code, 404);
   server.reportIndexSync(new Error('RPC down'));
   assert.equal((await request('/health')).body.stale, true);
+});
+
+test('market read API bounds pages and surfaces unavailable chain state', async () => {
+  assert.deepEqual((await request('/market/quotes?limit=2&offset=3')).body, {
+    page: { limit: 2, offset: 3 },
+    quotes: [],
+  });
+  assert.equal((await request('/market/quotes?limit=21')).code, 400);
+  assert.equal((await request('/market/quotes?offset=1001')).code, 400);
+  assert.equal((await request('/market/history?offset=-1')).code, 400);
+  assert.deepEqual((await request('/market/history')).body.sales, []);
+  marketFails = true;
+  try {
+    assert.deepEqual(await request('/market/quotes'), {
+      code: 503,
+      body: { error: 'market state unavailable' },
+    });
+  } finally {
+    marketFails = false;
+  }
 });
 
 test('startup verifies RPC chain and deployed router USDC', async () => {

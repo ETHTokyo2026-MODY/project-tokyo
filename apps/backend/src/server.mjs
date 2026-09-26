@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createPublicClient, getAddress, http } from 'viem';
 import { ChainIndex } from './chain.mjs';
+import { Market, MarketInputError } from './market.mjs';
 import { OrderBook, OrderInputError } from './orders.mjs';
 import { routerAbi } from './protocol.mjs';
 import { Store } from './store.mjs';
@@ -49,7 +50,7 @@ async function readJson(request) {
   }
 }
 
-export function createServer({ book, index, supply }) {
+export function createServer({ book, index, supply, market }) {
   if (!book || !index) throw new Error('Order book and chain index required');
   const health = { lastSuccessAt: null, lastErrorAt: null };
   const server = createHttpServer(async (request, response) => {
@@ -143,6 +144,36 @@ export function createServer({ book, index, supply }) {
           return json(response, 400, { error: 'invalid pagination' });
         return json(response, 200, { orders: book.list({ limit, offset }) });
       }
+      if (
+        market &&
+        request.method === 'GET' &&
+        (url.pathname === '/market/quotes' ||
+          url.pathname === '/market/history')
+      ) {
+        const limit = pageInteger(url.searchParams.get('limit'), 20, {
+          min: 1,
+          max: 20,
+        });
+        const offset = pageInteger(url.searchParams.get('offset'), 0, {
+          min: 0,
+          max: 1000,
+        });
+        if (limit === null || offset === null)
+          return json(response, 400, { error: 'invalid pagination' });
+        try {
+          return json(
+            response,
+            200,
+            await (url.pathname === '/market/quotes'
+              ? market.quotes({ limit, offset })
+              : market.history({ limit, offset })),
+          );
+        } catch (error) {
+          if (error instanceof MarketInputError)
+            return json(response, 400, { error: 'invalid pagination' });
+          return json(response, 503, { error: 'market state unavailable' });
+        }
+      }
       const match = /^\/orders\/(0x[0-9a-fA-F]{64})$/.exec(url.pathname);
       if (request.method === 'GET' && match) {
         const order = book.get(match[1]);
@@ -219,13 +250,14 @@ async function main() {
   try {
     const book = new OrderBook(store, client, config);
     const index = new ChainIndex(store, client, { ...config, startBlock });
+    const market = new Market(book, index, client, config);
     const supply = process.env.INVENTORY_ADDRESS
       ? new SupplyBook(store, client, {
           chainId,
           inventory: process.env.INVENTORY_ADDRESS,
         })
       : undefined;
-    server = createServer({ book, index, supply });
+    server = createServer({ book, index, supply, market });
     let syncTask = null;
     const sync = () => {
       if (syncTask) return syncTask;
