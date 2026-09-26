@@ -1,6 +1,15 @@
 import { priceFromCurve } from './curve';
 import { quoteBlock } from './quote';
-import { DEFAULT_DISCOUNTS, seedState, TIERS } from './seed';
+import { hashSeed } from './rng';
+import {
+  DEFAULT_DISCOUNTS,
+  MAX_ADDED_PER_ACCOUNT,
+  MAX_ASSETS,
+  seedDaysFor,
+  seedState,
+  TIERS,
+  TYPES,
+} from './seed';
 import type { Asset, Day, DemoState, Discounts } from './types';
 
 export class UserError extends Error {}
@@ -280,6 +289,112 @@ const actions: Record<string, ActionFn> = {
       next[min as keyof Discounts] = v;
     }
     asset.discounts[account] = next;
+  },
+  'create-asset'(state, _asset, body, ctx) {
+    const account = checkAccount(state, body.account as string);
+    const type = body.type as string;
+    if (!TYPES.includes(type as (typeof TYPES)[number])) {
+      fail(`Type must be one of: ${TYPES.join(', ')}`);
+    }
+    const text = (v: unknown, what: string, lo: number, hi: number) => {
+      const t = typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '';
+      if (t.length < lo || t.length > hi) {
+        fail(`${what} must be ${lo}-${hi} characters`);
+      }
+      if (/[\u0000-\u001f\u007f]/.test(t)) {
+        fail(`${what} contains invalid characters`);
+      }
+      return t;
+    };
+    const t = text(body.title, 'Title', 3, 60);
+    const loc = text(body.location, 'Location', 2, 60);
+    const p = (body.prices || {}) as Record<string, unknown>;
+    const price = (v: unknown, what: string) => {
+      const n = Number(v);
+      if (v === '' || v == null || !Number.isInteger(n) || n < 1 || n > 10000) {
+        fail(
+          `${what} price must be a whole number of dollars between 1 and 10000`,
+        );
+      }
+      return n;
+    };
+    const mw = price(p.monWed, 'Mon–Wed');
+    const ts = price(p.thuSat, 'Thu–Sat');
+    const su = price(p.sun, 'Sun');
+    const lowest = Math.min(mw, ts, su);
+    let mn = Math.max(1, Math.round((lowest * 2) / 3));
+    const min = body.min;
+    if (min !== undefined && min !== null && min !== '') {
+      mn = Number(min);
+      if (!Number.isInteger(mn) || mn < 1) {
+        fail('Min price must be a whole number of dollars (at least 1)');
+      }
+      if (mn > lowest) {
+        fail(`Min price can't be above your lowest weekday price ($${lowest})`);
+      }
+    }
+    if (
+      state.assets.filter((a) => a.custom && a.provider === account).length >=
+      MAX_ADDED_PER_ACCOUNT
+    ) {
+      fail(`You can add at most ${MAX_ADDED_PER_ACCOUNT} assets`);
+    }
+    if (state.assets.length >= MAX_ASSETS) {
+      fail(`The demo holds at most ${MAX_ASSETS} assets`);
+    }
+    if (
+      state.assets.some(
+        (a) =>
+          a.title.toLowerCase() === t.toLowerCase() && a.provider === account,
+      )
+    ) {
+      fail('You already have an asset with this title');
+    }
+    const slug =
+      t
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40)
+        .replace(/-$/, '') || 'asset';
+    let id = slug;
+    for (let i = 2; state.assets.some((a) => a.id === id); i++) {
+      id = `${slug}-${i}`;
+    }
+    const custom = {
+      base: [su, mw, mw, mw, ts, ts, ts],
+      min: mn,
+      seed: hashSeed(id + '|' + account),
+      createdAt: ctx.now,
+    };
+    const asset = {
+      id,
+      type: type as Asset['type'],
+      title: t,
+      provider: account,
+      location: loc,
+      discounts: {},
+      custom,
+      days: [] as Day[],
+    };
+    asset.days = seedDaysFor(asset, ctx.today);
+    state.assets.push(asset);
+    return { asset: id };
+  },
+  'delete-asset'(state, asset, body) {
+    if (!body.asset) fail('Say which asset to delete');
+    const account = checkAccount(state, body.account as string);
+    if (asset.provider !== account)
+      fail('Only the provider can delete this asset');
+    if (!asset.custom) fail("The demo's seeded assets can't be deleted");
+    const others = asset.days.filter((d) => d.owner !== account).length;
+    if (others) {
+      fail(
+        `Can't delete: other accounts own ${others} day${others === 1 ? '' : 's'} of this asset`,
+      );
+    }
+    state.assets = state.assets.filter((a) => a !== asset);
+    return { deleted: asset.id };
   },
   reset(state, _asset, _body, ctx) {
     Object.assign(state, seedState(ctx.today), { version: state.version });
