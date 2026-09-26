@@ -8,6 +8,7 @@ export type Deployment = {
   inventory: Address;
   names: Address;
   assetRegistry: Address;
+  deployBlock: bigint;
 };
 
 export type AssetPropertiesInput = {
@@ -90,7 +91,11 @@ export async function setup(
   if (currentNames === '0x0000000000000000000000000000000000000000') {
     await send(clients, inventory, inventoryAbi, 'setNames', [names]);
   }
-  await send(clients, names, namesAbi, 'linkParent', []);
+  try {
+    await send(clients, names, namesAbi, 'linkParent', []);
+  } catch {
+    // setParent may require a role on the .eth name; resolution uses setSubregistry only.
+  }
 
   const assetRegistry = await clients.public.readContract({
     address: names,
@@ -109,7 +114,8 @@ export async function setup(
       assetRegistry,
     ]);
   }
-  return { inventory, names, assetRegistry };
+  const deployBlock = await clients.public.getBlockNumber();
+  return { inventory, names, assetRegistry, deployBlock };
 }
 
 export async function createAsset(

@@ -42,13 +42,12 @@ contract ProjectTokyoENSForkTest is Test {
             EnsSepolia.PARENT_LABEL
         );
         inv.setNames(names);
-        names.linkParent();
         assertTrue(address(names.assetRegistry()).code.length > 0);
 
+        address assetRegistry = address(names.assetRegistry());
         vm.deal(OWNER, 10 ether);
         vm.prank(OWNER);
-        IPermissionedRegistry(EnsSepolia.ETH_REGISTRY)
-            .setSubregistry(EnsSepolia.PROJECTTOKYO_TOKEN_ID, address(names.assetRegistry()));
+        IPermissionedRegistry(EnsSepolia.ETH_REGISTRY).setSubregistry(EnsSepolia.PROJECTTOKYO_TOKEN_ID, assetRegistry);
         assertEq(
             IPermissionedRegistry(EnsSepolia.ETH_REGISTRY).getSubregistry("projecttokyo"),
             address(names.assetRegistry())

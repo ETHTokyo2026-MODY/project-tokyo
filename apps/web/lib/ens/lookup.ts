@@ -59,6 +59,12 @@ export function poolOfLabel(label: string) {
   return keccak256(stringToBytes(label));
 }
 
+function earliestFromError(err: unknown): bigint | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  const match = /earliest available (\d+)/i.exec(msg);
+  return match ? BigInt(match[1]) : null;
+}
+
 export async function registeredLabels(
   clients: EnsClients,
   address: Address,
@@ -69,18 +75,31 @@ export async function registeredLabels(
   for (let a = fromBlock; a <= toBlock; a += LOG_CHUNK) {
     const b =
       a + LOG_CHUNK - BigInt(1) < toBlock ? a + LOG_CHUNK - BigInt(1) : toBlock;
-    const logs = await clients.public.getLogs({
-      address,
-      event: labelRegistered,
-      fromBlock: a,
-      toBlock: b,
-    });
+    let logs;
+    try {
+      logs = await clients.public.getLogs({
+        address,
+        event: labelRegistered,
+        fromBlock: a,
+        toBlock: b,
+      });
+    } catch (err) {
+      const earliest = earliestFromError(err);
+      if (earliest == null || earliest > b) throw err;
+      a = earliest;
+      continue;
+    }
     for (const log of logs) {
       if (log.args.label)
         out.push({ label: log.args.label, block: log.blockNumber });
     }
   }
   return out;
+}
+
+function scanFrom(fromBlock: bigint, head: bigint) {
+  if (fromBlock === BigInt(0) && head > LOG_CHUNK) return head - LOG_CHUNK;
+  return fromBlock;
 }
 
 export async function listAssets(
@@ -92,9 +111,14 @@ export async function listAssets(
   const head = await clients.public.getBlockNumber();
   const labels = [
     ...new Set(
-      (await registeredLabels(clients, assetRegistry, fromBlock, head)).map(
-        (r) => r.label,
-      ),
+      (
+        await registeredLabels(
+          clients,
+          assetRegistry,
+          scanFrom(fromBlock, head),
+          head,
+        )
+      ).map((r) => r.label),
     ),
   ];
   return filterLabels(labels, includeTest);
@@ -109,9 +133,14 @@ export async function listDays(
   const head = await clients.public.getBlockNumber();
   const labels = [
     ...new Set(
-      (await registeredLabels(clients, dayRegistry, fromBlock, head)).map(
-        (r) => r.label,
-      ),
+      (
+        await registeredLabels(
+          clients,
+          dayRegistry,
+          scanFrom(fromBlock, head),
+          head,
+        )
+      ).map((r) => r.label),
     ),
   ];
   return filterLabels(labels, includeTest);
