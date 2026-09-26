@@ -29,8 +29,8 @@ export default function DashboardPage() {
     () => (state ? summaries(state, today) : []),
     [state, today],
   );
-  const acct = ready && state ? state.accounts[accountId] : undefined;
-  if (!acct) {
+  const acct = state?.accounts[accountId];
+  if (!state) {
     return (
       <main className="page">
         <h1>Dashboard</h1>
@@ -38,6 +38,19 @@ export default function DashboardPage() {
       </main>
     );
   }
+
+  if (!acct)
+    return (
+      <main className="page">
+        <h1>Dashboard</h1>
+        <p className="muted">
+          Browse assets and prices. Connect a wallet from the navigation to
+          create assets, trade days, or view your portfolio.
+        </p>
+        <h2>All assets</h2>
+        <Screener assets={list} account={accountId} />
+      </main>
+    );
 
   const pl = acct.cash - acct.startCash;
   const provided = list.filter((a) => a.provider === accountId);
@@ -236,7 +249,7 @@ export default function DashboardPage() {
                 <span>Maximum ${usdText(bid.maxTotal!)}</span>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !ready}
                   onClick={async () => {
                     await dispatch('cancel-bid', { id: bid.id });
                   }}
