@@ -175,6 +175,7 @@ export function createDayServer({
           aqua: config.aqua,
           usdc: config.usdc,
           bookingReporter: config.bookingReporter ?? null,
+          conversion: config.conversion ?? null,
         });
       }
       if (req.method === 'GET' && url.pathname === '/curve') {
@@ -435,12 +436,37 @@ export function createDayServer({
             return reply(401, { error: 'Invalid host booking signature' });
           return reply(200, await bookingReporter.report(input));
         }
+        let publications;
+        if (input.action === 'prepare-conversion' && config.conversion) {
+          await index.sync();
+          const readiness = await index.readiness();
+          if (!readiness.ready)
+            return reply(503, { error: 'The chain index is catching up' });
+          const unique = new Map();
+          let before;
+          while (true) {
+            const page = index.events('Shipped', 1000, before);
+            for (const event of page) {
+              if (!same(event.address, config.aqua)) continue;
+              try {
+                const publication = decodeDayPublication(event.args, config);
+                unique.set(publication.hash, publication);
+              } catch {
+                /* Foreign or malformed strategies are not funding evidence. */
+              }
+            }
+            if (page.length < 1000) break;
+            before = page.at(-1);
+          }
+          publications = [...unique.values()];
+        }
         const result = await prepareDayAction(
           client,
           config,
           input.actor,
           input.action,
           input.body,
+          { publications },
         );
         return reply(200, result);
       }

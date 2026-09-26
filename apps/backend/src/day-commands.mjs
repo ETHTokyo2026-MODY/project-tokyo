@@ -1,4 +1,16 @@
-import { encodeFunctionData, getAddress, zeroAddress, zeroHash } from 'viem';
+import {
+  conversionRoute,
+  dayFundingIntent,
+  dayFundingTypedData,
+  prepareConversionExecution,
+} from './day-conversion.mjs';
+import {
+  encodeFunctionData,
+  getAddress,
+  parseAbi,
+  zeroAddress,
+  zeroHash,
+} from 'viem';
 import {
   approveDayFunding,
   dayAssetAbi,
@@ -71,10 +83,19 @@ const tx = (to, abi, functionName, args) => ({
 });
 
 /** Unsigned wallet steps at one canonical block. Publication neither escrows nor guarantees funds. */
-export async function prepareDayAction(client, config, actor, action, body) {
+export async function prepareDayAction(
+  client,
+  config,
+  actor,
+  action,
+  body,
+  { publications = [] } = {},
+) {
   if (!body || typeof body !== 'object' || Array.isArray(body))
     throw new Error('Action body required');
   const supported = [
+    'prepare-conversion',
+    'execute-conversion',
     'create-asset',
     'list',
     'unlist',
@@ -133,6 +154,13 @@ export async function prepareDayAction(client, config, actor, action, body) {
       throw new Error('Action state changed during reorg');
     return json(result);
   };
+  if (action === 'execute-conversion') {
+    Object.assign(
+      result,
+      await prepareConversionExecution(client, config, sender, body, read),
+    );
+    return finish();
+  }
   if (action === 'create-asset') {
     if (typeof body.metadataURI !== 'string' || !body.defaults)
       throw new Error('Metadata URI and defaults required');
@@ -276,7 +304,11 @@ export async function prepareDayAction(client, config, actor, action, body) {
         value: '0x0',
       });
   };
-  if (action === 'buy' || action === 'publish-bid') {
+  if (
+    action === 'buy' ||
+    action === 'publish-bid' ||
+    action === 'prepare-conversion'
+  ) {
     if (body.buyer !== undefined && !same(address(body.buyer), sender))
       throw new Error('Buyer must be the wallet actor');
     if (states.some((state) => same(state.owner, sender)))
@@ -302,6 +334,109 @@ export async function prepareDayAction(client, config, actor, action, body) {
     };
     await publish('bid', strategy, usdc, strategy.maxTotal);
     result.strategy = strategy;
+    if (action === 'prepare-conversion') {
+      const route = await conversionRoute(read, config);
+      const maxInput = uint(body.maxInput, 256, 'Exact WETH input');
+      const minOutput = uint(body.minOutput, 256, 'Minimum USDC output');
+      if (!maxInput || !minOutput)
+        throw new Error('Conversion needs positive funding bounds');
+      const balance = await read(route.sourceToken, dayTokenAbi, 'balanceOf', [
+        sender,
+      ]);
+      if (BigInt(balance) < maxInput) throw new Error('Insufficient held WETH');
+      const allowance = await read(
+        route.sourceToken,
+        dayTokenAbi,
+        'allowance',
+        [sender, route.converter],
+      );
+      if (BigInt(allowance) < maxInput)
+        transactions.unshift(
+          tx(route.sourceToken, dayTokenAbi, 'approve', [
+            route.converter,
+            maxInput,
+          ]),
+        );
+      const version = await read(asset, dayAssetAbi, 'discountVersion');
+      const discount = BigInt(
+        await read(
+          asset,
+          parseAbi(['function discountBps(uint16) view returns (uint16)']),
+          'discountBps',
+          [stop - start],
+        ),
+      );
+      const asks = [],
+        programs = [];
+      let total = 0n;
+      for (let i = 0; i < states.length; i++) {
+        const state = states[i];
+        if (!state.deployed || !state.listed)
+          throw new Error('Every conversion day must have an authorized sale');
+        let selected;
+        for (const publication of publications) {
+          const a = publication.strategy;
+          if (
+            publication.kind !== 'ask' ||
+            !same(a.app, router) ||
+            BigInt(a.chainId) !== chainId ||
+            !same(a.asset, asset) ||
+            Number(a.day) !== start + i ||
+            !same(a.seller, state.owner) ||
+            BigInt(a.saleNonce) !== BigInt(state.saleNonce) ||
+            BigInt(a.discountVersion) !== BigInt(version)
+          )
+            continue;
+          const hash = hashDayStrategy('ask', a);
+          const [remaining, count] = await read(
+            aqua,
+            officialAquaAbi,
+            'rawBalances',
+            [a.seller, router, hash, state.token],
+          );
+          if (
+            BigInt(remaining) >= 1n &&
+            Number(count) > 0 &&
+            Number(count) < 255
+          ) {
+            selected = a;
+            break;
+          }
+        }
+        if (!selected)
+          throw new Error('Current seller authorization is unavailable');
+        asks.push(selected);
+        programs.push(
+          await read(router, dayRouterAbi, 'program', [
+            asset,
+            start + i,
+            stop - start,
+          ]),
+        );
+        total += (BigInt(state.sellingPrice) * (10000n - discount)) / 10000n;
+      }
+      if (total > strategy.maxTotal || minOutput < total)
+        throw new Error('Funding bounds must cover the current purchase total');
+      const intent = dayFundingIntent({
+        converter: route.converter,
+        bid: strategy,
+        asks,
+        sourceToken: route.sourceToken,
+        maxInput,
+        minOutput,
+        usdcCap: strategy.maxTotal,
+        deadline,
+        nonce: uint(body.fundingNonce, 256, 'Funding nonce'),
+      });
+      result.funding = {
+        intent,
+        bid: strategy,
+        asks,
+        programs,
+        typedData: dayFundingTypedData(intent),
+        total,
+      };
+    }
     return finish();
   }
   if (states.some((state) => !same(state.owner, sender)))

@@ -38,6 +38,7 @@ class MockProvider implements WalletProvider {
       this.emit('chainChanged', this.chain);
       return null;
     }
+    if (method === 'eth_signTypedData_v4') return `0x${'ab'.repeat(65)}`;
     if (method === 'personal_sign') return `0x${'ab'.repeat(65)}`;
     if (method === 'eth_sendTransaction') {
       this.sends++;
@@ -330,5 +331,69 @@ describe('wallet UI lifecycle', () => {
     await session.disconnect();
     expect(changed).toHaveBeenLastCalledWith(null);
     await expect(session.sendBatch([tx])).rejects.toThrow('closed');
+  });
+});
+
+describe('funding typed data (provider unit)', () => {
+  const funding = () => ({
+    domain: {
+      name: 'DayAtomicConverter',
+      version: '1',
+      chainId: '11155111',
+      verifyingContract: other,
+    },
+    types: {
+      FundingIntent: [
+        { name: 'buyer', type: 'address' },
+        { name: 'recipient', type: 'address' },
+        { name: 'executor', type: 'address' },
+        { name: 'chainId', type: 'uint256' },
+      ],
+    },
+    primaryType: 'FundingIntent',
+    message: {
+      buyer: account,
+      recipient: account,
+      executor: other,
+      chainId: '11155111',
+    },
+  });
+  it('uses native typed-data consent and rejects a foreign buyer before prompting', async () => {
+    const p = new MockProvider();
+    const wallet = new WalletSession(p);
+    await wallet.connect();
+    expect(await wallet.signFunding(funding(), other)).toBe(
+      `0x${'ab'.repeat(65)}`,
+    );
+    expect(
+      p.request.mock.calls.some(([r]) => r.method === 'eth_signTypedData_v4'),
+    ).toBe(true);
+    p.request.mockClear();
+    const bad = funding();
+    bad.message.buyer = other;
+    await expect(wallet.signFunding(bad, other)).rejects.toThrow(
+      'selected wallet',
+    );
+    expect(
+      p.request.mock.calls.some(([r]) => r.method === 'eth_signTypedData_v4'),
+    ).toBe(false);
+    wallet.dispose();
+  });
+  it('rejects account changes during funding consent and gas above the cap', async () => {
+    const p = new MockProvider();
+    const wallet = new WalletSession(p);
+    await wallet.connect();
+    await expect(
+      wallet.sendBatch([{ ...tx, gas: '0x1000001' }]),
+    ).rejects.toThrow('gas');
+    expect(p.sends).toBe(0);
+    p.onRead = (method) => {
+      if (method === 'eth_signTypedData_v4') {
+        p.accounts = [other];
+        p.emit('accountsChanged');
+      }
+    };
+    await expect(wallet.signFunding(funding(), other)).rejects.toThrow();
+    wallet.dispose();
   });
 });

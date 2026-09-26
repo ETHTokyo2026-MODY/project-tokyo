@@ -33,6 +33,19 @@ therefore does not limit the 365-day calendar. A fill still must fit transaction
 gas limits. Listed metadata alone is insufficient: a day must be materialized,
 approved and shipped before it is executable.
 
+The open taker caps simulation and transaction admission at 16,777,216 gas by
+default (`transactionGasLimit` may lower this). Oversized candidates are skipped
+before a durable transaction is created, so they cannot block a later feasible
+bid. Existing saved transactions retain their recovery rules. The integration
+regression verifies that oversized 365- and 150-day bids do not block a seven-day
+fill and that a capped failure changes no inventory, USDC or Aqua authorization.
+The 365-day calendar is an inventory horizon, not a promise that all its dates fit
+in one transaction.
+
+Aqua authorizes and accounts for wallet-held trading liquidity. Our open taker
+finds candidates and triggers execution; Aqua does not provide a hosted matching
+or solver service for this deployment.
+
 ## Reproduce
 
 Run `forge test --match-path 'test/market/*.t.sol'` from `contracts`. Tests cover

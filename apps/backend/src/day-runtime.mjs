@@ -98,6 +98,19 @@ function normalize(config) {
     if (result[key] === zeroAddress)
       throw new Error('Runtime deployment address is zero');
   }
+  if (config.conversion != null) {
+    const conversion = {
+      poolFee: integer(config.conversion.poolFee, undefined, 1),
+    };
+    if (conversion.poolFee >= 2 ** 24)
+      throw new Error('Invalid conversion pool fee');
+    for (const key of ['converter', 'sourceToken', 'swapRouter']) {
+      conversion[key] = getAddress(config.conversion[key]);
+      if (conversion[key] === zeroAddress)
+        throw new Error('Conversion address is zero');
+    }
+    result.conversion = conversion;
+  }
   return result;
 }
 

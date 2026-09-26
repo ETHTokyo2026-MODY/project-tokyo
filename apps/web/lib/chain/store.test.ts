@@ -232,3 +232,132 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
     vi.unstubAllGlobals();
   }
 });
+
+
+it('maps exact WETH and USDC funding bounds without floating point', () => {
+  const result = command('buy-weth', {
+    asset: txs[0].to,
+    from: '2026-09-26',
+    to: '2026-09-27',
+    limit: '120.000001',
+    weth: '0.000000000000000001',
+    minOutput: '119.123456',
+  });
+  expect(result).toMatchObject({
+    action: 'prepare-conversion',
+    body: { maxInput: '1', maxTotal: '120000001', minOutput: '119123456' },
+  });
+  expect(() =>
+    command('buy-weth', {
+      asset: txs[0].to,
+      from: '2026-09-26',
+      limit: '1',
+      weth: '1.0000000000000000001',
+      minOutput: '1',
+    }),
+  ).toThrow('eighteen');
+});
+
+it('confirms funding approvals before native typed consent and simulates before sending conversion (unit)', async () => {
+  vi.resetModules();
+  const live = await import('./store');
+  const account = txs[0].to,
+    converter = txs[1].to;
+  const events: string[] = [];
+  let sent = 0;
+  const provider = {
+    on: () => {},
+    removeListener: () => {},
+    request: vi.fn(async ({ method }: { method: string }) => {
+      if (method === 'eth_chainId') return '0xaa36a7';
+      if (method === 'eth_accounts' || method === 'eth_requestAccounts')
+        return [account];
+      if (method === 'eth_sendTransaction') {
+        events.push(`send${++sent}`);
+        return `0x${String(sent).padStart(64, '0')}`;
+      }
+      if (method === 'eth_signTypedData_v4') {
+        events.push('funding-signature');
+        return `0x${'ab'.repeat(65)}`;
+      }
+      throw new Error(method);
+    }),
+  };
+  const typedData = {
+    domain: {
+      name: 'DayAtomicConverter',
+      version: '1',
+      chainId: '11155111',
+      verifyingContract: converter,
+    },
+    types: { FundingIntent: [{ name: 'buyer', type: 'address' }] },
+    primaryType: 'FundingIntent',
+    message: {
+      buyer: account,
+      recipient: account,
+      executor: converter,
+      chainId: '11155111',
+    },
+  };
+  vi.stubGlobal(
+    'window',
+    Object.assign(new EventTarget(), { ethereum: provider }),
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path: string, options?: { body?: string }) => {
+      let value;
+      if (path.endsWith('config'))
+        value = {
+          chainId: 11155111,
+          factory: account,
+          conversion: { converter },
+        };
+      else if (path.includes('receipt/')) {
+        events.push(`receipt${sent}`);
+        value = { status: 'success' };
+      } else if (path.endsWith('prepare')) {
+        const request = JSON.parse(options!.body!);
+        events.push(request.action);
+        value =
+          request.action === 'prepare-conversion'
+            ? { transactions: txs, funding: { typedData } }
+            : { transactions: [{ ...txs[0], gas: '0x100000' }] };
+      } else
+        value = {
+          ready: true,
+          today: 20722,
+          blockNumber: '1',
+          blockHash: 'hash',
+          calendars: [],
+          usdcBalance: '0',
+        };
+      return { ok: true, json: async () => value };
+    }),
+  );
+  try {
+    await live.connectWallet({ legacy: true });
+    const result = await live.dispatch('buy-weth', {
+      asset: account,
+      from: '2026-09-26',
+      to: '2026-09-27',
+      limit: '120',
+      weth: '0.001',
+      minOutput: '120',
+    });
+    expect(result.ok).toBe(true);
+    expect(events).toEqual([
+      'prepare-conversion',
+      'send1',
+      'receipt1',
+      'send2',
+      'receipt2',
+      'funding-signature',
+      'execute-conversion',
+      'send3',
+      'receipt3',
+    ]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

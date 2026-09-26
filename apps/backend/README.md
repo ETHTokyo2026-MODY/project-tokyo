@@ -65,3 +65,36 @@ npm run test:integration --workspace=@project-tokyo/backend
 The integration test uses local Anvil and the maintained item-day contracts. Public Sepolia deployment, real extension interactions and recordings require their own acceptance evidence. See [calendar semantics](../../docs/item-day.md) and [official Aqua settlement](../../docs/day-settlement.md).
 
 The previous implementation is preserved at `checkpoint/erc1155-aquavapor`; its reservation, revenue-claim, recurring-supply and conversion consumers are removed from the active backend.
+
+### Booking journal retention
+
+Booking replay protection requires retaining **all** records in `DAY_BOOKING_DB`,
+including completed bookings and reversals, with the same reporter identity.
+This database is a durable authorization journal; it cannot be rebuilt from the
+calendar index. Restart recovery supports the retained journal. Journal loss,
+restoring an older journal, and reporter rotation are unsupported in this demo:
+stop the booking adapter and resolve recovery before accepting further reports.
+Do not start with a replacement empty database. Host signatures have no expiry
+or onchain booking revision, and a previously observed price can recur after a
+reversal; neither prevents replay when journal records are absent.
+
+### Held WETH funding
+
+Optional `DAY_CONFIG.conversion` supplies `converter`, `sourceToken`,
+`swapRouter`, and `poolFee`. Deploy `DayAtomicConverter` with the current
+`DaySwapVM`, the configured Uniswap V3 SwapRouter02, WETH and the pool fee.
+Preparation verifies these against the converter's immutable getters.
+
+The calendar's WETH funding option uses `prepare-conversion` to prepare exact
+WETH approval, USDC approval to Aqua, and ordinary bid publication. It then
+requests native EIP-712 consent for the exact basket and funding bounds.
+`execute-conversion` simulates the signed call, checks the transaction gas budget,
+and returns an unsigned wallet transaction. The browser waits for every receipt.
+Amounts use raw token units: WETH has 18 decimals and USDC has 6; `maxInput` is
+exact WETH spent, not a variable-input ceiling. No ETH wrapping is included.
+
+The published bid independently authorizes ordinary USDC settlement. If sufficient
+USDC is present, another taker can fill it before conversion. The converter then
+rejects the spent bid without consuming WETH. Only converter execution atomically
+combines the swap and purchase. Failed conversion leaves earlier approvals and
+an unfilled published bid intact; the normal order cancellation remains available.

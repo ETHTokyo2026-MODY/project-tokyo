@@ -32,6 +32,18 @@ export type PreparedTransaction = {
   data: string;
   from?: string;
   value?: string;
+  gas?: string;
+};
+export type FundingTypedData = {
+  domain: {
+    name: string;
+    version: string;
+    chainId: string | number;
+    verifyingContract: string;
+  };
+  types: Record<string, { name: string; type: string }[]>;
+  primaryType: string;
+  message: Record<string, string>;
 };
 type WalletWindow = EventTarget & { ethereum?: unknown };
 
@@ -271,6 +283,7 @@ export class WalletSession {
             to: tx.to as Address,
             data: tx.data as Hex,
             value: BigInt(0),
+            ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
           });
           if (typeof hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(hash))
             throw new Error('Wallet returned an invalid transaction hash');
@@ -312,6 +325,50 @@ export class WalletSession {
     });
   }
 
+  /** Native EIP-712 consent for this buyer and the configured conversion contract. */
+  async signFunding(
+    input: FundingTypedData,
+    converter: string,
+  ): Promise<string> {
+    return this.exclusive(async () => {
+      const data = structuredClone(input);
+      await this.assertReady();
+      if (
+        data.domain.name !== 'DayAtomicConverter' ||
+        data.domain.version !== '1' ||
+        BigInt(data.domain.chainId) !== BigInt(SEPOLIA_CHAIN_ID) ||
+        address(data.domain.verifyingContract) !== address(converter) ||
+        data.primaryType !== 'FundingIntent' ||
+        address(data.message.buyer) !== this.selectedAccount ||
+        address(data.message.recipient) !== this.selectedAccount ||
+        address(data.message.executor) !== address(converter) ||
+        BigInt(data.message.chainId) !== BigInt(SEPOLIA_CHAIN_ID)
+      )
+        throw new Error(
+          'Funding signature differs from selected wallet or deployment',
+        );
+      const client = await getWalletClient(this.config, {
+        connector: this.config.connectors[0],
+        account: this.selectedAccount as Address,
+        chainId: sepolia.id,
+      });
+      await this.assertReady();
+      const signature = await client.signTypedData({
+        ...data,
+        domain: {
+          ...data.domain,
+          chainId: sepolia.id,
+          verifyingContract: converter as Address,
+        },
+        account: this.selectedAccount as Address,
+      });
+      await this.assertReady();
+      if (!/^0x[0-9a-f]{130}$/i.test(signature))
+        throw new Error('Wallet returned an invalid funding signature');
+      return signature;
+    });
+  }
+
   dispose(): void {
     this.disposed = true;
     this.onChange();
@@ -331,7 +388,7 @@ export class WalletSession {
       !tx ||
       typeof tx !== 'object' ||
       Object.keys(tx).some(
-        (key) => !['to', 'data', 'from', 'value'].includes(key),
+        (key) => !['to', 'data', 'from', 'value', 'gas'].includes(key),
       )
     ) {
       throw new Error('Unsupported prepared transaction');
@@ -342,7 +399,15 @@ export class WalletSession {
       throw new Error('Invalid transaction data');
     if (tx.value !== undefined && !/^0x0$/i.test(tx.value))
       throw new Error('This action cannot send ETH');
+    if (
+      tx.gas !== undefined &&
+      (!/^0x[0-9a-f]+$/i.test(tx.gas) ||
+        BigInt(tx.gas) < BigInt(21000) ||
+        BigInt(tx.gas) > BigInt(16777216))
+    )
+      throw new Error('Prepared gas exceeds transaction budget');
     return {
+      ...(tx.gas ? { gas: tx.gas } : {}),
       from: this.selectedAccount!,
       to: address(tx.to),
       data: tx.data,
