@@ -44,13 +44,42 @@ the exact EIP-191 message from `bookingMessage()`; the server verifies every
 field and the deployment before invoking the reporter. Retries preserve the event
 ID and exact body; a reversal uses a new event ID.
 
-The website proxy uses `DAY_BACKEND_URL` and an exact `DAY_APP_ORIGIN`
-(for example, `http://127.0.0.1:3000`) when its public origin differs from
-Next.js URL normalization. Forwarded headers do not override this origin.
-For the explicit demo adapter, configure
-`DAY_WEBHOOK_TOKEN`. The proxy is a trusted demo host platform, with host wallet authorization but no external booking verification. Keep it local for the isolated
-scenario. Default web mode reads this backend; `NEXT_PUBLIC_DATA_MODE=sample`
-selects the labeled sample mode.
+### Next.js API (DigitalOcean web service)
+
+The web app serves `/api/day/*` directly through the shared backend handler.
+Use Node **22.13 or newer**. Set these server environment variables:
+
+- `DAY_CONFIG_JSON`: the JSON object described above, with the deployment's actual
+  `startBlock` and optional `conversion` configuration. This replaces `DAY_CONFIG`
+  for the web process; it contains public deployment data only.
+- `DAY_RPC_URL`: a Sepolia RPC URL, preferably with a dedicated API key.
+- `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash.
+
+No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
+state, curves, receipts, or unsigned transaction preparation. Configuration and
+contract identity are validated before serving requests; setup errors return 503.
+Each process shares one in-memory canonical index. Requests advance it in bounded
+batches, and state explicitly reports indexing until caught up. Restarts and
+replicas rebuild independently; choose the true deployment block to avoid scanning
+unrelated history. RPC failures remain failures, not empty calendars. Monitor RPC
+429 responses and timeouts; more replicas and cold starts increase RPC traffic.
+
+The Next.js deployment needs no persistent database. Hosts can submit `book` and
+`unbook` wallet transactions through `/prepare`; this avoids a booking signer and
+its replay journal. Automatic fills still run in the standalone worker described
+above, which may remain a local demo process with its existing retained journal. For the mock
+booking flow, set `DAY_BOOKING_BACKEND_URL`, `DAY_WEBHOOK_TOKEN`, and
+`DAY_BOOKING_REPORTER` (the worker's public signer address) on Next.js. Only the
+booking webhook is forwarded to that explicitly configured worker; host signature
+verification and durable replay protection remain there. Without it, booking is
+unavailable. The worker must have durable storage for its signing journals.
+DigitalOcean App Platform's container filesystem is ephemeral: do not place these
+journals there. Run the existing worker on a Droplet with persistent disk, retaining the same
+SQLite journals across restarts. Keeping the worker on App Platform instead
+requires migrating these journals to a managed database such as PostgreSQL. Never put signer keys in Next.js. See [DigitalOcean storage limits](https://docs.digitalocean.com/products/app-platform/how-to/store-data/).
+
+Default web mode reads the chain; `NEXT_PUBLIC_DATA_MODE=sample` selects the
+labeled sample mode. This PR changes application code, not deployment settings.
 
 ## Indexed reads and execution
 

@@ -1,13 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
+import { handleDayWeb } from '../../../../../backend/src/day-web.mjs';
+vi.mock('../../../../../backend/src/day-web.mjs', () => ({
+  handleDayWeb: vi.fn(async () => Response.json({ transactions: [] })),
+}));
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
 
 it('keeps a configured loopback origin exact despite Next URL normalization', async () => {
-  vi.stubEnv('DAY_BACKEND_URL', 'http://127.0.0.1:8787');
   vi.stubEnv('DAY_APP_ORIGIN', 'http://127.0.0.1:3001');
   const fetcher = vi
     .fn()
@@ -46,11 +50,11 @@ it('keeps a configured loopback origin exact despite Next URL normalization', as
     );
     expect(rejected.status).toBe(403);
   }
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(handleDayWeb).toHaveBeenCalledTimes(1);
 });
 
 it('rejects malformed configured application origins before forwarding', async () => {
-  vi.stubEnv('DAY_BACKEND_URL', 'http://127.0.0.1:8787');
   vi.stubEnv('DAY_APP_ORIGIN', 'http://127.0.0.1:3000/path');
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);

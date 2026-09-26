@@ -1,3 +1,4 @@
+import { createDayWeb } from '../src/day-web.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
@@ -897,3 +898,37 @@ test(
     );
   },
 );
+
+// Exercise the same read service Next imports against real deployed contracts.
+test('embedded web service rebuilds its read cache and prepares wallet calls', async (t) => {
+  const market = await dayMarket(t);
+  const handle = await createDayWeb({
+    DAY_RPC_URL: market.client.transport.url,
+    DAY_CONFIG_JSON: JSON.stringify({
+      ...market.config,
+      usdc: market.usdc.address,
+      startBlock: 0,
+      confirmations: 0,
+    }),
+  });
+  const state = await (await handle(new Request('http://local/state'))).json();
+  assert.equal(state.ready, true);
+  assert.equal(state.calendars.length, 1);
+  const response = await handle(
+    new Request('http://local/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        actor: market.host.account.address,
+        action: 'set-price',
+        body: {
+          asset: market.asset.address,
+          startDay: Number(market.startDay),
+          endDayExclusive: Number(market.startDay) + 1,
+          listedPrice: '90000000',
+        },
+      }),
+    }),
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+});

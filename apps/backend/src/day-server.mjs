@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+import { Readable } from 'node:stream';
 import { decodeEventLog, getAddress, verifyMessage } from 'viem';
 import { bookingMessage } from './day-booking-auth.mjs';
 import { readDayAsset } from './day-catalog.mjs';
@@ -149,21 +150,22 @@ export async function readDayTradeHistory({
 }
 
 /** The HTTP surface reads chain data and prepares unsigned calls. The optional mock booking adapter owns a separate reporter signer. */
-export function createDayServer({
+export function createDayHandler({
   client,
   index,
   config,
   bookingReporter,
   webhookToken,
 }) {
-  const pending = new Set();
-  const handle = async (req, res) => {
+  return async (req) => {
     const reply = (status, body) => {
-      res.writeHead(status, {
-        'content-type': 'application/json',
-        'cache-control': 'no-store',
+      return new Response(json(body), {
+        status,
+        headers: {
+          'content-type': 'application/json',
+          'cache-control': 'no-store',
+        },
       });
-      res.end(json(body));
     };
     try {
       const url = new URL(req.url, 'http://localhost');
@@ -403,7 +405,7 @@ export function createDayServer({
         if (url.pathname === '/webhook') {
           if (!bookingReporter || !webhookToken)
             return reply(503, { error: 'Mock booking adapter disabled' });
-          const actual = Buffer.from(req.headers.authorization ?? '');
+          const actual = Buffer.from(req.headers.get('authorization') ?? '');
           const expected = Buffer.from(`Bearer ${webhookToken}`);
           if (
             actual.length !== expected.length ||
@@ -411,15 +413,17 @@ export function createDayServer({
           )
             return reply(401, { error: 'Unauthorized adapter' });
         }
-        if (!req.headers['content-type']?.startsWith('application/json'))
+        if (!req.headers.get('content-type')?.startsWith('application/json'))
           return reply(415, { error: 'JSON required' });
-        req.setEncoding('utf8');
         let body = '';
-        for await (const chunk of req) {
-          body += chunk;
-          if (Buffer.byteLength(body) > 65536)
-            return reply(413, { error: 'Request too large' });
+        let size = 0;
+        const decoder = new TextDecoder();
+        for await (const chunk of req.body ?? []) {
+          size += chunk.byteLength;
+          if (size > 65536) return reply(413, { error: 'Request too large' });
+          body += decoder.decode(chunk, { stream: true });
         }
+        body += decoder.decode();
         let input;
         try {
           input = JSON.parse(body);
@@ -479,7 +483,7 @@ export function createDayServer({
         );
         return reply(200, result);
       }
-      reply(404, { error: 'Not found' });
+      return reply(404, { error: 'Not found' });
     } catch (error) {
       // Never reflect RPC URLs, credentials or arbitrary nested provider errors.
       const safe =
@@ -487,11 +491,28 @@ export function createDayServer({
         /^[A-Za-z0-9 ,:()._-]{1,160}$/.test(error.message)
           ? error.message
           : 'Unable to read or prepare this chain operation';
-      reply(400, { error: safe });
+      return reply(400, { error: safe });
     }
   };
+}
+
+/** Standalone worker transport shares the exact same application handler as Next. */
+export function createDayServer(options) {
+  const handle = createDayHandler(options);
+  const pending = new Set();
   const server = createServer((req, res) => {
-    const work = handle(req, res);
+    const work = (async () => {
+      const request = new Request(new URL(req.url, 'http://localhost'), {
+        method: req.method,
+        headers: req.headers,
+        ...(req.method === 'POST'
+          ? { body: Readable.toWeb(req), duplex: 'half' }
+          : {}),
+      });
+      const response = await handle(request);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(await response.text());
+    })();
     pending.add(work);
     void work.finally(() => pending.delete(work)).catch(() => res.destroy());
   });
