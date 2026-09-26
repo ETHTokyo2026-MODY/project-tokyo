@@ -116,6 +116,11 @@ export class Redemption {
       throw new Error('Invalid reservation basket');
     if (Number(await this.publicClient.getChainId()) !== this.chainId)
       throw new Error('RPC chain ID differs from reservation chain');
+    if (
+      Number(await this.walletClient.getChainId()) !== this.chainId ||
+      (this.walletClient.chain && this.walletClient.chain.id !== this.chainId)
+    )
+      throw new Error('Signing wallet chain differs from reservation chain');
     const args = [
       values.holder,
       values.pool,
