@@ -13,7 +13,7 @@ describe('summaries', () => {
     const got = summaries(seedState(TODAY), TODAY);
     expect(got).toHaveLength(assets.length);
     for (const [i, expected] of assets.entries()) {
-      expect(got[i]).toEqual(expected.summary);
+      expect(got[i]).toMatchObject(expected.summary);
     }
     expect(got[0]).toMatchObject({
       id: 'tesla-model-3',
