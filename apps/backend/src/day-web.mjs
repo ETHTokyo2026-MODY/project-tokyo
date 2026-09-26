@@ -12,14 +12,22 @@ import {
   officialAquaAbi,
 } from './day-protocol.mjs';
 
+/** Public deployment metadata is available without contacting an RPC provider. */
+export function dayWebConfig(env = process.env) {
+  const config = normalize(
+    env.DAY_CONFIG_JSON == null ? deployment : JSON.parse(env.DAY_CONFIG_JSON),
+  );
+  if (env.DAY_BOOKING_REPORTER)
+    config.bookingReporter = getAddress(env.DAY_BOOKING_REPORTER);
+  return config;
+}
+
 /**
  * Read cache only: replicas and restarts reconstruct it from canonical chain events.
  * @param {Record<string, string | undefined>} env
  */
 export async function createDayWeb(env = process.env) {
-  const config = normalize(
-    env.DAY_CONFIG_JSON == null ? deployment : JSON.parse(env.DAY_CONFIG_JSON),
-  );
+  const config = dayWebConfig(env);
   if (!env.DAY_RPC_URL && config.chainId !== sepolia.id)
     throw new Error('A custom chain requires DAY_RPC_URL');
   const rpc = new URL(env.DAY_RPC_URL ?? sepolia.rpcUrls.default.http[0]);
@@ -34,7 +42,7 @@ export async function createDayWeb(env = process.env) {
   const client = createPublicClient({
     chain,
     cacheTime: 0,
-    transport: http(rpc.href, { timeout: 15000, retryCount: 1 }),
+    transport: http(rpc.href, { timeout: 5000, retryCount: 0 }),
   });
   if ((await client.getChainId()) !== config.chainId)
     throw new Error('Wrong runtime chain');
@@ -61,8 +69,6 @@ export async function createDayWeb(env = process.env) {
     ) !== 6
   )
     throw new Error('Runtime contracts differ from deployment configuration');
-  if (env.DAY_BOOKING_REPORTER)
-    config.bookingReporter = getAddress(env.DAY_BOOKING_REPORTER);
   const db = new DatabaseSync(':memory:');
   try {
     const events = (abi) => abi.filter((item) => item.type === 'event');
@@ -105,7 +111,72 @@ export function lazyDayWeb(create = createDayWeb) {
     return (await pending)(request);
   };
 }
-export const handleDayWeb = lazyDayWeb();
+/** Coalesce slow reads across polls and retain a completed result for the next poll. */
+export function createDayWebHandler(liveHandler = lazyDayWeb(), waitMs = 8000) {
+  const reads = new Map();
+  return async (request) => {
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/config')
+      return createDayHandler({
+        config: dayWebConfig(),
+        client: null,
+        index: null,
+      })(request);
+    if (request.method !== 'GET' || url.pathname !== '/state')
+      return withinDeadline(liveHandler(request), waitMs);
+    const key = url.pathname + url.search;
+    let job = reads.get(key);
+    if (!job) {
+      if (reads.size >= 32)
+        return Response.json(
+          { error: 'Chain reads are busy; retry shortly' },
+          { status: 503 },
+        );
+      job = liveHandler(request).then(
+        (response) => ({ response }),
+        (error) => ({ error }),
+      );
+      reads.set(key, job);
+      // Retain late completions briefly, never an unbounded per-account cache.
+      void job.then(() => {
+        const timer = setTimeout(() => {
+          if (reads.get(key) === job) reads.delete(key);
+        }, 30000);
+        timer.unref?.();
+      });
+    }
+    const result = await withinDeadline(job, waitMs);
+    if (result instanceof Response) return result;
+    if (reads.get(key) === job) reads.delete(key);
+    if (result.error) throw result.error;
+    return result.response.clone();
+  };
+}
+export const handleDayWeb = createDayWebHandler();
+
+/** A deadline bounds HTTP work, while its shared read may finish for a later poll. */
+export async function withinDeadline(work, waitMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      work,
+      new Promise((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve(
+              Response.json(
+                { error: 'Chain RPC is slow or unavailable; retry shortly' },
+                { status: 503 },
+              ),
+            ),
+          waitMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Requests yield indexing status while one shared batch continues; errors surface on the next poll. */
 export function boundedIndexSync(index, waitMs = 1000) {
