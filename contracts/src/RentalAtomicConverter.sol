@@ -7,8 +7,6 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {RentalSettlement} from "./RentalSettlement.sol";
-import {RentalSwapVM} from "./RentalSwapVM.sol";
-import {RentalCollective} from "./RentalCollective.sol";
 
 /// @dev The bounded Uniswap V3 SwapRouter02 exact-input entry point.
 interface IExactInputSingle {
@@ -34,7 +32,6 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         address buyer;
         bytes32 bidHash;
         bytes32 askHash;
-        bytes32 batchHash;
         address sourceToken;
         uint256 maxInput;
         uint256 minOutput;
@@ -47,11 +44,10 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
     }
 
     bytes32 public constant INTENT_TYPEHASH = keccak256(
-        "FundingIntent(address buyer,bytes32 bidHash,bytes32 askHash,bytes32 batchHash,address sourceToken,uint256 maxInput,uint256 minOutput,uint256 usdcCap,address recipient,uint256 deadline,uint256 chainId,address executor,uint256 nonce)"
+        "FundingIntent(address buyer,bytes32 bidHash,bytes32 askHash,address sourceToken,uint256 maxInput,uint256 minOutput,uint256 usdcCap,address recipient,uint256 deadline,uint256 chainId,address executor,uint256 nonce)"
     );
 
     RentalSettlement public immutable rentalRouter;
-    RentalCollective public immutable collective;
     IExactInputSingle public immutable swapRouter;
     IERC20 public immutable sourceToken;
     IERC20 public immutable usdc;
@@ -74,19 +70,6 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         uint256 price,
         uint256 fee
     );
-    event ConvertedCollective(
-        address indexed buyer,
-        uint256 indexed nonce,
-        bytes32 indexed batchHash,
-        bytes32 bidHash,
-        uint256 input,
-        uint256 output,
-        uint256 buyerPrice,
-        uint256 buyerFee,
-        uint256 totalPrice,
-        uint256 totalFee
-    );
-
     constructor(RentalSettlement rental, IExactInputSingle swap, IERC20 source, IERC20 output, uint24 fee)
         EIP712("RentalAtomicConverter", "1")
     {
@@ -97,9 +80,6 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
             InvalidIntent()
         );
         rentalRouter = rental;
-        RentalCollective coordinator = RentalSwapVM(address(rental)).collective();
-        require(address(coordinator).code.length > 0 && address(coordinator.router()) == address(rental), InvalidIntent());
-        collective = coordinator;
         swapRouter = swap;
         sourceToken = source;
         usdc = output;
@@ -108,10 +88,6 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
 
     function hashIntent(FundingIntent calldata intent) public view returns (bytes32) {
         return _hashTypedDataV4(keccak256(abi.encode(INTENT_TYPEHASH, intent)));
-    }
-
-    function hashBatch(RentalCollective.Fill[] calldata fills) public pure returns (bytes32) {
-        return keccak256(abi.encode(fills));
     }
 
     function cancel(uint256 nonce) external {
@@ -129,7 +105,7 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         RentalSettlement.Mandate calldata mandate,
         bytes calldata program
     ) external nonReentrant returns (uint256 output, uint256 price, uint256 fee) {
-        _authorize(intent, intentSig, bid, ask, mandate, program, bytes32(0));
+        _authorize(intent, intentSig, bid, ask, mandate, program);
         (uint256 quotedPrice, uint256 quotedFee) =
             rentalRouter.quote(program, bid.endDay - bid.startDay, bid.quantity);
         uint256 quotedTotal = quotedPrice + quotedFee;
@@ -145,62 +121,20 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         );
     }
 
-    /// @notice Fund one exact buyer fill and activate its whole signed collective batch.
-    function executeCollective(
-        FundingIntent calldata intent,
-        bytes calldata intentSig,
-        RentalCollective.Fill[] calldata fills
-    ) external nonReentrant returns (uint256 output, uint256 totalPrice, uint256 totalFee) {
-        require(fills.length >= 2 && fills.length <= 8, InvalidIntent());
-        bytes32 batchHash = hashBatch(fills);
-        require(intent.batchHash == batchHash && batchHash != bytes32(0), InvalidIntent());
-        uint256 selected = type(uint256).max;
-        for (uint256 i; i < fills.length; ++i) {
-            if (fills[i].bid.maker == intent.buyer) {
-                require(selected == type(uint256).max, InvalidIntent());
-                selected = i;
-            }
-        }
-        require(selected != type(uint256).max, InvalidIntent());
-        RentalCollective.Fill calldata chosen = fills[selected];
-        _authorize(
-            intent, intentSig, chosen.bid, chosen.ask, chosen.mandate, chosen.program, batchHash
-        );
-        (uint256 buyerPrice, uint256 buyerFee) =
-            rentalRouter.quote(chosen.program, chosen.bid.endDay - chosen.bid.startDay, chosen.bid.quantity);
-        uint256 buyerUsdcBefore;
-        (output, buyerUsdcBefore) = _convert(intent, buyerPrice + buyerFee);
-        (totalPrice, totalFee) = collective.activate(fills);
-        require(usdc.balanceOf(intent.buyer) >= buyerUsdcBefore, InvalidFunding());
-        emit ConvertedCollective(
-            intent.buyer,
-            intent.nonce,
-            batchHash,
-            intent.bidHash,
-            intent.maxInput,
-            output,
-            buyerPrice,
-            buyerFee,
-            totalPrice,
-            totalFee
-        );
-    }
-
     function _authorize(
         FundingIntent calldata intent,
         bytes calldata intentSig,
         RentalSettlement.Order calldata bid,
         RentalSettlement.Order calldata ask,
         RentalSettlement.Mandate calldata mandate,
-        bytes calldata program,
-        bytes32 batchHash
+        bytes calldata program
     ) private view {
         require(
             intent.buyer != address(0) && intent.buyer == bid.maker && intent.recipient == bid.recipient
                 && intent.sourceToken == address(sourceToken) && intent.executor == address(this)
                 && intent.chainId == block.chainid && block.timestamp <= intent.deadline && intent.maxInput > 0
                 && intent.minOutput > 0 && intent.usdcCap > 0 && bid.buy && !ask.buy
-                && intent.batchHash == batchHash && intent.bidHash == rentalRouter.hashOrder(bid)
+                && intent.bidHash == rentalRouter.hashOrder(bid)
                 && intent.askHash == rentalRouter.hashOrder(ask) && bid.programHash == keccak256(program)
                 && bid.mandate == rentalRouter.hashMandate(mandate),
             InvalidIntent()

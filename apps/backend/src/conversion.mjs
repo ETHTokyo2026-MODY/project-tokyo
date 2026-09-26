@@ -1,14 +1,12 @@
 import {
-  encodeAbiParameters,
   encodeFunctionData,
   getAddress,
   hashTypedData,
   isHex,
-  keccak256,
   parseEventLogs,
 } from 'viem';
 import { compatible } from './matcher.mjs';
-import { collectiveAbi, routerAbi } from './protocol.mjs';
+import { routerAbi } from './protocol.mjs';
 import { StoredSubmission } from './submission.mjs';
 
 const address = (value) => {
@@ -62,7 +60,6 @@ const intentFields = [
   ['buyer', 'address'],
   ['bidHash', 'bytes32'],
   ['askHash', 'bytes32'],
-  ['batchHash', 'bytes32'],
   ['sourceToken', 'address'],
   ['maxInput', 'uint256'],
   ['minOutput', 'uint256'],
@@ -89,35 +86,6 @@ const conversionEvent = {
   ],
 };
 export const converterAbi = [
-  {
-    type: 'function',
-    name: 'executeCollective',
-    stateMutability: 'nonpayable',
-    inputs: [
-      tuple('intent', intentFields),
-      { name: 'intentSig', type: 'bytes' },
-      collectiveAbi[1].inputs[0],
-    ],
-    outputs: [
-      { name: 'output', type: 'uint256' },
-      { name: 'totalPrice', type: 'uint256' },
-      { name: 'totalFee', type: 'uint256' },
-    ],
-  },
-  {
-    type: 'function',
-    name: 'hashBatch',
-    stateMutability: 'pure',
-    inputs: [collectiveAbi[1].inputs[0]],
-    outputs: [{ name: '', type: 'bytes32' }],
-  },
-  {
-    type: 'function',
-    name: 'collective',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
   {
     type: 'function',
     name: 'execute',
@@ -153,25 +121,7 @@ export const converterAbi = [
     outputs: [{ name: '', type: 'uint24' }],
   },
   conversionEvent,
-  {
-    type: 'event',
-    name: 'ConvertedCollective',
-    inputs: [
-      { name: 'buyer', type: 'address', indexed: true },
-      { name: 'nonce', type: 'uint256', indexed: true },
-      { name: 'batchHash', type: 'bytes32', indexed: true },
-      { name: 'bidHash', type: 'bytes32', indexed: false },
-      { name: 'input', type: 'uint256', indexed: false },
-      { name: 'output', type: 'uint256', indexed: false },
-      { name: 'buyerPrice', type: 'uint256', indexed: false },
-      { name: 'buyerFee', type: 'uint256', indexed: false },
-      { name: 'totalPrice', type: 'uint256', indexed: false },
-      { name: 'totalFee', type: 'uint256', indexed: false },
-    ],
-  },
 ];
-export const hashBatch = (fills) =>
-  keccak256(encodeAbiParameters([collectiveAbi[1].inputs[0]], [fills]));
 
 export const intentTypes = {
   FundingIntent: intentFields.map(({ name, type }) => ({ name, type })),
@@ -227,7 +177,6 @@ export class ConversionRelay {
       chainId: config.chainId,
       executor: address(config.executor),
       router: address(config.router),
-      collective: address(config.collective),
       swapRouter: address(config.swapRouter),
       sourceToken: address(config.sourceToken),
       usdc: address(config.usdc),
@@ -273,13 +222,7 @@ export class ConversionRelay {
   }
 
   async submit({ bidHash, askHash, intent, intentSig }) {
-    return this.#submit('single', [{ bidHash, askHash }], intent, intentSig);
-  }
-
-  async submitCollective({ pairs, intent, intentSig }) {
-    if (!Array.isArray(pairs) || pairs.length < 2 || pairs.length > 8)
-      throw new Error('Collective conversion requires 2–8 persisted pairs');
-    return this.#submit('collective', pairs, intent, intentSig);
+    return this.#submit([{ bidHash, askHash }], intent, intentSig);
   }
 
   async recover() {
@@ -292,12 +235,7 @@ export class ConversionRelay {
     for (const { payload } of rows) {
       const saved = unpack(payload);
       results.push(
-        await this.#submit(
-          saved.mode,
-          saved.pairs,
-          saved.intent,
-          saved.intentSig,
-        ),
+        await this.#submit(saved.pairs, saved.intent, saved.intentSig),
       );
     }
     return results;
@@ -324,19 +262,13 @@ export class ConversionRelay {
     return this.#verify(
       job,
       receipt,
-      this.#build(saved.mode, saved.pairs, saved.intent, saved.intentSig),
+      this.#build(saved.pairs, saved.intent, saved.intentSig),
     );
   }
 
-  #build(mode, pairs, intent, intentSig) {
-    if (mode !== 'single' && mode !== 'collective')
-      throw new Error('Invalid conversion mode');
-    if (
-      !Array.isArray(pairs) ||
-      pairs.length < (mode === 'single' ? 1 : 2) ||
-      pairs.length > (mode === 'single' ? 1 : 8)
-    )
-      throw new Error('Invalid conversion pairs');
+  #build(pairs, intent, intentSig) {
+    if (!Array.isArray(pairs) || pairs.length !== 1)
+      throw new Error('Conversion requires one persisted pair');
     const canonicalPairs = pairs.map(({ bidHash, askHash }) => ({
       bidHash: hash(bidHash, 'bid hash'),
       askHash: hash(askHash, 'ask hash'),
@@ -395,26 +327,18 @@ export class ConversionRelay {
       mandate: bid.mandate,
       program: bid.program,
     }));
-    const batch =
-      mode === 'collective' ? hashBatch(fills) : `0x${'0'.repeat(64)}`;
-    if (!same(normalized.batchHash, batch))
-      throw new Error('Funding intent batch hash mismatch');
-    const functionName = mode === 'single' ? 'execute' : 'executeCollective';
-    const args =
-      mode === 'single'
-        ? [
-            normalized,
-            signed,
-            fills[0].bid,
-            fills[0].bidSig,
-            fills[0].ask,
-            fills[0].askSig,
-            fills[0].mandate,
-            fills[0].program,
-          ]
-        : [normalized, signed, fills];
+    const functionName = 'execute';
+    const args = [
+      normalized,
+      signed,
+      fills[0].bid,
+      fills[0].bidSig,
+      fills[0].ask,
+      fills[0].askSig,
+      fills[0].mandate,
+      fills[0].program,
+    ];
     return {
-      mode,
       pairs: canonicalPairs,
       entries,
       chosen,
@@ -423,7 +347,6 @@ export class ConversionRelay {
       signed,
       functionName,
       args,
-      batch,
     };
   }
 
@@ -445,7 +368,6 @@ export class ConversionRelay {
       'sourceToken',
       'usdc',
       'poolFee',
-      'collective',
     ];
     const deployed = await Promise.all(
       names.map((functionName) =>
@@ -467,22 +389,14 @@ export class ConversionRelay {
       )
     )
       throw new Error('Conversion deployment differs from configuration');
-    const actualCollective = await this.publicClient.readContract({
-      address: this.config.router,
-      abi: routerAbi,
-      functionName: 'collective',
-    });
-    if (!same(actualCollective, this.config.collective))
-      throw new Error('Conversion coordinator differs from rental router');
   }
 
-  async #submit(mode, pairs, intent, intentSig) {
-    const prepared = this.#build(mode, pairs, intent, intentSig);
+  async #submit(pairs, intent, intentSig) {
+    const prepared = this.#build(pairs, intent, intentSig);
     const { normalized, signed } = prepared;
     const id = hashIntent(normalized, this.config).toLowerCase();
     await this.#assertChainDeployment();
     const payload = pack({
-      mode,
       pairs: prepared.pairs,
       intent: normalized,
       intentSig: signed,
@@ -556,8 +470,7 @@ export class ConversionRelay {
       !same(mined?.input, expectedData)
     )
       throw new Error('Conversion mined call mismatched');
-    const eventName =
-      prepared.mode === 'single' ? 'ConvertedSettled' : 'ConvertedCollective';
+    const eventName = 'ConvertedSettled';
     const converted = parseEventLogs({
       abi: converterAbi,
       logs: receipt.logs.filter((log) =>
@@ -587,45 +500,18 @@ export class ConversionRelay {
       )
     )
       throw new Error('Conversion settlement events mismatched');
-    let buyerPrice, buyerFee, totalPrice, totalFee;
-    if (prepared.mode === 'single') {
-      const sale = settled[0].args;
-      if (
-        !same(conversion.bidHash, prepared.chosen.bid.hash) ||
-        !same(conversion.askHash, prepared.chosen.ask.hash) ||
-        conversion.price !== sale.price ||
-        conversion.fee !== sale.fee
-      )
-        throw new Error('Conversion settlement event mismatched');
-      buyerPrice = totalPrice = sale.price;
-      buyerFee = totalFee = sale.fee;
-    } else {
-      const selected = prepared.entries.indexOf(prepared.chosen);
-      const own = settled[selected].args;
-      const activated = parseEventLogs({
-        abi: collectiveAbi,
-        logs: receipt.logs.filter((log) =>
-          same(log.address, this.config.collective),
-        ),
-        eventName: 'Activated',
-        strict: true,
-      });
-      if (
-        activated.length !== 1 ||
-        !same(conversion.batchHash, prepared.batch) ||
-        !same(conversion.bidHash, prepared.chosen.bid.hash) ||
-        conversion.buyerPrice !== own.price ||
-        conversion.buyerFee !== own.fee ||
-        conversion.totalPrice !== activated[0].args.price ||
-        conversion.totalFee !== activated[0].args.fee ||
-        activated[0].args.participants !== BigInt(prepared.entries.length)
-      )
-        throw new Error('Conversion collective event mismatched');
-      buyerPrice = own.price;
-      buyerFee = own.fee;
-      totalPrice = conversion.totalPrice;
-      totalFee = conversion.totalFee;
-    }
+    const sale = settled[0].args;
+    if (
+      !same(conversion.bidHash, prepared.chosen.bid.hash) ||
+      !same(conversion.askHash, prepared.chosen.ask.hash) ||
+      conversion.price !== sale.price ||
+      conversion.fee !== sale.fee
+    )
+      throw new Error('Conversion settlement event mismatched');
+    const buyerPrice = sale.price,
+      buyerFee = sale.fee;
+    const totalPrice = buyerPrice,
+      totalFee = buyerFee;
     return {
       id: job.id,
       state: 'confirmed',

@@ -20,11 +20,9 @@ import { OrderBook } from '../src/orders.mjs';
 import { Matcher } from '../src/matcher.mjs';
 import {
   ConversionRelay,
-  hashBatch,
   intentDomain,
   intentTypes,
 } from '../src/conversion.mjs';
-import { guardProgram } from '../src/collective.mjs';
 import {
   hashMandate,
   orderDomain,
@@ -46,7 +44,7 @@ const json = (value) =>
   );
 
 test(
-  'persisted conversion settles Aqua orders and recovers a prepared collective batch',
+  'persisted conversion settles Aqua orders and recovers a prepared conversion',
   { timeout: 120000 },
   async (t) => {
     const port = await new Promise((resolve) => {
@@ -118,10 +116,6 @@ test(
       usdc.address,
       relayer.account.address,
     ]);
-    const coordinator = await client.readContract({
-      ...router,
-      functionName: 'collective',
-    });
     const weth = await deploy('AtomicConversion.t.sol/TestSource');
     const swap = await deploy('AtomicConversion.t.sol/TestSingleRouter', [
       weth.address,
@@ -140,7 +134,6 @@ test(
     const relayConfig = {
       ...config,
       executor: converter.address,
-      collective: coordinator,
       swapRouter: swap.address,
       sourceToken: weth.address,
       poolFee: 500,
@@ -177,13 +170,6 @@ test(
       args: [pool, day, terms],
     });
     const fixed = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
-    const guarded = guardProgram({
-      coordinator,
-      campaign: keccak256(toHex('conversion-campaign')),
-      minParticipants: 2,
-      minSpend: 2_000_000n,
-      priceProgram: fixed,
-    });
     async function mandate(wallet, salt) {
       const m = {
         buyer: wallet.account.address,
@@ -202,8 +188,7 @@ test(
       return m;
     }
     const firstMandate = await mandate(buyer, 'ordinary');
-    const collectiveMandate = await mandate(buyer, 'collective');
-    const otherMandate = await mandate(other, 'other');
+    const secondMandate = await mandate(buyer, 'second');
     const otherOrdinaryMandate = await mandate(other, 'other-ordinary');
     async function order(wallet, buy, nonce, program, m) {
       const o = {
@@ -240,11 +225,10 @@ test(
     }
     const bid1 = await order(buyer, true, 1n, fixed, firstMandate);
     const ask1 = await order(seller, false, 1n, fixed);
-    const intent = (bid, ask, batchHash, nonce) => ({
+    const intent = (bid, ask, nonce) => ({
       buyer: buyer.account.address,
       bidHash: bid.hash,
       askHash: ask.hash,
-      batchHash,
       sourceToken: weth.address,
       maxInput: 10n ** 16n,
       minOutput: 1_100_000n,
@@ -262,7 +246,7 @@ test(
         primaryType: 'FundingIntent',
         message: i,
       });
-    const first = intent(bid1, ask1, ZERO_HASH, 1n);
+    const first = intent(bid1, ask1, 1n);
     const ordinary = await relay.submit({
       bidHash: bid1.hash,
       askHash: ask1.hash,
@@ -317,45 +301,10 @@ test(
         .get().nonce,
       1,
     );
-    const bid2 = await order(buyer, true, 2n, guarded, collectiveMandate);
-    const ask2 = await order(seller, false, 2n, guarded);
-    const bid3 = await order(other, true, 3n, guarded, otherMandate);
-    const ask3 = await order(seller, false, 3n, guarded);
-    const pairs = [
-      { bidHash: bid2.hash, askHash: ask2.hash },
-      { bidHash: bid3.hash, askHash: ask3.hash },
-    ];
-    const fills = pairs.map(({ bidHash, askHash }) => {
-      const bid = book.get(bidHash),
-        ask = book.get(askHash);
-      return {
-        bid: bid.order,
-        bidSig: bid.signature,
-        ask: ask.order,
-        askSig: ask.signature,
-        mandate: bid.mandate,
-        program: bid.program,
-      };
-    });
-    const batch = hashBatch(fills);
-    assert.equal(
-      batch,
-      await client.readContract({
-        ...converter,
-        functionName: 'hashBatch',
-        args: [fills],
-      }),
-    );
-    const collective = intent(bid2, ask2, batch, 2n);
-    const collectiveSig = await signIntent(collective);
-    await assert.rejects(
-      relay.submitCollective({
-        pairs: [...pairs].reverse(),
-        intent: collective,
-        intentSig: collectiveSig,
-      }),
-      /batch hash mismatch/,
-    );
+    const bid2 = await order(buyer, true, 2n, fixed, secondMandate);
+    const ask2 = await order(seller, false, 2n, fixed);
+    const second = intent(bid2, ask2, 2n);
+    const secondSig = await signIntent(second);
     let interruptSigning = true;
     const crashWallet = new Proxy(relayer, {
       get(target, key) {
@@ -374,10 +323,11 @@ test(
       relayConfig,
     );
     await assert.rejects(
-      crashingRelay.submitCollective({
-        pairs,
-        intent: collective,
-        intentSig: collectiveSig,
+      crashingRelay.submit({
+        bidHash: bid2.hash,
+        askHash: ask2.hash,
+        intent: second,
+        intentSig: secondSig,
       }),
       /simulated process crash/,
     );
@@ -391,8 +341,8 @@ test(
     const recovered = await relay.recover();
     assert.equal(recovered.length, 2);
     assert.equal(recovered[1].state, 'confirmed');
-    assert.equal(recovered[1].totalPrice, 2_000_000n);
-    assert.equal(recovered[1].totalFee, 20_000n);
+    assert.equal(recovered[1].totalPrice, 1_000_000n);
+    assert.equal(recovered[1].totalFee, 10_000n);
     assert.equal(
       await client.readContract({
         ...inventory,
@@ -407,7 +357,7 @@ test(
         functionName: 'balanceOf',
         args: [other.account.address, tokenId],
       }),
-      2n,
+      1n,
     );
     assert.equal(
       await client.readContract({

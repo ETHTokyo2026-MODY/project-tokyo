@@ -21,7 +21,7 @@ Bootstrap fetches exact revisions into ignored `lib/`: Aqua, SwapVM, solidity-ut
 
 The suite contains local and pinned-chain fork tests. Fork tests skip when RPC variables are absent. Tests cover shared funding, cancellation, overlap, capacity, resale, booking revenue, pricing, signed economics, signatures, rollback, reentrancy, stateful invariants, and gas bounds. Fork balances are seeded by test cheatcodes.
 
-The atomic conversion fork pins mainnet block 26,060,001 and its parent hash. It calls deployed [Uniswap SwapRouter02](https://developers.uniswap.org/deployments.json) for the WETH/USDC 0.05% route and deployed Aqua. It exercises an ordinary fill with a real router; collective conversion is exercised with local contracts and Aqua. The fork buyer wraps test-seeded ETH, so no funded public wallet is used.
+The atomic conversion fork pins mainnet block 26,060,001 and its parent hash. It calls deployed [Uniswap SwapRouter02](https://developers.uniswap.org/deployments.json) for the WETH/USDC 0.05% route and deployed Aqua. It exercises an ordinary fill with a real router. The fork buyer wraps test-seeded ETH, so no funded public wallet is used.
 
 ## Sepolia
 
@@ -39,7 +39,7 @@ The [Sepolia deployment metadata](deployments/sepolia.json) records a public ENS
 
 ## Scope
 
-`RentalAtomicConverter` fixes WETH, USDC, the rental router, Uniswap SwapRouter02 and pool fee at deployment. A separate EIP-712 buyer intent binds the router-derived bid/ask hashes, recipient, exact WETH input, minimum USDC output, USDC cap, deadline, chain, converter and nonce. Collective intents also bind the complete ordered batch hash. `maxInput` is the **exact WETH amount consumed** by Uniswap's exact-input swap; unused WETH is not returned. Swap output goes directly to the buyer. Aqua pulls only the settlement cost, and any converted USDC above that buyer's cost stays with the buyer. The whole call reverts if output misses the signed minimum or current quote, settlement exceeds the cap, or the buyer's preexisting USDC balance falls. EOA and ERC-1271 intent signatures are supported.
+`RentalAtomicConverter` fixes WETH, USDC, the rental router, Uniswap SwapRouter02 and pool fee at deployment. A separate EIP-712 buyer intent binds the router-derived bid/ask hashes, recipient, exact WETH input, minimum USDC output, USDC cap, deadline, chain, converter and nonce. `maxInput` is the **exact WETH amount consumed** by Uniswap's exact-input swap; unused WETH is not returned. Swap output goes directly to the buyer. Aqua pulls only the settlement cost, and any converted USDC above that buyer's cost stays with the buyer. The whole call reverts if output misses the signed minimum or current quote, settlement exceeds the cap, or the buyer's preexisting USDC balance falls. EOA and ERC-1271 intent signatures are supported.
 
 One seller per fill; whole-unit quantities; contiguous future UTC dates up to 31 days. Legacy programs retain the 1% buyer-paid fee; economic-terms programs can set fees up to 10% and discounts up to 90%. Independent orders share conditional funding; OCO groups permit only one successful alternative. Collective activation is bounded to eight signed fills and counts distinct maker addresses, not unique people. It provides no escrow or reserved funding while orders are open.
 

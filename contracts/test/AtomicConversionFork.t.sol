@@ -61,7 +61,6 @@ contract AtomicConversionForkTest is Fixture {
             buyer: buyer,
             bidHash: router.hashOrder(bid),
             askHash: router.hashOrder(ask),
-            batchHash: bytes32(0),
             sourceToken: MAINNET_WETH,
             maxInput: 0.01 ether,
             minOutput: 1_100_000,

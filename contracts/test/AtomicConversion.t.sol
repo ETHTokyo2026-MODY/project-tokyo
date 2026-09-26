@@ -7,7 +7,6 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Fixture, TestUSDC} from "./Fixture.sol";
 import {RentalSettlement} from "../src/RentalSettlement.sol";
-import {RentalCollective} from "../src/RentalCollective.sol";
 import {RentalAtomicConverter, IExactInputSingle} from "../src/RentalAtomicConverter.sol";
 
 contract TestSource is ERC20 {
@@ -98,7 +97,6 @@ contract AtomicConversionTest is Fixture {
             buyer: bid.maker,
             bidHash: router.hashOrder(bid),
             askHash: router.hashOrder(ask),
-            batchHash: bytes32(0),
             sourceToken: address(weth),
             maxInput: 1 ether,
             minOutput: 1e6,
@@ -289,78 +287,6 @@ contract AtomicConversionTest is Fixture {
         _execute(f, bid, ask, p);
         assertEq(usd.balanceOf(buyer), 990_000);
         assertEq(inventory.balanceOf(other, inventory.tokenId(POOL, day, TERMS)), 1);
-    }
-
-    function _collectiveFills(uint256 minimumSpend) internal returns (RentalCollective.Fill[] memory fills) {
-        RentalCollective coordinator = router.collective();
-        bytes memory p = bytes.concat(
-            hex"a280", abi.encode(address(coordinator), keccak256("conversion-campaign"), uint256(2), minimumSpend),
-            fixedProgram(1e6)
-        );
-        RentalSettlement.Mandate memory secondMandate = _fund(other, 1000e6, keccak256("other-participant"));
-        (RentalSettlement.Order memory firstBid, RentalSettlement.Order memory firstAsk) =
-            _orders(day, day + 1, 31, p);
-        (RentalSettlement.Order memory secondBid, RentalSettlement.Order memory secondAsk) =
-            _orders(day + 1, day + 2, 32, p);
-        secondBid.maker = other;
-        secondBid.recipient = other;
-        secondBid.mandate = router.hashMandate(secondMandate);
-        fills = new RentalCollective.Fill[](2);
-        fills[0] = RentalCollective.Fill(
-            firstBid, _sig(firstBid, BUY_KEY), firstAsk, _sig(firstAsk, SELL_KEY), mandate, p
-        );
-        fills[1] = RentalCollective.Fill(
-            secondBid, _sig(secondBid, OTHER_KEY), secondAsk, _sig(secondAsk, SELL_KEY), secondMandate, p
-        );
-    }
-
-    function testWethBuyerActivatesExactGuardedBatchAndSurplusRemains() public {
-        RentalCollective.Fill[] memory fills = _collectiveFills(2_020_000);
-        RentalAtomicConverter.FundingIntent memory f = _intent(fills[0].bid, fills[0].ask, 16);
-        f.batchHash = converter.hashBatch(fills);
-        (uint256 output, uint256 totalPrice, uint256 totalFee) =
-            converter.executeCollective(f, _fundingSig(f), fills);
-        assertEq(output, 2e6);
-        assertEq(totalPrice, 2e6);
-        assertEq(totalFee, 20_000);
-        assertEq(usd.balanceOf(buyer), 990_000);
-        assertEq(usd.balanceOf(other), 1000e6 - 1_010_000);
-        assertEq(weth.balanceOf(buyer), 1 ether);
-        assertEq(inventory.balanceOf(buyer, inventory.tokenId(POOL, day, TERMS)), 1);
-        assertEq(inventory.balanceOf(other, inventory.tokenId(POOL, day + 1, TERMS)), 1);
-        assertTrue(converter.used(buyer, f.nonce));
-    }
-
-    function testLaterCollectiveFailureRollsBackEarlierSwapAndAllFills() public {
-        RentalCollective.Fill[] memory fills = _collectiveFills(2_020_000);
-        RentalAtomicConverter.FundingIntent memory f = _intent(fills[0].bid, fills[0].ask, 17);
-        f.batchHash = converter.hashBatch(fills);
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(usd);
-        vm.prank(other);
-        aqua.dock(address(router), fills[1].bid.mandate, tokens);
-        bytes memory sig = _fundingSig(f);
-        vm.expectRevert(RentalSettlement.InvalidMandate.selector);
-        converter.executeCollective(f, sig, fills);
-        assertEq(weth.balanceOf(buyer), 2 ether);
-        assertEq(usd.balanceOf(buyer), 0);
-        assertEq(weth.balanceOf(address(swap)), 0);
-        assertFalse(converter.used(buyer, f.nonce));
-        assertFalse(router.used(buyer, fills[0].bid.nonce));
-        assertFalse(router.used(other, fills[1].bid.nonce));
-        assertEq(router.spent(fills[0].bid.mandate), 0);
-    }
-
-    function testCollectiveIntentBindsEveryOtherParticipantAndThreshold() public {
-        RentalCollective.Fill[] memory fills = _collectiveFills(2_020_000);
-        RentalAtomicConverter.FundingIntent memory f = _intent(fills[0].bid, fills[0].ask, 18);
-        f.batchHash = converter.hashBatch(fills);
-        bytes memory sig = _fundingSig(f);
-        fills[1].bid.recipient = buyer;
-        vm.expectRevert(RentalAtomicConverter.InvalidIntent.selector);
-        converter.executeCollective(f, sig, fills);
-        assertEq(weth.balanceOf(buyer), 2 ether);
-        assertFalse(converter.used(buyer, f.nonce));
     }
 
     function _assertNoFill(
