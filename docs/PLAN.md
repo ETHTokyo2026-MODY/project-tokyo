@@ -1,86 +1,55 @@
-# Project Tokyo: plan
+# Project Tokyo
 
-ETHGlobal Tokyo 2026. Team: Michael, Darryl.
+ETHGlobal Tokyo 2026. Michael owns the website; Darryl owns contracts and backend.
+The checked product decisions in [issue #44](https://github.com/ETHTokyo2026-MODY/project-tokyo/issues/44), together with the ERC-20 and Sepolia decisions below, govern the demo.
 
-## What we're building
-Hosts (Turo or Airbnb hosts, hotels) sell future days of a car or room at a discount and get paid now.
-Traders buy those days. Whoever owns a day sets its public rental price and keeps what the booking earns.
-Days can be resold between traders, and the host can buy days back. Renters never touch the platform.
-The price a day finally books at becomes the price signal for similar days.
+## Product
 
-## Definitions
-These terms are authoritative. Where the rest of this plan conflicts with them, the definitions win, and the
-rest is being updated (see issue #44).
+Hosts sell ownership of future days of a specific car or room to traders. The day owner controls its public booking price and receives its booking revenue. Guests book through an external host platform; they have no wallet, beneficiary address or reservation token in Project Tokyo.
 
-- **Asset**: one single real-world thing, such as one car or one room. There are no identical units and no capacity.
-- **Listing**: an asset that can be booked on a particular day for a price.
-- **Day token**: exactly one token per asset per day, tradable. A day token is **never destroyed** (no burning).
-- **Day token metadata** (on chain): `booked`, `listed`, `listed_price`, `selling_price`, and more.
-  - `listed_price`: the price set on the host platform (Turo/Airbnb). This is what the guest pays.
-  - `selling_price`: the token's sale price between traders.
-  - Booking only sets `booked = true`. That locks `listed_price`, and the token stays tradable.
-- **Host**: owns the asset and its host-platform account, and owns the day tokens when they are created.
-- **Trader**: buys and sells day tokens.
-- **Guest**: the host platform's end user. Guests are **not represented** in Project Tokyo at all. They only pay
-  `listed_price` on the host platform. There is no guest, beneficiary or renter address on chain.
-- **Default listing**: by default, the owner has a sell order for every day. Unlisting removes that day's sell order.
-- **Discount ladder**: set per **asset**, for example `[(3 days, 10%), (7 days, 20%), ...]`. It applies **per run of
-  consecutive days**. For example, 10 selected days made of a 3-day run and a 7-day run get the 3-day discount on
-  the 3 and the 7-day discount on the 7.
-- **Order**: any set of days, not necessarily consecutive, with one token per day and **no limit** on the number of
-  days. A buyer of several days ends up owning each individual day token. Any grouping exists only for order matching.
+- An **asset** is one physical item. There is no pool capacity or interchangeable-unit quantity.
+- A **day token** is one ERC-20 contract per asset and Tokyo calendar date, with `decimals = 0` and exactly one raw unit of supply. It is never burned. Terms versions cannot create additional ownership for the same day.
+- Asset creation exposes a fixed 365-day horizon initially owned by the host. Deterministic lazy token deployment is permitted; there is no daily calendar extension.
+- Today and future days can trade. Past days are locked, and their tokens remain in existence.
+- **listed_price** is the price shown to external guests. **selling_price** is the price paid to acquire ownership of the day. They are separate.
+- The day owner controls selling_price and listing/unlisting. Days are listed by default; publication and execution must still respect actual owner authorization.
+- Only the host or its authorized relayer can report or undo a booking before the day passes. A booked day locks listed_price and remains tradable. Ownership transfers preserve its public booking curve and booking state.
+- Orders buy one or more consecutive days atomically, potentially from different owners. Each constituent token reaches the buyer. No arbitrary 31-day business cap applies; transaction gas and arithmetic validity still apply.
+- A host-controlled discount ladder belongs to the asset, replacing per-order/per-account ladders. A consecutive order uses its qualifying duration step. Quotes and settlement must agree on rounding and seller payouts.
+- OCO groups, collective activation, capacity accounting, terms-version IDs, burn-on-reserve and guest mandates are outside the demo.
 
-## How we build it
-First a working demo with simulated data, clearly labeled as simulated. Then each simulated part is
-replaced with the real on-chain part, one small PR at a time, so the app works at every commit.
+## Settlement and discovery
 
-## The demo
-- Top navigation: Dashboard, Calendar, Profile, Stats.
-- Multiple assets: several cars and rooms from different hosts.
-- Accounts: host, trader A, trader B, switched in the app to start.
-- Calendar per asset, from Jan 1 this year to 24 months ahead, one block per month, drawn from the viewer's side:
-  your days, days for sale (sale price, predicted price, gain), and other days (public price). Owners are not shown.
-- Actions: buy, list or unlist, set price, and "Mark as Booked" (simulates a renter booking).
-- Past days are locked. Whoever owns a day when its date passes is paid the booked price, or $0 if unbooked.
-- Blocks: select a run of listed days and buy them all or nothing, with length discounts
-  (3/7/14/21/30+ days at 5/10/15/20/25%, editable per account).
-- Predicted price = average booked price of past days on the same weekday. Sale prices start about 15% below it.
-- Price curve page: each day's price over the year before its date, editable from today on.
-- Stats page: predicted versus actual price, trade volume, and comparisons with other pricing tools (sample data, labeled).
-- Live updates across windows, and a reset that rebuilds the sample data.
+Use official Aqua accounting with ERC-20 assets and reuse SwapVM execution. Modify SwapVM only where required by the product; the active demo does not use the ERC-1155 AquaVapor ledger.
 
-## Simulated to real, in order
-1. The demo in Next.js with sample data, everything simulated and labeled.
-2. Wallet connect on Sepolia (Ethereum's test network), and a "get test money" button that mints labeled test USDC.
-3. Days become tokens the owner holds in their wallet (one ERC-20 per asset-day, supply 1, so SwapVM can trade it).
-4. Buying and selling through 1inch Aqua and SwapVM, deployed on Sepolia. A host's listing is a SwapVM order
-   paid in test USDC, with a block explorer link on every trade.
-5. A custom SwapVM instruction for all-or-nothing block buys with length discounts.
-6. On-chain payout: when a day passes, its owner is paid the booked price in test USDC.
-7. Stretch: prove real booking revenue with a web proof (TLSNotary or vlayer).
+The demo stays on **Sepolia** with test USDC. Strategies/orders are published onchain and a minimal open taker discovers, quotes and submits fills. The same wallet balance can back several alternatives; execution requires sufficient actual funds. Cancellation remains supported. There is no authoritative private order book and no claim that the hosted 1inch Orderbook API or production resolver network supports this deployment.
 
-What stays off-chain: the booking itself and the renter (simulated Turo/Airbnb) and the public price display.
-On-chain: day ownership, trades, discounts and payouts.
+Keep chain-derived read models and recoverable transaction submission where needed. The website reads actual contract/indexed state for each integrated feature; simulated data stays visibly labeled.
 
-## Stack and layout
-- `apps/web`: Next.js with wagmi and viem.
-- `contracts/`: Foundry project with Aqua/SwapVM, our instruction, tests and deploy scripts.
-  Deployed addresses in `contracts/deployments/sepolia.json`, read by the web app.
-- `docs/`: this plan, specs and prompts.
-- `README.md`, `FEEDBACK.md`, `LICENSE`, `.env.example`.
+## Demo acceptance
 
-## Repo rules
-- Every change is a PR from a branch. No direct pushes to `main`, no force pushes, no history rewrites.
-- One PR does one thing, with a conventional-commit title (`feat: ...`, `fix: ...`, `docs: ...`).
-- PRs are small and concise: one thing, aim under 300 changed lines, split above 800.
-- Big work lands as a sequence of small PRs, each leaving `main` working.
-- Full agent rules are in `AGENTS.md`. Every teammate's agents follow them.
-- Squash merge: one PR becomes one commit on `main`.
-- After each merge to `main`, CI runs format, lint, type check, unit tests, `forge build` and `forge test`, and backend tests against Anvil, and a separate check confirms the DigitalOcean deploy (which runs the Next.js build) succeeded. PRs only get a PR-format check; checks never block merging.
-- Never commit keys or `.env`. Contracts are deployed by hand from a wallet holding only test ETH.
-- Each PR description says what changed, how it was tested, and where AI was used.
-- Libraries and forked code are listed as reused in the README.
+1. Create an asset and display its 365-day calendar.
+2. Set prices, the asset discount ladder, and listings with the authorized wallet.
+3. Register a trader's budget; a later compatible price triggers an actual taker transaction.
+4. Buy consecutive days atomically, including a multi-seller example. Reject conflicting or unfunded fills without partial transfers.
+5. Report a booking through a mocked host-platform webhook and show the onchain status in the calendar. The adapter is an explicit external-booking oracle, not proof of a real Turo/Airbnb reservation.
+6. Use a fresh Sepolia deployment recorded in `contracts/deployments/sepolia.json`, real wallet extensions and test funds. Record the demo outside Git and clean up isolated wallets, approvals and processes safely.
 
-## Deploy
-- Web app on DigitalOcean App Platform: it auto-deploys every `main` push from source dir `apps/web`.
-- Contracts on Sepolia, so anyone can try the live site with a browser wallet.
+Booking-revenue payout must have identified backing before being represented as real money. External revenue reconciliation is separate from the mocked booking adapter. Preserve the owner's entitlement without introducing guest wallets or duplicate revenue tokens.
+
+## Subsequent integrations
+
+Retain atomic conversion of supported wallet tokens into buyer-held USDC plus settlement as a separate layer. Preserve signed funding bounds, surplus and full rollback.
+
+**ENS is last.** Use ENSv2 on Sepolia for asset/day name resolution to canonical or deterministically predicted ERC-20 addresses. Resolution does not deploy tokens or replace the event indexer. Existing authorizations bind concrete addresses across name changes.
+
+## Layout and delivery
+
+- `apps/web`: Next.js website, owned by Michael.
+- `apps/backend`: contract consumers, indexed reads, open taker and mock host-platform adapter.
+- `contracts`: Foundry contracts, focused tests and deployment tooling.
+- `docs`: public product and integration documentation.
+
+One proven layer per PR, with atomic commits, reproduction checks and AI attribution. Preserve other contributors' work. Follow `AGENTS.md` for publication and merging. Keep keys, private plans, recordings and generated execution artifacts outside Git.
+
+The prior ERC-1155 implementation is preserved at `checkpoint/erc1155-aquavapor` (`8a794ef62dd2f6df12efe470938fabcf16761796`). It is reference history, not an alternative active product path.
