@@ -8,6 +8,28 @@ Traders buy those days. Whoever owns a day sets its public rental price and keep
 Days can be resold between traders, and the host can buy days back. Renters never touch the platform.
 The price a day finally books at becomes the price signal for similar days.
 
+## Definitions
+These terms are authoritative. Where the rest of this plan conflicts with them, the definitions win, and the
+rest is being updated (see issue #44).
+
+- **Asset**: one single real-world thing, such as one car or one room. There are no identical units and no capacity.
+- **Listing**: an asset that can be booked on a particular day for a price.
+- **Day token**: exactly one token per asset per day, tradable. A day token is **never destroyed** (no burning).
+- **Day token metadata** (on chain): `booked`, `listed`, `listed_price`, `selling_price`, and more.
+  - `listed_price`: the price set on the host platform (Turo/Airbnb). This is what the guest pays.
+  - `selling_price`: the token's sale price between traders.
+  - Booking only sets `booked = true`. That locks `listed_price`, and the token stays tradable.
+- **Host**: owns the asset and its host-platform account, and owns the day tokens when they are created.
+- **Trader**: buys and sells day tokens.
+- **Guest**: the host platform's end user. Guests are **not represented** in Project Tokyo at all. They only pay
+  `listed_price` on the host platform. There is no guest, beneficiary or renter address on chain.
+- **Default listing**: by default, the owner has a sell order for every day. Unlisting removes that day's sell order.
+- **Discount ladder**: set per **asset**, for example `[(3 days, 10%), (7 days, 20%), ...]`. It applies **per run of
+  consecutive days**. For example, 10 selected days made of a 3-day run and a 7-day run get the 3-day discount on
+  the 3 and the 7-day discount on the 7.
+- **Order**: any set of days, not necessarily consecutive, with one token per day and **no limit** on the number of
+  days. A buyer of several days ends up owning each individual day token. Any grouping exists only for order matching.
+
 ## How we build it
 First a working demo with simulated data, clearly labeled as simulated. Then each simulated part is
 replaced with the real on-chain part, one small PR at a time, so the app works at every commit.
