@@ -46,9 +46,50 @@ ID and exact body; a reversal uses a new event ID.
 
 ### Next.js API (DigitalOcean web service)
 
+#### Encrypted runtime configuration
+
+The web workspace uses [dotenvx](https://dotenvx.com/docs/ops/production) to
+decrypt `apps/web/.env.production` before `npm run dev --workspace=web` or
+`npm start --workspace=web`. Commit that file only with encrypted values.
+Keep `apps/web/.env.keys` private; it is ignored by Git.
+
+Local setup:
+
+1. Obtain the decryption key from the project owner through a private channel.
+2. Put `DOTENV_PRIVATE_KEY_PRODUCTION=...` in `apps/web/.env.keys` and
+   restrict access with `chmod 600 apps/web/.env.keys`.
+3. Run `npm run dev --workspace=web`.
+
+To change configuration, edit `apps/web/.env.production`, then run
+`npm run env:encrypt --workspace=web` **before staging it**. Existing
+ciphertext is retained; new plaintext values are encrypted. Inspect the diff:
+secret values must start with `encrypted:`; the public encryption key is safe
+to commit. Never commit the decryption key. An existing shell or platform
+variable takes precedence over the file. Remove an old `DAY_RPC_URL` override
+if the encrypted file should supply it.
+
+DigitalOcean App Platform (Node 22.13 or newer):
+
+- Build command from the repository root: `npm run build`.
+- Run command: `npm start --workspace=web -- --hostname 0.0.0.0`.
+- In the web component's environment settings, add
+  `DOTENV_PRIVATE_KEY_PRODUCTION`, select **Encrypt**, and use **Run Time**
+  scope. Paste only its value from the private key file.
+- Leave the port configured by App Platform available as `PORT`; Next.js
+  reads it automatically.
+- Save and redeploy. Check `/api/day/config` and then `/api/day/state`.
+  The state endpoint may initially report indexing.
+- Set the key before deploying this change: missing or incorrect keys stop
+  startup rather than sending ciphertext to the RPC provider.
+
+The build does not decrypt configuration or require a private key. RPC
+credentials remain server-only; never prefix them with `NEXT_PUBLIC_`.
+No database or dotenvx account is required. See
+[DigitalOcean environment settings](https://docs.digitalocean.com/products/app-platform/how-to/use-environment-variables/).
+
 The web app serves `/api/day/*` directly through the shared backend handler.
-Use Node **22.13 or newer**. Sepolia works without environment setup: the API uses
-the checked-in deployment manifest and viem's public Sepolia RPC. Optional server overrides:
+Use Node **22.13 or newer**. The encrypted runtime file supplies the Sepolia RPC;
+contract addresses come from the checked-in deployment manifest. Optional server overrides:
 
 - `DAY_CONFIG_JSON`: the JSON object described above, with the deployment's actual
   `startBlock` and optional `conversion` configuration. This replaces `DAY_CONFIG`

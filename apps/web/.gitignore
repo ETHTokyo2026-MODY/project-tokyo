@@ -36,3 +36,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# dotenvx ciphertext is publishable; decryption keys remain private.
+!.env.production
+.env.keys*
