@@ -1,6 +1,26 @@
 # Agent rules
 
 Rules for every coding agent (human or AI) working in this repo.
+These rules apply to every agent and person on every teammate's computer, and
+agents must also follow `docs/PLAN.md`.
+
+## Small PRs
+
+- One thing per PR, small and concise. Aim for under 300 changed lines; over 800
+  changed lines (not counting lockfiles or generated files) must be split.
+- Split big work into a sequence of small PRs, each one leaving `main` working
+  (builds, tests pass). Open the next PR after the previous one merges, or base
+  it on `main` with a clear order.
+- Squash merge means the PR is the commit on `main`, so PR size is commit size.
+- Keep generated output (deployment receipts, broadcast logs, build artifacts)
+  out of feature PRs; commit only the few files that are needed, in their own PR.
+- Before starting, check open PRs so work is not duplicated.
+- Architecture decisions come from `docs/PLAN.md`. To change one (for example
+  the token standard or network), first open a small `docs:` PR updating the
+  plan, agreed by Michael and Darryl, before writing code for it.
+- Commit as the human teammate you work for (their git name and email). Do not
+  add AI co-author trailers; record AI usage in the PR body instead.
+- No draft or placeholder PRs; open a PR when its checks pass locally.
 
 ## Workflow
 
