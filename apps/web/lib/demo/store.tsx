@@ -10,8 +10,10 @@ import {
   type ActionResult,
 } from '../chain/store';
 export type DemoDispatchResult = ActionResult;
+// Deployed builds always expose live wallets; the local preview mode is explicit.
 export const DATA_MODE: 'sample' | 'live' = 'sample';
-export const SAMPLE_MODE = DATA_MODE === 'sample';
+export const SAMPLE_MODE =
+  process.env.NODE_ENV !== 'production' && DATA_MODE === 'sample';
 export function DemoProvider({ children }: { children: ReactNode }) {
   return SAMPLE_MODE ? (
     <SampleProvider>{children}</SampleProvider>

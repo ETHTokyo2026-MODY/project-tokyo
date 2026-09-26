@@ -59,10 +59,9 @@ the checked-in deployment manifest and viem's public Sepolia RPC. Optional serve
 - `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash. By default
   this is the request origin; set it if the reverse proxy rewrites the public URL.
 
-Wallet controls appear in live mode, which is the default. A build with
-`NEXT_PUBLIC_DATA_MODE=sample` hides them and shows simulated accounts. Remove
-that override or set it to `chain`, then rebuild; changing only runtime variables
-will not change this client-side build setting.
+Production builds always expose the live wallet flow. The `DATA_MODE` constant
+in `apps/web/lib/demo/store.tsx` selects the local preview mode. A previously
+deployed sample build must be replaced with the current production build.
 
 No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
 state, curves, receipts, or unsigned transaction preparation. Configuration and
