@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:days": "forge build --root ../../contracts && node --test test/day.integration.mjs",
     "start": "node src/server.mjs",
     "test:integration": "forge build --root ../../contracts && node --test test/integration.mjs test/revenue.integration.mjs test/conversion.integration.mjs && node ../../contracts/scripts/native-smoke.mjs"
   },
