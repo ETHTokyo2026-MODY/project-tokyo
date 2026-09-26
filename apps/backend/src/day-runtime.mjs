@@ -21,7 +21,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { EventIndex } from './event-index.mjs';
-import { DayTaker } from './day-taker.mjs';
+import { DayTaker, transactionGasLimit } from './day-taker.mjs';
 import { createDayServer } from './day-server.mjs';
 import {
   dayFactoryAbi,
@@ -89,6 +89,9 @@ function normalize(config) {
     startBlock: integer(config.startBlock),
     confirmations: integer(config.confirmations, 2),
     maxFills: integer(config.maxFills, 1, 1),
+    transactionGasLimit: Number(
+      transactionGasLimit(config.transactionGasLimit),
+    ),
   };
   for (const key of ['factory', 'router', 'aqua', 'usdc']) {
     result[key] = getAddress(config[key]);

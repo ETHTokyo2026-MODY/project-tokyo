@@ -24,6 +24,56 @@ const rejected = (error) =>
 const askHash = (asks) =>
   keccak256(concatHex(asks.map((ask) => hashDayStrategy('ask', ask))));
 const protocol = 'day-v1';
+export const DEFAULT_TRANSACTION_GAS_LIMIT = 16_777_216n;
+
+export function transactionGasLimit(value = DEFAULT_TRANSACTION_GAS_LIMIT) {
+  if (!(
+    typeof value === 'bigint' ||
+    (typeof value === 'number' && Number.isSafeInteger(value)) ||
+    (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))
+  ))
+    throw new Error('Invalid transaction gas limit');
+  const limit = BigInt(value);
+  if (limit < 21_000n || limit > DEFAULT_TRANSACTION_GAS_LIMIT)
+    throw new Error('Transaction gas limit must be between 21000 and 16777216');
+  return limit;
+}
+
+class CandidateGasError extends Error {}
+
+// RPC wrappers vary by provider. Recognize explicit execution gas failures,
+// while retaining transport/authentication failures even if their text mentions gas.
+function gasRejected(error) {
+  const causes = [],
+    seen = new Set();
+  for (let cause = error; cause && !seen.has(cause); cause = cause.cause) {
+    seen.add(cause);
+    causes.push(cause);
+  }
+  if (
+    causes.some((cause) =>
+      [
+        'HttpRequestError',
+        'TimeoutError',
+        'SocketClosedError',
+        'WebSocketRequestError',
+      ].includes(cause.name),
+    )
+  )
+    return false;
+  return causes.some(
+    (cause) =>
+      cause instanceof CandidateGasError ||
+      [
+        'IntrinsicGasTooHighError',
+        'IntrinsicGasTooLowError',
+        'GasLimitTooHighError',
+      ].includes(cause.name) ||
+      /\bout of gas\b|gas required exceeds allowance|exceeds (?:the )?(?:block|transaction) gas limit|intrinsic gas too (?:low|high)|gas limit (?:is )?(?:too high|exceeded)/i.test(
+        cause.details ?? cause.message ?? '',
+      ),
+  );
+}
 
 /** Permissionless execution of chain-published orders; only exact transaction recovery is durable. */
 export class DayTaker {
@@ -45,13 +95,32 @@ export class DayTaker {
       aqua: getAddress(config.aqua),
       factory: getAddress(config.factory),
       maxFills: config.maxFills ?? 1,
+      transactionGasLimit: transactionGasLimit(config.transactionGasLimit),
     };
     this.db = db;
     this.index = index;
     this.client = client;
     this.wallet = wallet;
     this.sender = wallet.account.address.toLowerCase();
-    this.submissions = new StoredSubmission(db, client, wallet, {
+    const checkGas = (request) => {
+      if (typeof request.gas !== 'bigint' || request.gas < 21_000n)
+        throw new Error(
+          'Prepared settlement requires an explicit valid gas estimate',
+        );
+      if (request.gas > this.config.transactionGasLimit)
+        throw new CandidateGasError('Candidate exceeds transaction gas limit');
+      return request;
+    };
+    // StoredSubmission prepares before inserting its durable nonce record.
+    // Reject oversized estimates at that boundary; never delete an admitted job.
+    const boundedWallet = {
+      account: wallet.account,
+      chain: wallet.chain,
+      prepareTransactionRequest: async (request) =>
+        checkGas(await wallet.prepareTransactionRequest(request)),
+      signTransaction: (request) => wallet.signTransaction(checkGas(request)),
+    };
+    this.submissions = new StoredSubmission(db, client, boundedWallet, {
       chainId: config.chainId,
       kind: 'ordinary',
     });
@@ -182,6 +251,7 @@ export class DayTaker {
       functionName: 'settle',
       args: [call.bid, call.asks, call.programs],
       account: this.wallet.account,
+      gas: this.config.transactionGasLimit,
     });
   }
 
@@ -361,7 +431,11 @@ export class DayTaker {
         if (status.state === 'pending') return { ...result, state: 'pending' };
       } catch (error) {
         // Contract rejections remain conditional; transport and recovery faults must surface.
-        if ((id && this.submissions.get(id)) || !rejected(error)) throw error;
+        if (
+          (id && this.submissions.get(id)) ||
+          (!rejected(error) && !gasRejected(error))
+        )
+          throw error;
       }
     }
     return result;

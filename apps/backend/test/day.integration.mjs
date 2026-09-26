@@ -22,8 +22,8 @@ import {
 const events = (abi) => abi.filter((entry) => entry.type === 'event');
 
 /** Real contract fixture; the localChain teardown owns exactly its Anvil child. */
-async function dayMarket(t) {
-  const chain = await localChain(t);
+async function dayMarket(t, chainOptions) {
+  const chain = await localChain(t, chainOptions);
   const { client, wallets, deploy, read, write, receipt } = chain;
   const [host, seller, buyer, taker] = wallets;
   const usdc = await deploy('MarketUSDC', [], 'DaySwapVM.t');
@@ -691,3 +691,209 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
   await client.request({ method: 'anvil_mine', params: ['0x2'] });
   assert.equal((await request(`/receipt/${latestHash}`)).status, 'success');
 });
+
+test(
+  'cold calendar settlement respects the transaction gas budget and keeps later bids live',
+  { timeout: 180000 },
+  async (t) => {
+    const f = await dayMarket(t, { hardfork: 'cancun' });
+    // Cancun permits uncapped measurement below; admission explicitly enforces Sepolia EIP-7825.
+    const gasCap = 16_777_216n;
+    const count = 365;
+    const bid = {
+      buyer: f.buyer.account.address,
+      chainId: 31337n,
+      app: f.router.address,
+      asset: f.asset.address,
+      startDay: f.startDay,
+      endDayExclusive: f.startDay + count,
+      maxTotal: BigInt(count) * 100_000000n,
+      nonce: 999n,
+      deadline: Number((await f.client.getBlock()).timestamp) + 86400,
+      salt: zeroHash,
+    };
+    await f.write(f.host, f.usdc, 'mint', [bid.buyer, bid.maxTotal]);
+    await f.approve(f.buyer, f.usdc.address, bid.maxTotal);
+    await f.publish(f.buyer, 'bid', bid, f.usdc.address);
+    const asks = [];
+    for (let i = 0; i < count; i++) {
+      const day = f.startDay + i;
+      await f.write(f.host, f.asset, 'materialize', [day]);
+      const state = await f.read(f.asset, 'dayState', [day]);
+      await f.approve(f.host, state.token, 1n);
+      const ask = await f.makeAsk(day);
+      asks.push(ask);
+      await f.publish(f.host, 'ask', ask, state.token);
+    }
+    const programs = await f.programsFor(bid);
+    const request = {
+      ...f.router,
+      functionName: 'settle',
+      args: [bid, asks, programs],
+    };
+    const before = await f.read(f.asset, 'rangeState', [
+      bid.startDay,
+      bid.endDayExclusive,
+    ]);
+    const balances = await Promise.all(
+      [bid.buyer, f.host.account.address].map((a) =>
+        f.read(f.usdc, 'balanceOf', [a]),
+      ),
+    );
+    const aquaBid = await f.read(f.aqua, 'rawBalances', [
+      bid.buyer,
+      f.router.address,
+      hashDayStrategy('bid', bid),
+      f.usdc.address,
+    ]);
+    const askBalances = () =>
+      Promise.all(
+        asks.map((ask, i) =>
+          f.read(f.aqua, 'rawBalances', [
+            ask.seller,
+            f.router.address,
+            hashDayStrategy('ask', ask),
+            before[i].token,
+          ]),
+        ),
+      );
+    const aquaAsks = await askBalances();
+    // Submit rather than infer rollback from eth_call; a nested OOG can surface as SafeTransferFromFailed.
+    const failedHash = await f.taker.writeContract({ ...request, gas: gasCap });
+    const failed = await f.client.waitForTransactionReceipt({
+      hash: failedHash,
+    });
+    assert.equal(failed.status, 'reverted');
+    assert.equal(failed.logs.length, 0);
+    assert.deepEqual(
+      await f.read(f.asset, 'rangeState', [bid.startDay, bid.endDayExclusive]),
+      before,
+    );
+    assert.deepEqual(
+      await Promise.all(
+        [bid.buyer, f.host.account.address].map((a) =>
+          f.read(f.usdc, 'balanceOf', [a]),
+        ),
+      ),
+      balances,
+    );
+    assert.deepEqual(
+      await f.read(f.aqua, 'rawBalances', [
+        bid.buyer,
+        f.router.address,
+        hashDayStrategy('bid', bid),
+        f.usdc.address,
+      ]),
+      aquaBid,
+    );
+    assert.deepEqual(await askBalances(), aquaAsks);
+    assert.equal(await f.read(f.router, 'used', [bid.buyer, bid.nonce]), false);
+    t.diagnostic(
+      `365-day capped transaction reverted, gas used ${failed.gasUsed}`,
+    );
+
+    // Diagnostic only: raise the local block limit to measure the full cold transaction.
+    // This transaction is deliberately inadmissible on current Sepolia, then reverted locally.
+    const originalBlockGasLimit = (await f.client.getBlock()).gasLimit;
+    const snapshot = await f.client.request({ method: 'evm_snapshot' });
+    await f.client.request({
+      method: 'evm_setBlockGasLimit',
+      params: ['0x5f5e100'],
+    });
+    const fullHash = await f.taker.writeContract({
+      ...request,
+      gas: 90_000_000n,
+    });
+    const full = await f.client.waitForTransactionReceipt({ hash: fullHash });
+    assert.equal(full.status, 'success');
+    assert.ok(full.gasUsed > gasCap);
+    t.diagnostic(
+      `365-day uncapped cold transaction gas: ${full.gasUsed} (exceeds Sepolia cap ${gasCap})`,
+    );
+    assert.equal(
+      await f.client.request({ method: 'evm_revert', params: [snapshot] }),
+      true,
+    );
+
+    await f.client.request({
+      method: 'evm_setBlockGasLimit',
+      params: [`0x${originalBlockGasLimit.toString(16)}`],
+    });
+
+    for (const size of [7, 31]) {
+      const snapshot = await f.client.request({ method: 'evm_snapshot' });
+      const bounded = {
+        ...bid,
+        endDayExclusive: bid.startDay + size,
+        maxTotal: BigInt(size) * 100_000000n,
+        nonce: BigInt(size),
+      };
+      await f.publish(f.buyer, 'bid', bounded, f.usdc.address);
+      const hash = await f.taker.writeContract({
+        ...f.router,
+        functionName: 'settle',
+        args: [bounded, asks.slice(0, size), await f.programsFor(bounded)],
+        gas: gasCap,
+      });
+      const mined = await f.receipt(hash);
+      assert.ok(mined.gasUsed < gasCap);
+      assert.equal(
+        await f.read(f.router, 'used', [bid.buyer, bounded.nonce]),
+        true,
+      );
+      t.diagnostic(`${size}-day cold transaction gas: ${mined.gasUsed}`);
+      assert.equal(
+        await f.client.request({ method: 'evm_revert', params: [snapshot] }),
+        true,
+      );
+    }
+
+    // The first published bid cannot fit. A later independently valid bid must still execute.
+    const medium = {
+      ...bid,
+      endDayExclusive: bid.startDay + 150,
+      maxTotal: 15000_000000n,
+      nonce: 150n,
+    };
+    await f.publish(f.buyer, 'bid', medium, f.usdc.address);
+    const small = {
+      ...bid,
+      endDayExclusive: bid.startDay + 7,
+      maxTotal: 700_000000n,
+      nonce: 7n,
+    };
+    const smallHash = await f.publish(f.buyer, 'bid', small, f.usdc.address);
+    const { db, index } = chainIndex(t, f);
+    for (let i = 0; i < 30 && !(await index.readiness()).ready; i++)
+      await index.sync();
+    assert.equal((await index.readiness()).ready, true);
+    const taker = new DayTaker(db, index, f.client, f.taker, {
+      ...f.config,
+      transactionGasLimit: gasCap,
+    });
+    let executed;
+    try {
+      executed = await taker.tick();
+    } catch (error) {
+      assert.fail(
+        `Taker admission failed: ${error.shortMessage ?? error.message.split('\n')[0]}`,
+      );
+    }
+    assert.equal(executed.submissions.length, 1);
+    assert.equal(executed.submissions[0].bidHash, smallHash);
+    assert.equal(await f.read(f.router, 'used', [bid.buyer, bid.nonce]), false);
+    assert.equal(
+      await f.read(f.router, 'used', [bid.buyer, medium.nonce]),
+      false,
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+      1,
+    );
+    await taker.tick();
+    assert.equal(
+      await f.read(f.router, 'used', [bid.buyer, small.nonce]),
+      true,
+    );
+  },
+);

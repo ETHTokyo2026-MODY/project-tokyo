@@ -90,6 +90,7 @@ function setup(t, extraRows = []) {
     receipts: new Map(),
     used: new Set(),
     simulations: [],
+    simulationGas: [],
     nextStatus: 'success',
     nextLogs: true,
     async getChainId() {
@@ -113,8 +114,9 @@ function setup(t, extraRows = []) {
       if (functionName === 'program') return '0x1234';
       throw new Error(`Unexpected read ${functionName}`);
     },
-    async simulateContract({ args }) {
+    async simulateContract({ args, gas }) {
       this.simulations.push(args);
+      this.simulationGas.push(gas);
       if (this.failure) throw this.failure;
       return { result: 90n };
     },
@@ -186,7 +188,8 @@ function setup(t, extraRows = []) {
     index,
     client,
     wallet,
-    make: () => new DayTaker(db, index, client, wallet, config),
+    make: (overrides = {}) =>
+      new DayTaker(db, index, client, wallet, { ...config, ...overrides }),
   };
 }
 
@@ -313,10 +316,109 @@ test('restart replays saved signed bytes and nonce without signing again', async
   f.wallet.signTransaction = async () => {
     throw new Error('unexpected signature');
   };
-  const recovered = await f.make().tick();
+  const recovered = await f.make({ transactionGasLimit: 21_000n }).tick();
   assert.equal(recovered.recovered[0].state, 'filled');
   assert.equal(recovered.submissions.length, 0);
   assert.deepEqual(f.client.sent, [saved.raw, saved.raw]);
   assert.deepEqual(f.db.prepare('SELECT * FROM submissions').get(), saved);
   assert.equal(f.wallet.signatures, 1);
+});
+
+test('gas admission validates configured bounds and caps actual simulation', async (t) => {
+  const f = setup(t);
+  for (const limit of [0n, 20_999n, 16_777_217n, 1.5, NaN, '2e6', true, null])
+    assert.throws(() => f.make({ transactionGasLimit: limit }), /gas limit/);
+  await f.make({ transactionGasLimit: '1000000' }).tick();
+  assert.deepEqual(f.client.simulationGas, [1_000_000n]);
+});
+
+test('oversized oldest simulation skips without a saved job and later bid fills', async (t) => {
+  const newer = { ...bid, nonce: 2n };
+  const f = setup(t, [publication('bid', newer, 3)]);
+  const simulate = f.client.simulateContract.bind(f.client);
+  f.client.simulateContract = async (request) => {
+    assert.equal(request.gas, 16_777_216n);
+    if (request.args[0].nonce === 1n)
+      throw Object.assign(new Error('settle simulation failed'), {
+        name: 'ContractFunctionExecutionError',
+        cause: Object.assign(new Error('out of gas'), {
+          name: 'RpcRequestError',
+        }),
+      });
+    return simulate(request);
+  };
+  const result = await f.make().tick();
+  assert.equal(result.submissions[0].bidHash, hashDayStrategy('bid', newer));
+  assert.equal(
+    f.db.prepare('SELECT count(*) AS n FROM submissions').get().n,
+    1,
+  );
+  assert.equal(f.wallet.signatures, 1);
+});
+
+test('oversized prepared estimate is rejected before durable nonce admission', async (t) => {
+  const newer = { ...bid, nonce: 2n };
+  const f = setup(t, [publication('bid', newer, 3)]);
+  const prepare = f.wallet.prepareTransactionRequest.bind(f.wallet);
+  f.wallet.prepareTransactionRequest = async (request) => ({
+    ...(await prepare(request)),
+    gas:
+      decodeFunctionData({ abi: dayRouterAbi, data: request.data }).args[0]
+        .nonce === 1n
+        ? 16_777_217n
+        : 1_000_000n,
+  });
+  const result = await f.make().tick();
+  assert.equal(result.submissions[0].bidHash, hashDayStrategy('bid', newer));
+  const jobs = f.db.prepare('SELECT bid_hash,nonce FROM submissions').all();
+  assert.deepEqual(
+    jobs.map((job) => [job.bid_hash, job.nonce]),
+    [[hashDayStrategy('bid', newer), 0]],
+  );
+});
+
+test('candidate estimation gas rejection skips but nested transport failure surfaces', async (t) => {
+  const newer = { ...bid, nonce: 2n };
+  const f = setup(t, [publication('bid', newer, 3)]);
+  const prepare = f.wallet.prepareTransactionRequest.bind(f.wallet);
+  let cause = Object.assign(new Error('out of gas response unavailable'), {
+    name: 'TimeoutError',
+  });
+  f.wallet.prepareTransactionRequest = async (request) => {
+    if (
+      decodeFunctionData({ abi: dayRouterAbi, data: request.data }).args[0]
+        .nonce === 1n
+    )
+      throw Object.assign(new Error('estimate failed'), {
+        name: 'EstimateGasExecutionError',
+        cause,
+      });
+    return prepare(request);
+  };
+  await assert.rejects(f.make().tick(), /estimate failed/);
+  assert.equal(
+    f.db.prepare('SELECT count(*) AS n FROM submissions').get().n,
+    0,
+  );
+  cause = Object.assign(
+    new Error('gas required exceeds allowance (16777216)'),
+    { name: 'RpcRequestError' },
+  );
+  const result = await f.make().tick();
+  assert.equal(result.submissions[0].bidHash, hashDayStrategy('bid', newer));
+  assert.equal(f.wallet.signatures, 1);
+});
+
+test('saved unsigned job gas failure is retained and blocks new admission', async (t) => {
+  const f = setup(t, [publication('bid', { ...bid, nonce: 2n }, 3)]);
+  f.wallet.signTransaction = async () => {
+    throw new Error('keystore unavailable');
+  };
+  await assert.rejects(f.make().tick(), /keystore unavailable/);
+  const saved = f.db.prepare('SELECT * FROM submissions').get();
+  assert.equal(saved.raw, null);
+  f.client.failure = new Error('out of gas');
+  await assert.rejects(f.make().tick(), /out of gas/);
+  assert.deepEqual(f.db.prepare('SELECT * FROM submissions').all(), [saved]);
+  assert.equal(f.client.sent.length, 0);
 });
