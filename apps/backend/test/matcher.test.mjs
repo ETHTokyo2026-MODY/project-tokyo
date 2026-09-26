@@ -28,6 +28,35 @@ const config = {
   usdc: '0x2222222222222222222222222222222222222222',
 };
 
+test('saved signed jobs cannot be retried with a different exact call', async () => {
+  const store = new Store(filename());
+  try {
+    const sender = new StoredSubmission(store.db, fakeClient(), localWallet(), {
+      chainId: config.chainId,
+      kind: 'ordinary',
+    });
+    const args = {
+      id: 'saved-call',
+      bidHash: 'bid',
+      askHash: 'ask',
+      to: config.router,
+      data: '0x1234',
+      simulate: async () => {},
+    };
+    await sender.submit(args);
+    await assert.rejects(
+      sender.submit({ ...args, to: config.usdc }),
+      /Stored transaction differs/,
+    );
+    await assert.rejects(
+      sender.submit({ ...args, data: '0x5678' }),
+      /Stored transaction differs/,
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test('legacy ordinary submissions migrate into the shared nonce namespace', () => {
   const store = new Store(filename());
   try {

@@ -173,16 +173,16 @@ export class StoredSubmission {
       .get(this.sender, job.nonce);
     if (unsignedPrior)
       throw new Error('Earlier relayer submission requires recovery');
+    const request = unpack(job.unsigned);
+    if (
+      !same(request.to, to) ||
+      !same(request.data, data) ||
+      request.nonce !== job.nonce ||
+      Number(request.chainId) !== this.chainId ||
+      (request.value ?? 0n) !== 0n
+    )
+      throw new Error('Stored transaction differs from exact call');
     if (!job.raw) {
-      const request = unpack(job.unsigned);
-      if (
-        !same(request.to, to) ||
-        !same(request.data, data) ||
-        request.nonce !== job.nonce ||
-        Number(request.chainId) !== this.chainId ||
-        (request.value ?? 0n) !== 0n
-      )
-        throw new Error('Stored transaction differs from exact call');
       const raw = await this.walletClient.signTransaction({
         ...request,
         account: this.walletClient.account,
