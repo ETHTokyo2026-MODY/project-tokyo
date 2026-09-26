@@ -1,20 +1,22 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, edited, synchronize, reopened]
-  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
     name: checks
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,6 +47,7 @@ jobs:
 
   backend-proof:
     name: contracts and backend integration
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -78,26 +81,20 @@ jobs:
 
   pr-format:
     name: pr-format
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
 
       - name: Set up Node.js
-        if: github.event_name == 'pull_request'
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Check PR title and body
-        if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/check-pr.mjs
-
-      - name: PR format already checked
-        if: github.event_name == 'merge_group'
-        run: echo 'PR format was already checked on the PR'
