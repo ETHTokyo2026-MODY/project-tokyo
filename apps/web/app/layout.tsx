@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Night Market',
+  title: 'Project Tokyo',
   description:
     'A market where hosts presell future room-nights and traders set the price.',
 };
