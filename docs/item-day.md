@@ -25,13 +25,33 @@ obtain both from the owner.
 The foundation uses OpenZeppelin ERC-20 and deterministic clones with immutable
 arguments. There is no upgrade administrator or privileged transfer path.
 
+## Prices and booking reports
+
+Asset creation supplies descriptive metadata, seven weekday booking/selling prices
+and a booking-price minimum. Owners control selling prices and listing status.
+Booking prices use the existing cubic ease-in-out curve and round half-up to whole
+USD, represented in six-decimal USDC units. Selling prices remain independent and
+may use USDC's full precision. Authored curve points change only through an owner
+edit; reading a calendar never reanchors a curve.
+
+Only the host or its explicitly authorized reporter can mark or undo a booking
+before the service day passes. Booking freezes the current public price. It does
+not transfer or burn the token, prevent resale, or collect guest funds. The owner
+and curve survive booking changes; the booking and curve survive ownership changes.
+Unbooking resumes the retained curve at the current date.
+
+The host controls one versioned discount ladder per asset. Its greatest qualifying
+duration threshold applies to the entire consecutive purchase, across sellers.
+A later settlement layer must authenticate seller consent to the ladder version.
+Reporting a booking attests external activity; it does not establish funded revenue.
+
 ## Reproduce
 
 With the pinned Foundry dependencies installed, run from `contracts`:
 
 ```sh
-forge test --match-path 'test/day/*.t.sol'
+forge test --match-path 'test/{day,pricing}/*.t.sol'
 ```
 
-This layer establishes ownership and lifecycle. Pricing, booking reports and Aqua
-settlement are subsequent layers; these tests do not establish their behavior.
+These tests establish ownership, lifecycle, prices and booking-report authority.
+Full Aqua settlement is a subsequent layer.

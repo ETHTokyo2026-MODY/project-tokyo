@@ -21,9 +21,14 @@ contract RentalAssetFactory {
         dayTokenImplementation = address(new DayToken());
     }
 
-    function createAsset(bytes32 hostSalt) external returns (address asset) {
+    function createAsset(
+        bytes32 hostSalt,
+        string calldata metadataURI,
+        RentalAsset.AssetDefaults calldata defaults,
+        RentalAsset.DiscountStep[] calldata discounts
+    ) external returns (address asset) {
         require(assets[msg.sender][hostSalt] == address(0), AssetAlreadyExists());
-        RentalAsset created = new RentalAsset(msg.sender, dayTokenImplementation);
+        RentalAsset created = new RentalAsset(msg.sender, dayTokenImplementation, metadataURI, defaults, discounts);
         asset = address(created);
         assets[msg.sender][hostSalt] = asset;
         isAsset[asset] = true;

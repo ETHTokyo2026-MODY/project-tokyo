@@ -19,7 +19,7 @@ contract DayAssetsTest is Test {
         vm.warp(1_800_000_000);
         factory = new RentalAssetFactory();
         vm.prank(host);
-        asset = RentalAsset(factory.createAsset(bytes32("car")));
+        asset = RentalAsset(_createAsset(bytes32("car")));
         today = asset.currentDay();
     }
 
@@ -58,9 +58,9 @@ contract DayAssetsTest is Test {
     function testHostSaltIsScopedAndCannotBeReused() public {
         vm.prank(host);
         vm.expectRevert(RentalAssetFactory.AssetAlreadyExists.selector);
-        factory.createAsset(bytes32("car"));
+        _createAsset(bytes32("car"));
         vm.prank(buyer);
-        RentalAsset other = RentalAsset(factory.createAsset(bytes32("car")));
+        RentalAsset other = RentalAsset(_createAsset(bytes32("car")));
         assertEq(other.host(), buyer);
         assertNotEq(asset.tokenAddress(today), other.tokenAddress(today));
     }
@@ -234,7 +234,7 @@ contract DayAssetsTest is Test {
     function testGasAssetCreation() public {
         vm.prank(host);
         uint256 before = gasleft();
-        factory.createAsset(bytes32("gas"));
+        _createAsset(bytes32("gas"));
         emit log_named_uint("asset creation execution gas", before - gasleft());
     }
 
@@ -250,6 +250,16 @@ contract DayAssetsTest is Test {
         uint256 before = gasleft();
         token.transfer(buyer, 1);
         emit log_named_uint("day transfer execution gas (warm after materialization)", before - gasleft());
+    }
+
+    function _createAsset(bytes32 salt) internal returns (address) {
+        RentalAsset.AssetDefaults memory defaults;
+        defaults.minimum = 40e6;
+        for (uint256 i; i < 7; ++i) {
+            defaults.listedPrices[i] = 80e6;
+            defaults.sellingPrices[i] = 60e6;
+        }
+        return factory.createAsset(salt, "ipfs://item", defaults, new RentalAsset.DiscountStep[](0));
     }
 
     function _assertOwner(DayToken token, address expected, uint64 nonce) private view {
