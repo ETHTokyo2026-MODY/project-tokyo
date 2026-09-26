@@ -1,3 +1,4 @@
+import { tokyoDay } from '@/lib/ens/dates';
 import { listEnsAssets } from '@/lib/ens/server';
 
 export const runtime = 'nodejs';
@@ -7,7 +8,11 @@ export async function GET(request: Request) {
   const includeTest = new URL(request.url).searchParams.get('test') === '1';
   try {
     const assets = await listEnsAssets(includeTest);
-    return Response.json({ assets });
+    return Response.json({
+      assets,
+      ready: true,
+      today: tokyoDay(Math.floor(Date.now() / 1000)),
+    });
   } catch (error) {
     return Response.json(
       {

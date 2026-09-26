@@ -169,6 +169,9 @@ function LimitForm({
           Wallet balance: {money(cash)} USDC. Fund the wallet before a fill.
         </div>
       ) : null}
+      {!state?.historyReady ? (
+        <div className="note">Market activity is loading</div>
+      ) : null}
       {mine.map((b) => (
         <div className="row" key={b.id}>
           <span className="note">

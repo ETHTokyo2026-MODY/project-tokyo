@@ -86,7 +86,7 @@ function ProfileInner() {
           <div className="sub">Trades</div>
           <div className="t" style={{ fontSize: 22 }}>
             {state.chain && !state.historyReady
-              ? 'Not indexed'
+              ? 'Market activity is loading'
               : p.historyCount}
           </div>
         </div>
@@ -191,7 +191,7 @@ function ProfileInner() {
               <div className="muted">
                 Showing the latest {p.history.length} of{' '}
                 {state.chain && !state.historyReady
-                  ? 'Not indexed'
+                  ? 'Market activity is loading'
                   : p.historyCount}
                 .
               </div>
@@ -202,7 +202,7 @@ function ProfileInner() {
             {state.chain
               ? state.historyReady
                 ? 'No indexed trades for this wallet.'
-                : 'Trade history is not indexed.'
+                : 'Market activity is loading'
               : 'No trades yet.'}
           </div>
         )}

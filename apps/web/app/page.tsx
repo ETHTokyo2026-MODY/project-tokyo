@@ -216,7 +216,9 @@ export default function DashboardPage() {
             Orders share wallet USDC. An open order is conditional on available
             days and funds at fill.
           </div>
-          {state.bids?.length ? (
+          {!state.historyReady ? (
+            <div className="note">Market activity is loading</div>
+          ) : state.bids?.length ? (
             state.bids.map((bid) => (
               <div className="row" key={bid.id}>
                 <Link

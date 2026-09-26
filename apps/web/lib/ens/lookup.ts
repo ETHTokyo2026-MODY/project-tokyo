@@ -14,6 +14,7 @@ import {
   urAbi,
 } from './abi';
 import {
+  DAY_CHUNK,
   ENS,
   LABEL_REGISTERED_TOPIC,
   LOG_CHUNK,
@@ -202,13 +203,19 @@ export async function readDayMetadata(
   endDayExclusive: number,
 ): Promise<DayMetadata[]> {
   if (endDayExclusive <= startDay) return [];
-  const states = await clients.public.readContract({
-    address: asset,
-    abi: rentalAssetAbi,
-    functionName: 'rangeState',
-    args: [startDay, endDayExclusive],
-  });
-  return states.map((s) => ({
+  const pages = [];
+  for (let start = startDay; start < endDayExclusive; start += DAY_CHUNK) {
+    const end = Math.min(start + DAY_CHUNK, endDayExclusive);
+    pages.push(
+      clients.public.readContract({
+        address: asset,
+        abi: rentalAssetAbi,
+        functionName: 'rangeState',
+        args: [start, end],
+      }),
+    );
+  }
+  return (await Promise.all(pages)).flat().map((s) => ({
     token: s.token,
     owner: s.owner,
     deployed: s.deployed,
