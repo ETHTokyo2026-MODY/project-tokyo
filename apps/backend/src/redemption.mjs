@@ -90,6 +90,10 @@ export class Redemption {
     this.confirmations = confirmations;
   }
 
+  /**
+   * Consume the holder's complete daily basket using its wallet or an approved operator.
+   * The returned canonical reservation allocates an entitlement; supplier fulfillment remains offchain.
+   */
   async reserve({
     holder,
     pool,

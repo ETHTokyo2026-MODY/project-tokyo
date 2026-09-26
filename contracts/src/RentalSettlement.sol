@@ -9,6 +9,8 @@ import {IRentalRights} from "./IRentalRights.sol";
 
 /// @notice Full-fill, single-seller rental exchange. Aqua holds only USDC allowances.
 abstract contract RentalSettlement is EIP712, ReentrancyGuard {
+    /// @dev Aqua strategy preimage. Shipping authorizes wallet pulls without depositing USDC.
+    /// The lifetime limit includes fees and is independent of Aqua allowance refills.
     struct Mandate {
         address buyer;
         address app;
@@ -18,6 +20,9 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         bytes32 salt;
     }
 
+    /// @dev Exact, full-fill basket authorization. Buy priceLimit includes fees; sell priceLimit is net.
+    /// Nonzero group is maker-scoped one-cancels-other; zero leaves orders independent.
+    /// programHash authenticates pricing/fees, while mandate binds buyer funding (zero for asks).
     struct Order {
         address maker;
         bool buy;
@@ -45,6 +50,7 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
     address public immutable feeRecipient;
     mapping(address => mapping(uint256 => bool)) public used;
     mapping(address => mapping(bytes32 => bool)) public closedGroup;
+    /// @notice Cumulative USDC spent per mandate, including fees; never reset by an Aqua refill.
     mapping(bytes32 => uint256) public spent;
 
     error InvalidOrder();
@@ -68,19 +74,23 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         feeRecipient = fees;
     }
 
+    /// @notice Return the EIP-712 digest bound to this router and chain.
     function hashOrder(Order calldata o) public view returns (bytes32) {
         return _hashTypedDataV4(keccak256(abi.encode(ORDER_TYPEHASH, o)));
     }
 
+    /// @notice Return Aqua's strategy hash for the exact ABI-encoded mandate.
     function hashMandate(Mandate calldata m) public pure returns (bytes32) {
         return keccak256(abi.encode(m));
     }
 
+    /// @notice Permanently invalidate the caller's nonce across both buy and sell orders.
     function cancel(uint256 nonce) external {
         used[msg.sender][nonce] = true;
         emit Cancelled(msg.sender, nonce);
     }
 
+    /// @notice Permanently close a nonzero alternative group belonging to the caller.
     function cancelGroup(bytes32 group) external {
         require(group != 0, InvalidOrder());
         closedGroup[msg.sender][group] = true;
@@ -105,6 +115,12 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         if (o.group != 0) closedGroup[o.maker][o.group] = true;
     }
 
+    /// @notice Atomically exchange one matching bid/ask basket for wallet-held USDC through Aqua.
+    /// @dev Anyone may relay; signatures fix recipients, basket, program and funding authority.
+    /// Failure of either payment or ERC-1155 transfer rolls back nonces, groups and mandate spending.
+    /// @param program Exact two-instruction program authenticated by both orders' programHash.
+    /// @return price Seller proceeds in USDC base units.
+    /// @return fee Additional buyer-paid USDC sent to the immutable fee recipient.
     function settle(
         Order calldata bid,
         bytes calldata bidSig,
@@ -136,6 +152,7 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
             PriceLimit()
         );
         require(spent[mandateHash] + total <= m.limit && total <= remaining, BudgetExceeded());
+        // Consume authorization before external transfers. Reversion restores it if either asset leg fails.
         _consume(bid);
         _consume(ask);
         spent[mandateHash] += total;
@@ -152,11 +169,20 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         emit Settled(hashOrder(bid), hashOrder(ask), mandateHash, price, fee);
     }
 
+    /// @notice Quote legacy whole-basket programs without a duration.
+    /// @dev Terms programs require the duration-aware overload. Neither quote checks funds or ownership.
+    /// @return price Seller proceeds in USDC base units.
+    /// @return fee Additional buyer-paid USDC fee.
     function quote(bytes calldata program, uint256 units) external returns (uint256 price, uint256 fee) {
         return _quote(program, 0, units);
     }
 
     /// @notice Quote the same duration and quantity that settle derives from a signed order.
+    /// @dev A Dutch quote is time-dependent; settlement recalculates it and enforces signed limits.
+    /// @param durationDays Number of UTC daily slots in the basket (1-31).
+    /// @param quantity Whole units per day.
+    /// @return price Seller proceeds in USDC base units.
+    /// @return fee Additional buyer-paid USDC fee.
     function quote(bytes calldata program, uint256 durationDays, uint256 quantity)
         external
         returns (uint256 price, uint256 fee)

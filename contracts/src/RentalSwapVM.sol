@@ -12,7 +12,7 @@ import {RentalSettlement} from "./RentalSettlement.sol";
 
 /// @notice Specialized SwapVM router: actual upstream VM + full-amount instruction,
 /// with Aqua USDC / ERC1155 settlement replacing the ERC20/ ERC20 settlement shell.
-/// Only two-instruction programs are accepted. No external calls, jumps or stateful opcodes.
+/// @dev Only two-instruction programs are accepted. No external calls, jumps or stateful opcodes.
 contract RentalSwapVM is RentalSettlement {
     // Fork-local allocation of unused balance-family opcodes. Not stock router bytecode.
     uint8 public constant FIXED = 0x9e;
@@ -26,6 +26,9 @@ contract RentalSwapVM is RentalSettlement {
 
     constructor(IAqua a, IRentalRights i, address token, address fees) RentalSettlement(a, i, token, fees) {}
 
+    /// @dev Validate the complete program before entering the upstream VM. Legacy prices cover the
+    /// whole basket; terms prices are per unit-day, then discounted by this basket's duration.
+    /// Integer division rounds the discount calculation and buyer-paid fee down.
     function _quote(bytes calldata program, uint256 durationDays, uint256 quantity)
         internal
         override
@@ -81,6 +84,7 @@ contract RentalSwapVM is RentalSettlement {
         fee = price * feeBps / 10_000;
     }
 
+    /// @dev Closed opcode whitelist; upstream instructions outside this subset cannot execute.
     function _dispatch(Context memory ctx, uint256 opcode, bytes calldata args) internal view {
         if (opcode == FIXED) {
             ctx.swap.balanceOut = abi.decode(args, (uint256));

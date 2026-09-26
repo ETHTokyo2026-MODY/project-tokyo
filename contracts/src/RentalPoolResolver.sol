@@ -9,9 +9,10 @@ interface IExtendedRentalResolver {
 }
 
 /// @notice Wildcard ENS resolver for one parent name. Labels only point to existing inventory pools.
-/// Names are discovery aliases; signed orders commit to the returned bytes32 pool, never to this resolver.
+/// @dev Names are discovery aliases; signed orders commit to the returned bytes32 pool, never to this resolver.
 contract RentalPoolResolver is IERC165, IExtendedRentalResolver {
     RentalInventory public immutable inventory;
+    /// @notice Resolver deployer; transferring the ENS parent does not transfer this authority.
     address public immutable owner;
     bytes32 public immutable parentNode;
     bytes32 public immutable parentDnsHash;
@@ -37,6 +38,9 @@ contract RentalPoolResolver is IERC165, IExtendedRentalResolver {
         return interfaceId == type(IERC165).interfaceId || interfaceId == type(IExtendedRentalResolver).interfaceId;
     }
 
+    /// @notice Assign or clear a child alias; only the immutable resolver owner may call.
+    /// @param label One lowercase ASCII label, with interior hyphens allowed.
+    /// @param pool Existing inventory pool, or zero to remove the alias.
     function setPool(string calldata label, bytes32 pool) external {
         require(msg.sender == owner, Unauthorized());
         bytes32 labelHash = _labelHash(bytes(label));
@@ -45,6 +49,10 @@ contract RentalPoolResolver is IERC165, IExtendedRentalResolver {
         emit PoolNamed(labelHash, pool);
     }
 
+    /// @notice Resolve a single child name through the ENS extended resolver interface.
+    /// @param name DNS-encoded child plus the configured parent suffix.
+    /// @param data ABI-encoded pool(bytes32) query for that child's namehash.
+    /// @return ABI-encoded concrete pool ID; unknown aliases revert.
     function resolve(bytes calldata name, bytes calldata data) external view returns (bytes memory) {
         require(name.length > 2 && data.length == 36 && bytes4(data[:4]) == POOL_SELECTOR, InvalidName());
         uint256 labelEnd = uint8(name[0]) + 1;

@@ -28,6 +28,9 @@ interface IExactInputSingle {
 contract RentalAtomicConverter is EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @dev Separate buyer authorization for this conversion and exact rental order pair.
+    /// Despite its name, maxInput is the exact source amount consumed, not an exact-output ceiling.
+    /// minOutput and usdcCap use USDC base units; recipient must match the signed rental bid.
     struct FundingIntent {
         address buyer;
         bytes32 bidHash;
@@ -86,15 +89,24 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         poolFee = fee;
     }
 
+    /// @notice Return the funding digest bound to this converter and chain.
     function hashIntent(FundingIntent calldata intent) public view returns (bytes32) {
         return _hashTypedDataV4(keccak256(abi.encode(INTENT_TYPEHASH, intent)));
     }
 
+    /// @notice Invalidate the caller's funding nonce without cancelling its separate rental orders.
     function cancel(uint256 nonce) external {
         used[msg.sender][nonce] = true;
         emit IntentCancelled(msg.sender, nonce);
     }
 
+    /// @notice Convert the authorized source amount and settle the chosen rental in one transaction.
+    /// @dev Anyone may relay. The buyer approves this converter for source tokens and Aqua for USDC.
+    /// The buyer keeps conversion surplus and at least its preexisting USDC balance; any failure
+    /// rolls back the swap, rental transfer, funding nonce and Aqua spending.
+    /// @return output Actual increase in buyer USDC from conversion, before rental settlement.
+    /// @return price Seller proceeds paid through Aqua.
+    /// @return fee Buyer-paid rental fee.
     function execute(
         FundingIntent calldata intent,
         bytes calldata intentSig,
@@ -167,6 +179,7 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
             })
         );
         sourceToken.forceApprove(address(swapRouter), 0);
+        // Measure delivery rather than trusting the swap router's reported output alone.
         uint256 buyerUsdcAfter = usdc.balanceOf(intent.buyer);
         require(
             reportedOutput >= minimum && sourceToken.balanceOf(address(this)) == sourceBefore

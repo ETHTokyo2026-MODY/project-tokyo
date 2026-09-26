@@ -221,6 +221,7 @@ export class ConversionRelay {
     return this.submissions.get(hash(id, 'conversion id'));
   }
 
+  /** Relay the exact buyer-authorized WETH conversion and persisted order pair as one atomic call. */
   async submit({ bidHash, askHash, intent, intentSig }) {
     return this.#submit([{ bidHash, askHash }], intent, intentSig);
   }
@@ -447,6 +448,8 @@ export class ConversionRelay {
       throw new Error('Conversion block is no longer canonical');
   }
 
+  // Bind success to the saved call and expected emitters/order hashes. Receipt success alone does
+  // not establish that this buyer's conversion and rental settlement occurred together.
   async #verify(job, receipt, prepared) {
     if (
       receipt.status !== 'success' ||

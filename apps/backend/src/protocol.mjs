@@ -122,6 +122,8 @@ export const routerAbi = [
   },
 ];
 
+// Derive EIP-712 fields from the settlement ABI so order encoding and signing share one field order.
+// Changes must remain identical to RentalSettlement.ORDER_TYPEHASH; the router address isolates markets.
 export const orderTypes = {
   Order: routerAbi[0].inputs[0].components.map(({ name, type }) => ({
     name,
@@ -141,6 +143,7 @@ export const hashOrder = (order, config) =>
     primaryType: 'Order',
     message: order,
   });
+// Aqua hashes the ABI strategy bytes directly; this is not an EIP-712 message.
 export const hashMandate = (mandate) =>
   keccak256(
     encodeAbiParameters(

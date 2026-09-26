@@ -54,6 +54,7 @@ export function serviceDay(date) {
   return ms / 86_400_000;
 }
 
+/** Supplier-signed publication schedules; signing a schedule does not mint or authorize transfers. */
 export class SupplyBook {
   constructor(store, client, config) {
     this.db = store.db;
@@ -239,6 +240,11 @@ export class SupplyBook {
     return result;
   }
 
+  /**
+   * Read one canonical snapshot and prepare unsigned cumulative-target mint calls.
+   * Outstanding units include every holder; they are not the supplier's sellable balance.
+   * Issued units stay counted after resale or consumption, so retries cannot replenish capacity.
+   */
   async reconcile(hash) {
     await this.verifyChain();
     const row = this.db

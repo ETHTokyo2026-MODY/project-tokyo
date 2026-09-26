@@ -40,6 +40,10 @@ function transaction(db, action) {
   }
 }
 
+/**
+ * Canonical, confirmation-delayed view of one router. Stored block ancestry includes empty blocks
+ * so a reorg can invalidate both events and apparent absence of events. Confirmed is not finality.
+ */
 export class ChainIndex {
   constructor(
     store,
@@ -263,6 +267,7 @@ export class ChainIndex {
     return matched && stillCanonical;
   }
 
+  /** "open" means unconsumed at the indexed block; it says nothing about expiry, funds or current approval. */
   async status(order) {
     const tip = this.tip();
     if (!tip) return 'unknown';

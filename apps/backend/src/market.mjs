@@ -59,6 +59,7 @@ function basketKey(quote) {
 
 // Quotes are independent simulations at one block. A buyer may sign many
 // alternative orders against the same wallet funds; the list is not liquidity.
+/** Bounded, funding-aware views of signed orders and canonical right-sale events. */
 export class Market {
   constructor(book, index, client, config) {
     if (!book?.list || !index?.tip || !client?.simulateContract)
@@ -81,6 +82,10 @@ export class Market {
       throw new Error('Market snapshot reorganized');
   }
 
+  /**
+   * Simulate pairs at one block. Results are independent opportunities, not additive liquidity:
+   * multiple bids can spend the same wallet funds and multiple asks can overlap in inventory.
+   */
   async quotes({ limit = MAX_ORDERS, offset = 0 } = {}) {
     page(limit, offset, MAX_ORDERS);
     await this.#chain();
@@ -158,6 +163,7 @@ export class Market {
     };
   }
 
+  /** Attribute a bounded settlement window to stored baskets; these are right-sale prices, not guest revenue. */
   async history({ limit = MAX_HISTORY, offset = 0 } = {}) {
     page(limit, offset, MAX_HISTORY);
     await this.#chain();

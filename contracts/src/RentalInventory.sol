@@ -5,7 +5,7 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {IRentalRights} from "./IRentalRights.sol";
 
 /// @notice Supplier-attested class allotments accounted for by UTC service day.
-/// Capacity and historical issuance are immutable across terms and redemption.
+/// @dev Historical issuance counts against the immutable daily cap across all terms versions and holders.
 contract RentalInventory is ERC1155, IRentalRights {
     struct Pool {
         address supplier;
@@ -50,6 +50,11 @@ contract RentalInventory is ERC1155, IRentalRights {
         administrator = msg.sender;
     }
 
+    /// @notice Register a supplier and immutable daily capacity; callable only by the administrator.
+    /// @dev Physical identity and exclusion from other booking channels are offchain attestations.
+    /// @param start First supported UTC Unix day, inclusive.
+    /// @param end Last supported UTC Unix day, exclusive.
+    /// @param capacity Maximum whole units issued per day across every terms version.
     function createPool(bytes32 pool, address supplier, uint32 start, uint32 end, uint32 capacity) external {
         require(
             msg.sender == administrator && supplier != address(0) && start < end && capacity > 0
@@ -59,11 +64,14 @@ contract RentalInventory is ERC1155, IRentalRights {
         pools[pool] = Pool(supplier, start, end, capacity);
     }
 
+    /// @inheritdoc IRentalRights
     function tokenId(bytes32 pool, uint32 day, bytes32 terms) public pure override returns (uint256) {
         return uint256(keccak256(abi.encode(pool, day, terms)));
     }
 
-    /// @notice Idempotent daily issuance target; already issued or consumed units are never replenished.
+    /// @notice Raise a future day's cumulative issuance to the supplier's target.
+    /// @dev Repeating a target is a no-op; resale or consumption never replenishes issuance capacity.
+    /// @param target Total units ever issued for this pool/day/terms, not units to add.
     function publishDay(bytes32 pool, uint32 day, bytes32 terms, uint256 target) external {
         Pool memory p = pools[pool];
         require(
@@ -75,6 +83,11 @@ contract RentalInventory is ERC1155, IRentalRights {
         if (target > prior) _issue(pool, day, day + 1, terms, target - prior);
     }
 
+    /// @notice Issue the same whole-unit quantity on each day of a supplier-owned pool's range.
+    /// @dev Every daily cap must pass or the entire mint reverts. A range is a basket of daily IDs.
+    /// @param start Inclusive UTC Unix day.
+    /// @param end Exclusive UTC Unix day; the range is limited to 31 days.
+    /// @param quantity Units to add on every day, not a total spread across the range.
     function issue(bytes32 pool, uint32 start, uint32 end, bytes32 terms, uint256 quantity) external {
         _issue(pool, start, end, terms, quantity);
     }
@@ -100,7 +113,14 @@ contract RentalInventory is ERC1155, IRentalRights {
     }
 
     /// @notice Convert a uniform basket into a permanent, non-transferable beneficiary allocation.
-    /// The holder or an ERC-1155 approved operator may consume the holder's entire specified basket.
+    /// @dev The holder or an approved operator burns every daily component atomically. Issuance stays
+    /// historical, so reservation cannot free minting capacity. No cancellation or remint path exists.
+    /// @param holder Wallet whose daily rights are consumed.
+    /// @param start Inclusive future UTC Unix day.
+    /// @param end Exclusive UTC Unix day, at most 31 days after start.
+    /// @param quantity Whole units consumed on each day.
+    /// @param beneficiary Public entitlement recipient; personal booking details belong offchain.
+    /// @return reservationId Permanent allocation ID; it does not certify supplier fulfillment.
     function reserve(
         address holder,
         bytes32 pool,

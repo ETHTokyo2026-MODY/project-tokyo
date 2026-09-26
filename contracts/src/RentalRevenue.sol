@@ -15,6 +15,7 @@ import {RentalInventory} from "./RentalInventory.sol";
 contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @dev Open -> Booked -> Paid, or Open -> Withdrawn. Terminal baskets cannot mint replacement claims.
     enum State {
         Open,
         Booked,
@@ -31,8 +32,8 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         State state;
     }
 
-    // The buyer authenticates this exact booking by shipping its ABI encoding to Aqua.
-    // claimId is immutable and uniquely identifies pool, day, terms, and one unit.
+    /// @dev The buyer authorizes this exact booking by shipping its ABI encoding to Aqua.
+    /// claimId permanently binds pool/day/terms and one unit; price must equal the current booking price.
     struct BookingMandate {
         address buyer;
         address app;
@@ -48,6 +49,7 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
     RentalInventory public immutable inventory;
     IERC20 public immutable usdc;
     uint256 public nextClaimId = 1;
+    /// @notice Sum of booked, unpaid USDC liabilities; earlier claim-sale proceeds do not back payouts.
     uint256 public escrowedRevenue;
     mapping(uint256 => Claim) public claims;
     mapping(bytes32 => uint256) private claimIds;
@@ -82,6 +84,7 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         usdc = token;
     }
 
+    /// @notice Return the strategy hash the booking buyer must ship to Aqua for this contract.
     function hashMandate(BookingMandate calldata m) public pure returns (bytes32) {
         return keccak256(abi.encode(m));
     }
@@ -91,6 +94,9 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         return claimIds[keccak256(abi.encode(pool, day, terms))];
     }
 
+    /// @notice Escrow one future daily right from a capacity-one pool and mint its revenue claim.
+    /// @dev The caller must own the underlying and approve this contract. Each basket is used only once.
+    /// @return claimId Transferable claim ID; its initial booking price is unset.
     function createClaim(bytes32 pool, uint32 day, bytes32 terms) external nonReentrant returns (uint256 claimId) {
         (, uint32 start, uint32 end, uint32 capacity) = inventory.pools(pool);
         require(
@@ -113,6 +119,8 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         emit ClaimCreated(claimId, msg.sender, pool, day, terms);
     }
 
+    /// @notice Let the current holder price an open claim before its service day starts.
+    /// @param price Exact guest booking payment in USDC base units, distinct from a claim resale price.
     function setPrice(uint256 claimId, uint256 price) external nonReentrant {
         Claim storage c = _claim(claimId);
         require(
@@ -124,6 +132,10 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         emit PriceSet(claimId, price);
     }
 
+    /// @notice Pull an authorized guest payment into escrow and reserve the underlying for its beneficiary.
+    /// @dev Anyone can relay the Aqua mandate. Payment and reservation succeed together; booking is
+    /// nonrefundable and fixes the proceeds owed to the claim's eventual holder.
+    /// @return reservationId Underlying inventory reservation created for the guest.
     function book(uint256 claimId, BookingMandate calldata m) external nonReentrant returns (uint256 reservationId) {
         Claim storage c = _claim(claimId);
         require(c.state == State.Open && c.price > 0 && uint256(c.day) * 1 days > block.timestamp, InvalidClaim());
@@ -147,6 +159,7 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
     }
 
     /// @notice Close an unbooked claim and recover the underlying, with zero revenue.
+    /// @dev Allowed after an unbooked day expires too; its basket-to-claim mapping is never cleared.
     function withdrawUnbooked(uint256 claimId) external nonReentrant {
         Claim storage c = _claim(claimId);
         require(c.state == State.Open && balanceOf(msg.sender, claimId) == 1, InvalidClaim());
@@ -157,6 +170,8 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
     }
 
     /// @notice Burn the current holder's claim after the service day for funded proceeds.
+    /// @dev Authorization follows current ownership, not the original host or earlier claim seller.
+    /// @return amount Exact escrowed booking payment in USDC base units, payable once.
     function claimRevenue(uint256 claimId) external nonReentrant returns (uint256 amount) {
         Claim storage c = _claim(claimId);
         require(
@@ -172,6 +187,8 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         emit RevenuePaid(claimId, msg.sender, amount);
     }
 
+    /// @dev A new open-claim owner must reprice before booking. Booked claims permit owner transfers
+    /// but reject operators, so stale router sale orders cannot sell a now-funded claim.
     function _update(address from, address to, uint256[] memory ids, uint256[] memory values) internal override {
         if (from != address(0) && to != address(0) && from != to) {
             for (uint256 i; i < ids.length; ++i) {
@@ -187,6 +204,7 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         super._update(from, to, ids, values);
     }
 
+    /// @dev Accept only the single inventory transfer initiated by createClaim; reject unsolicited escrow.
     function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata)
         external
         view
@@ -201,6 +219,7 @@ contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGu
         return IERC1155Receiver.onERC1155Received.selector;
     }
 
+    /// @dev Claims escrow one identified day; batch deposits have no corresponding claim lifecycle.
     function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
         external
         pure

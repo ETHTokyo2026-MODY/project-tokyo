@@ -100,6 +100,10 @@ export class InventoryDiscovery {
     this.parentDnsHash = keccak256(packetToBytes(parentName));
   }
 
+  /**
+   * Resolve and validate ENS, inventory and router bindings at one block, then recheck its hash.
+   * A mutable alias supplies a concrete pool; it attests neither physical inventory nor bookability.
+   */
   async resolve(name) {
     const parts = nameParts(name);
     if (
@@ -227,6 +231,7 @@ export class InventoryDiscovery {
     };
   }
 
+  /** Freeze the resolved pool into the unsigned draft before wallet signing; later remaps cannot redirect it. */
   async prepareOrder(name, draft) {
     if (
       !draft ||

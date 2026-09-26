@@ -55,6 +55,7 @@ const aquaAbi = parseAbi([
 ]);
 const tuple = revenueAbi.find((item) => item.name === 'book').inputs[1];
 
+/** Encode the exact guest mandate Aqua authenticates; a claim-sale payment does not fund this booking. */
 export function bookingStrategy(m) {
   const mandate = {
     buyer: address(m.buyer),
@@ -106,6 +107,8 @@ export class RevenueClient {
     this.confirmations = confirmations;
   }
 
+  // Verify both the submitted action and its canonical event before returning role-specific results.
+  // A later reorg can still replace the receipt; callers must not treat confirmations as finality.
   async #execute(contract, abi, functionName, args, eventName, check) {
     const [rpcChainId, walletChainId] = await Promise.all([
       this.publicClient.getChainId(),
@@ -246,6 +249,7 @@ export class RevenueClient {
     );
   }
 
+  /** Publish an Aqua spending authorization from the buyer wallet; USDC moves only when book succeeds. */
   async shipBooking(m) {
     const { mandate, strategy, hash } = bookingStrategy(m);
     if (
@@ -313,6 +317,7 @@ export class RevenueClient {
     );
   }
 
+  /** The current claim holder collects the funded booking payment once, after the service day ends. */
   async claimRevenue(claimId) {
     const id = uint(claimId, 256);
     const result = await this.#execute(
