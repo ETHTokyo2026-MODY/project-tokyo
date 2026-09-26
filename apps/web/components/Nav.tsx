@@ -9,6 +9,7 @@ const TABS: { href: string; label: string }[] = [
   { href: '/', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/profile', label: 'Profile' },
+  { href: '/stats', label: 'Stats' },
 ];
 
 const FALLBACK_ACCOUNTS: [string, string][] = [
