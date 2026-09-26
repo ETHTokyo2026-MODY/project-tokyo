@@ -5,6 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { Store } from '../src/store.mjs';
 import {
   SupplyBook,
+  SupplyInputError,
   scheduleTypes,
   supplyDomain,
   serviceDay,
@@ -179,4 +180,51 @@ test('other terms cannot satisfy a schedule and orphaned supplier cannot block i
     /overlapping/,
   );
   store.close();
+});
+
+test('malformed supply envelopes fail as input errors before RPC verification', async () => {
+  const store = new Store(':memory:');
+  try {
+    const book = new SupplyBook(store, {}, config);
+    for (const payload of [
+      null,
+      undefined,
+      [],
+      true,
+      1,
+      'text',
+      {},
+      { schedule, signature: null },
+      { schedule, signature: '0x123' },
+    ]) {
+      await assert.rejects(book.publish(payload), SupplyInputError);
+    }
+  } finally {
+    store.close();
+  }
+});
+
+test('empty smart-wallet signature reaches contract verification', async () => {
+  const store = new Store(':memory:');
+  const unavailable = new Error('verification RPC unavailable');
+  try {
+    const book = new SupplyBook(
+      store,
+      {
+        getChainId: async () => config.chainId,
+        getBlock: async () => ({ number: 1n }),
+        verifyTypedData: async ({ signature }) => {
+          assert.equal(signature, '0x');
+          throw unavailable;
+        },
+      },
+      config,
+    );
+    await assert.rejects(
+      book.publish({ schedule, signature: '0x' }),
+      (error) => error === unavailable,
+    );
+  } finally {
+    store.close();
+  }
 });
