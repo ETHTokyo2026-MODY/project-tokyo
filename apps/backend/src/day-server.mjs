@@ -211,18 +211,22 @@ export function createDayServer({
         const readiness = await index.readiness();
         if (!readiness.ready)
           return reply(200, { ready: false, indexing: true });
+        const blockNumber = BigInt(readiness.tip.number);
+        const reorgVersion = index.reorgVersion;
         const assets = new Set();
         let before;
         while (true) {
           const page = index.events('AssetCreated', 1000, before);
           for (const event of page) {
-            if (same(event.address, config.factory))
+            if (
+              BigInt(event.blockNumber) <= blockNumber &&
+              same(event.address, config.factory)
+            )
               assets.add(getAddress(event.args.asset));
           }
           if (page.length < 1000) break;
           before = page.at(-1);
         }
-        const blockNumber = BigInt(readiness.tip.number);
         const calendars = [];
         for (const asset of assets)
           calendars.push(
@@ -257,7 +261,11 @@ export function createDayServer({
         while (true) {
           const page = index.events('Shipped', 1000, before);
           for (const event of page) {
-            if (!same(event.address, config.aqua)) continue;
+            if (
+              BigInt(event.blockNumber) > blockNumber ||
+              !same(event.address, config.aqua)
+            )
+              continue;
             let publication;
             try {
               publication = decodeDayPublication(event.args, config);
@@ -329,7 +337,8 @@ export function createDayServer({
         if (
           !same(after.hash, block.hash) ||
           !same(block.hash, readiness.tip.hash) ||
-          !same(index.tip()?.hash, readiness.tip.hash)
+          !same(index.block(blockNumber)?.hash, readiness.tip.hash) ||
+          index.reorgVersion !== reorgVersion
         )
           return reply(200, { ready: false, indexing: true });
         return reply(200, {
