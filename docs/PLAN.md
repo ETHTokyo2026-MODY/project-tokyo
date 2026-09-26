@@ -50,6 +50,9 @@ On-chain: day ownership, trades, discounts and payouts.
 ## Repo rules
 - Every change is a PR from a branch. No direct pushes to `main`, no force pushes, no history rewrites.
 - One PR does one thing, with a conventional-commit title (`feat: ...`, `fix: ...`, `docs: ...`).
+- PRs are small and concise: one thing, aim under 300 changed lines, split above 800.
+- Big work lands as a sequence of small PRs, each leaving `main` working.
+- Full agent rules are in `AGENTS.md`. Every teammate's agents follow them.
 - Squash merge: one PR becomes one commit on `main`.
 - Checks on every PR: lint, type check, tests, Next.js build, `forge build` and `forge test`, and a secret scan.
 - Never commit keys or `.env`. Contracts are deployed by hand from a wallet holding only test ETH.
@@ -57,5 +60,5 @@ On-chain: day ownership, trades, discounts and payouts.
 - Libraries and forked code are listed as reused in the README.
 
 ## Deploy
-- Web app on Vercel: a preview link per PR, and `main` deploys to the live site.
+- Web app on Vercel: a preview link per PR, and GitHub Actions deploys every `main` push to the live site.
 - Contracts on Sepolia, so anyone can try the live site with a browser wallet.
