@@ -156,6 +156,7 @@ export function createDayHandler({
   config,
   bookingReporter,
   webhookToken,
+  syncIndex = () => index.sync(),
 }) {
   return async (req) => {
     const reply = (status, body) => {
@@ -209,7 +210,8 @@ export function createDayHandler({
         return reply(200, { minimum, points });
       }
       if (req.method === 'GET' && url.pathname === '/state') {
-        await index.sync();
+        if ((await syncIndex()) === false)
+          return reply(200, { ready: false, indexing: true });
         const readiness = await index.readiness();
         if (!readiness.ready)
           return reply(200, { ready: false, indexing: true });
@@ -451,7 +453,7 @@ export function createDayHandler({
         }
         let publications;
         if (input.action === 'prepare-conversion' && config.conversion) {
-          await index.sync();
+          await syncIndex();
           const readiness = await index.readiness();
           if (!readiness.ready)
             return reply(503, { error: 'The chain index is catching up' });
