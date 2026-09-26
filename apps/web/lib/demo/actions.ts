@@ -225,6 +225,48 @@ const actions: Record<string, ActionFn> = {
     priceFromCurve(d, ctx.today);
     d.history.push({ type: 'unbook', price: d.price, at: ctx.now });
   },
+  curve(state, asset, body, ctx) {
+    const d = ownedDay(
+      asset,
+      checkAccount(state, body.account as string),
+      body.day as string,
+      ctx.today,
+    );
+    if (d.status === 'booked') {
+      fail('Booked days keep their booked price (locked)');
+    }
+    const mn = Number(body.min);
+    if (!Number.isInteger(mn) || mn < 1 || mn > 10000) {
+      fail('Min price must be a whole number of dollars between 1 and 10000');
+    }
+    const raw = body.points;
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > 400) {
+      fail('Points must be a list');
+    }
+    const pts = (raw as { date?: unknown; price?: unknown }[])
+      .map((p) => ({
+        date: String(p && p.date),
+        price: checkPrice(p && p.price),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const day = body.day as string;
+    for (const [i, p] of pts.entries()) {
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(p.date) ||
+        p.date < ctx.today ||
+        p.date > day
+      ) {
+        fail(`Point dates must be between ${ctx.today} and ${day}`);
+      }
+      if (i && p.date === pts[i - 1].date) fail('Only one point per date');
+      if (p.price < mn) fail(`Point prices can't be below the min ($${mn})`);
+    }
+    if (pts[0].date !== ctx.today || pts.at(-1)!.date !== day) {
+      fail('The curve needs points on today and on the day itself');
+    }
+    d.curve = { ...d.curve, min: mn, points: pts };
+    d.price = pts[0].price;
+  },
   discounts(state, asset, body) {
     const account = checkAccount(state, body.account as string);
     const tiers = body.tiers as Record<string, unknown> | undefined;

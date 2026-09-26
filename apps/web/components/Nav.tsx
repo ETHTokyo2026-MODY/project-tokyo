@@ -8,11 +8,7 @@ import { useDemo } from '@/lib/demo/store';
 const TABS: { href: string; label: string }[] = [
   { href: '/', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' },
-  { href: '/profile', label: 'Profile' },
-  { href: '/stats', label: 'Stats' },
 ];
-
-const EXISTING_TAB_HREFS = new Set<string>(['/', '/calendar']);
 
 const FALLBACK_ACCOUNTS: [string, string][] = [
   ['host', 'Turo Host'],
@@ -37,7 +33,8 @@ export function Nav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const tabs = TABS.filter((tab) => EXISTING_TAB_HREFS.has(tab.href));
+  if (pathname === '/curve') return null;
+  const tabs = TABS;
   const entries = accountEntries(ready && state ? state.accounts : undefined);
   const options = entries.some(([id]) => id === account)
     ? entries
