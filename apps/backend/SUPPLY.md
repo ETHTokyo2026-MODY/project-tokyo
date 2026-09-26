@@ -7,14 +7,14 @@ supplier must sign it. The signature authorizes publication, not spending.
 
 A schedule identifies an immutable pool, terms, a half-open UTC service-day
 range of at most 90 days, weekday bitmask (Sunday is bit zero), and cumulative
-issuance target per selected day. `serviceDay('YYYY-MM-DD')` converts a service
+issuance target per selected day under the signed terms. `serviceDay('YYYY-MM-DD')` converts a service
 date without local timezone or daylight-saving shifts. Properties with local
 check-in hours must state them in their terms; this API does not turn elapsed
 hours into hotel nights. Overlapping schedules for a pool are rejected even
 if their terms differ. Repeating the same signed schedule is idempotent.
 
 Reconciliation reads one canonical block and returns issued, consumed and
-outstanding quantities, plus unsigned `publishDay` transactions for missing
+outstanding quantities for the signed terms, plus total issuance across terms, plus unsigned `publishDay` transactions for missing
 issuance. The supplier submits these with their wallet. Each transaction is
 idempotent at the contract: a cumulative target never replenishes transferred
 or consumed units. A schedule is not evidence that issuance succeeded; the
@@ -25,3 +25,8 @@ Pool creation remains administrator-attested. Onchain capacity cannot verify
 physical inventory or prevent an administrator assigning the same physical
 asset to multiple pools. Outstanding units include all holders; ownership and
 bookability require current ERC-1155 balances and settlement simulation.
+
+A later pool-creation reorg can invalidate the publishing supplier. Reconciliation
+rejects that schedule; the current canonical supplier can replace its calendar
+entries. The original signed envelope remains stored for inspection. Prior
+issuance under other terms neither fulfills this schedule nor creates new capacity.

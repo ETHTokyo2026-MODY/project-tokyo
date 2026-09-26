@@ -27,6 +27,8 @@ contract RentalInventory is ERC1155 {
     mapping(bytes32 => Pool) public pools;
     mapping(bytes32 => mapping(uint32 => uint256)) public issued;
     mapping(bytes32 => mapping(uint32 => uint256)) public consumed;
+    mapping(uint256 => uint256) public issuedByToken;
+    mapping(uint256 => uint256) public consumedByToken;
     mapping(uint256 => Reservation) public reservations;
     uint256 public nextReservationId = 1;
 
@@ -68,7 +70,7 @@ contract RentalInventory is ERC1155 {
                 && target > 0 && target <= p.capacity,
             InvalidInventory()
         );
-        uint256 prior = issued[pool][day];
+        uint256 prior = issuedByToken[tokenId(pool, day, terms)];
         if (target > prior) _issue(pool, day, day + 1, terms, target - prior);
     }
 
@@ -91,6 +93,7 @@ contract RentalInventory is ERC1155 {
             issued[pool][day] = count;
             ids[day - start] = tokenId(pool, day, terms);
             amounts[day - start] = quantity;
+            issuedByToken[ids[day - start]] += quantity;
         }
         _mintBatch(msg.sender, ids, amounts, "");
     }
@@ -121,6 +124,7 @@ contract RentalInventory is ERC1155 {
             consumed[pool][day] = used;
             ids[day - start] = tokenId(pool, day, terms);
             amounts[day - start] = quantity;
+            consumedByToken[ids[day - start]] += quantity;
         }
         _burnBatch(holder, ids, amounts);
         reservationId = nextReservationId++;

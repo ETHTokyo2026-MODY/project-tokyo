@@ -1,13 +1,31 @@
-import { encodeFunctionData, getAddress, hashTypedData, parseAbi } from 'viem';
+import {
+  encodeFunctionData,
+  encodeAbiParameters,
+  keccak256,
+  getAddress,
+  hashTypedData,
+  parseAbi,
+} from 'viem';
 
 export class SupplyInputError extends Error {}
 
 export const inventorySupplyAbi = parseAbi([
   'function pools(bytes32) view returns (address supplier,uint32 startDay,uint32 endDay,uint32 capacity)',
   'function issued(bytes32,uint32) view returns (uint256)',
-  'function consumed(bytes32,uint32) view returns (uint256)',
+  'function issuedByToken(uint256) view returns (uint256)',
+  'function consumedByToken(uint256) view returns (uint256)',
   'function publishDay(bytes32 pool,uint32 day,bytes32 terms,uint256 target)',
 ]);
+const tokenId = (s, day) =>
+  BigInt(
+    keccak256(
+      encodeAbiParameters(
+        [{ type: 'bytes32' }, { type: 'uint32' }, { type: 'bytes32' }],
+        [s.pool, day, s.terms],
+      ),
+    ),
+  );
+
 export const scheduleTypes = {
   Schedule: [
     { name: 'supplier', type: 'address' },
@@ -120,7 +138,7 @@ export class SupplyBook {
     const prior = this.db
       .prepare('SELECT payload FROM supply_schedules WHERE hash=?')
       .get(hash);
-    if (prior) return JSON.parse(prior.payload);
+
     const [supplier, start, end, capacity] = await this.client.readContract({
       address: this.config.inventory,
       abi: inventorySupplyAbi,
@@ -133,28 +151,76 @@ export class SupplyBook {
       s.startDay < Number(start) ||
       s.endDay > Number(end) ||
       s.target > Number(capacity) ||
-      s.startDay <= Number(block.timestamp / 86400n)
+      (!prior && s.startDay <= Number(block.timestamp / 86400n))
     )
       throw new SupplyInputError('unauthorized or unavailable supply');
+
     const days = [];
     for (let day = s.startDay; day < s.endDay; day++) {
       // Unix epoch was Thursday; bit 0 is Sunday.
       if (s.weekdays & (1 << ((day + 4) % 7))) days.push(day);
     }
     if (!days.length) throw new SupplyInputError('empty recurrence');
+    for (const day of days) {
+      const [total, own] = await Promise.all([
+        this.client.readContract({
+          address: this.config.inventory,
+          abi: inventorySupplyAbi,
+          functionName: 'issued',
+          args: [s.pool, day],
+          blockNumber: block.number,
+        }),
+        this.client.readContract({
+          address: this.config.inventory,
+          abi: inventorySupplyAbi,
+          functionName: 'issuedByToken',
+          args: [tokenId(s, day)],
+          blockNumber: block.number,
+        }),
+      ]);
+      if (BigInt(s.target) > BigInt(capacity) - total + own)
+        throw new SupplyInputError('capacity committed under other terms');
+    }
     if (
       (await this.client.getBlock({ blockNumber: block.number })).hash !==
       block.hash
     )
       throw new Error('supply snapshot reorganized');
-    const result = { hash, schedule: s, signature, days };
+    const result = prior
+      ? JSON.parse(prior.payload)
+      : { hash, schedule: s, signature, days };
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db
-        .prepare('INSERT INTO supply_schedules VALUES(?,?)')
+        .prepare('INSERT OR IGNORE INTO supply_schedules VALUES(?,?)')
         .run(hash, JSON.stringify(result));
+      // Pool authority is immutable on one chain: a different current supplier
+      // means the old publication belonged to an orphaned pool incarnation.
+      const old = this.db
+        .prepare(
+          'SELECT DISTINCT s.hash,s.payload FROM supply_schedules s JOIN supply_days d ON d.hash=s.hash WHERE d.pool=?',
+        )
+        .all(s.pool);
+      for (const record of old) {
+        const oldSchedule = JSON.parse(record.payload).schedule;
+        if (
+          oldSchedule.supplier !== s.supplier ||
+          oldSchedule.startDay < Number(start) ||
+          oldSchedule.endDay > Number(end) ||
+          oldSchedule.target > Number(capacity)
+        )
+          this.db
+            .prepare('DELETE FROM supply_days WHERE hash=?')
+            .run(record.hash);
+      }
       const insert = this.db.prepare('INSERT INTO supply_days VALUES(?,?,?)');
-      for (const day of days) insert.run(s.pool, day, hash);
+      for (const day of days) {
+        const existing = this.db
+          .prepare('SELECT hash FROM supply_days WHERE pool=? AND day=?')
+          .get(s.pool, day);
+        if (existing?.hash === hash) continue;
+        insert.run(s.pool, day, hash);
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -173,6 +239,20 @@ export class SupplyBook {
     if (!row) throw new Error('schedule not found');
     const { schedule: s, days } = JSON.parse(row.payload);
     const block = await this.client.getBlock();
+    const [supplier, start, end, capacity] = await this.client.readContract({
+      address: this.config.inventory,
+      abi: inventorySupplyAbi,
+      functionName: 'pools',
+      args: [s.pool],
+      blockNumber: block.number,
+    });
+    if (
+      getAddress(supplier) !== s.supplier ||
+      s.startDay < Number(start) ||
+      s.endDay > Number(end) ||
+      s.target > Number(capacity)
+    )
+      throw new Error('schedule no longer matches canonical pool');
     const slots = [];
     for (const day of days) {
       const read = (functionName) =>
@@ -180,12 +260,13 @@ export class SupplyBook {
           address: this.config.inventory,
           abi: inventorySupplyAbi,
           functionName,
-          args: [s.pool, day],
+          args: functionName === 'issued' ? [s.pool, day] : [tokenId(s, day)],
           blockNumber: block.number,
         });
-      const [issued, consumed] = await Promise.all([
+      const [issued, consumed, totalIssued] = await Promise.all([
+        read('issuedByToken'),
+        read('consumedByToken'),
         read('issued'),
-        read('consumed'),
       ]);
       const target = BigInt(s.target);
       slots.push({
@@ -194,8 +275,12 @@ export class SupplyBook {
         consumed: String(consumed),
         outstanding: String(issued - consumed),
         target: s.target,
+        totalIssued: String(totalIssued),
+        capacityConflict: target > BigInt(capacity) - totalIssued + issued,
         transaction:
-          issued < target && day > Number(block.timestamp / 86400n)
+          target <= BigInt(capacity) - totalIssued + issued &&
+          issued < target &&
+          day > Number(block.timestamp / 86400n)
             ? {
                 account: s.supplier,
                 chainId: this.config.chainId,
