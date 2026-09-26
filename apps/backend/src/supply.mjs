@@ -1,5 +1,7 @@
 import { encodeFunctionData, getAddress, hashTypedData, parseAbi } from 'viem';
 
+export class SupplyInputError extends Error {}
+
 export const inventorySupplyAbi = parseAbi([
   'function pools(bytes32) view returns (address supplier,uint32 startDay,uint32 endDay,uint32 capacity)',
   'function issued(bytes32,uint32) view returns (uint256)',
@@ -72,16 +74,21 @@ export class SupplyBook {
           .sort()
           .join()
     )
-      throw new Error('invalid schedule');
-    const s = { ...schedule, supplier: getAddress(schedule.supplier) };
+      throw new SupplyInputError('invalid schedule');
+    let s;
+    try {
+      s = { ...schedule, supplier: getAddress(schedule.supplier) };
+    } catch {
+      throw new SupplyInputError('invalid supplier');
+    }
     for (const key of ['pool', 'terms']) {
       if (!/^0x[0-9a-fA-F]{64}$/.test(s[key]))
-        throw new Error('invalid schedule');
+        throw new SupplyInputError('invalid schedule');
       s[key] = s[key].toLowerCase();
     }
     for (const key of ['startDay', 'endDay', 'weekdays', 'target']) {
       if (!Number.isInteger(s[key]) || s[key] < 0 || s[key] > 0xffffffff)
-        throw new Error('invalid schedule');
+        throw new SupplyInputError('invalid schedule');
     }
     if (
       s.startDay >= s.endDay ||
@@ -90,7 +97,7 @@ export class SupplyBook {
       s.weekdays > 127 ||
       !s.target
     )
-      throw new Error('invalid recurrence');
+      throw new SupplyInputError('invalid recurrence');
     const block = await this.client.getBlock();
     if (
       !(await this.client.verifyTypedData({
@@ -103,7 +110,7 @@ export class SupplyBook {
         blockNumber: block.number,
       }))
     )
-      throw new Error('invalid supplier signature');
+      throw new SupplyInputError('invalid supplier signature');
     const hash = hashTypedData({
       domain: this.domain,
       types: scheduleTypes,
@@ -128,13 +135,13 @@ export class SupplyBook {
       s.target > Number(capacity) ||
       s.startDay <= Number(block.timestamp / 86400n)
     )
-      throw new Error('unauthorized or unavailable supply');
+      throw new SupplyInputError('unauthorized or unavailable supply');
     const days = [];
     for (let day = s.startDay; day < s.endDay; day++) {
       // Unix epoch was Thursday; bit 0 is Sunday.
       if (s.weekdays & (1 << ((day + 4) % 7))) days.push(day);
     }
-    if (!days.length) throw new Error('empty recurrence');
+    if (!days.length) throw new SupplyInputError('empty recurrence');
     if (
       (await this.client.getBlock({ blockNumber: block.number })).hash !==
       block.hash
@@ -152,7 +159,7 @@ export class SupplyBook {
     } catch (error) {
       this.db.exec('ROLLBACK');
       if (String(error).includes('UNIQUE'))
-        throw new Error('overlapping immutable supply schedule');
+        throw new SupplyInputError('overlapping immutable supply schedule');
       throw error;
     }
     return result;
