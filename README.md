@@ -7,9 +7,11 @@ Hosts presell future room-nights and get paid now. Traders buy those nights and 
 The web app is a working demo with sample data that lives in your browser
 (reset from the calendar panel). No on-chain parts yet.
 
+Live demo: https://project-tokyo-rbt7w.ondigitalocean.app
+
 ## Develop
 
-Node 20 (`.nvmrc`).
+Node 22 (`.nvmrc`).
 
 ```
 npm ci
@@ -28,7 +30,7 @@ npm run build
 
 ## Contributing
 
-Changes go through PRs only. See `AGENTS.md` and the PR template. Squash merged directly, with no merge queue or required checks; CI still runs on PRs and `main` but does not block merges.
+Changes go through PRs only. See `AGENTS.md` and the PR template. PRs are squash-only merged directly with 0 approvals, a linear history, and all review comment threads resolved before merging. Tests run on `main` after each merge; PRs only get a PR-format check. Checks never block merging.
 
 ## Plan
 
