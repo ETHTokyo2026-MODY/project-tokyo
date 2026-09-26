@@ -3,10 +3,12 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { LeadChart, VolumeChart } from '@/components/stats/BarCharts';
+import { PriceChart } from '@/components/stats/PriceChart';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { money, signed } from '@/lib/demo/format';
 import { assetStats } from '@/lib/demo/stats';
+import { LINES, TOOLS } from '@/lib/demo/statsChart';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import '../stats.css';
@@ -27,7 +29,13 @@ function StatsInner() {
   const account = useAccount();
   const params = useSearchParams();
   const assetQ = params.get('asset');
+  const [range, setRange] = useState('year');
+  const [doSmooth, setDoSmooth] = useState(true);
   const [volBy, setVolBy] = useState<'day' | 'week'>('day');
+  const [lineOn, setLineOn] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(LINES.map((l) => [l.key, l.on])),
+  );
+  const [toolOn, setToolOn] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     document.title = TITLE;
@@ -109,6 +117,10 @@ function StatsInner() {
   const k = stats.kpis;
   const f = (v: number | null, pre = '', post = '') =>
     v == null ? '—' : pre + v + post;
+  const year = today.slice(0, 4);
+  const types = new Set(stats.assets.map((a) => a.type));
+  const tools = TOOLS.filter((t) => t.types.some((x) => types.has(x)));
+
   return (
     <main className="page stats-page">
       <div className="crumbs">
@@ -128,6 +140,77 @@ function StatsInner() {
         {one
           ? 'Prices per day of the calendar. Everything here is demo data.'
           : `Averages across ${stats.assets.length} assets (mixed price levels). Everything here is demo data.`}
+      </div>
+      <h2>Predicted vs actual price</h2>
+      <div className="stat-panel">
+        <div className="controls">
+          <label>
+            Range{' '}
+            <select value={range} onChange={(e) => setRange(e.target.value)}>
+              <option value="year">Jan {year} → next 3 months</option>
+              <option value="next">Next 12 months</option>
+              <option value="all">
+                Everything (to the end of the calendar)
+              </option>
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={doSmooth}
+              onChange={(e) => setDoSmooth(e.target.checked)}
+            />{' '}
+            7-day average
+          </label>
+        </div>
+        <div className="controls">
+          {LINES.map((l) => (
+            <label key={l.key}>
+              <input
+                type="checkbox"
+                checked={!!lineOn[l.key]}
+                onChange={(e) =>
+                  setLineOn((s) => ({ ...s, [l.key]: e.target.checked }))
+                }
+              />
+              <span
+                className="sw-line"
+                style={{
+                  borderColor: l.color,
+                  borderTopStyle: 'dash' in l && l.dash ? 'dashed' : 'solid',
+                }}
+              />
+              {l.label}
+            </label>
+          ))}
+        </div>
+        <div className="controls">
+          <b>Compare with:</b>
+          {tools.map((t) => (
+            <label key={t.id}>
+              <input
+                type="checkbox"
+                checked={!!toolOn[t.id]}
+                onChange={(e) =>
+                  setToolOn((s) => ({ ...s, [t.id]: e.target.checked }))
+                }
+              />
+              <span
+                className="sw-line"
+                style={{ borderColor: t.color, borderTopStyle: 'dotted' }}
+              />
+              {t.name}{' '}
+              <span className="sample">(sample data, not from {t.name})</span>
+            </label>
+          ))}
+        </div>
+        <PriceChart
+          stats={stats}
+          range={range}
+          doSmooth={doSmooth}
+          lineOn={lineOn}
+          toolOn={toolOn}
+        />
       </div>
       <h2>Key numbers</h2>
       <div className="kpis">
