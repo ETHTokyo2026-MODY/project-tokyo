@@ -1,0 +1,141 @@
+html:has(.curve-root),
+html:has(.curve-root) body {
+  height: 100%;
+}
+html:has(.curve-root) body {
+  display: flex;
+  flex-direction: column;
+}
+.curve-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: #f8fafc;
+}
+.curve-root header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  padding: 10px 18px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 16px;
+}
+.curve-root header a {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+.curve-root header h1 {
+  margin: 0;
+  font-size: 20px;
+}
+.curve-root input {
+  font: inherit;
+  width: 84px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.curve-root button {
+  font: inherit;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+}
+#editor {
+  display: flex;
+  visibility: hidden;
+  align-items: center;
+  gap: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 4px 10px;
+}
+#note {
+  color: #b45309;
+  font-weight: 600;
+}
+#err {
+  color: #dc2626;
+}
+#wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+#chart {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+.grid line {
+  stroke: #e5e7eb;
+}
+.axis text {
+  font-size: 13px;
+  fill: #6b7280;
+}
+.minline {
+  stroke: #dc2626;
+  stroke-dasharray: 6 5;
+  stroke-width: 1.5;
+}
+.curve {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 3;
+}
+.curve.past {
+  stroke: #9ca3af;
+  stroke-width: 2.5;
+}
+.curve.locked {
+  stroke: #16a34a;
+}
+.todayline {
+  stroke: #111827;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+.todaylbl {
+  font-size: 13px;
+  font-weight: 700;
+  fill: #111827;
+}
+.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  cursor: copy;
+}
+.pt {
+  fill: #fff;
+  stroke: #2563eb;
+  stroke-width: 3;
+}
+.edit .pt {
+  cursor: ns-resize;
+}
+.pt.sel {
+  fill: #2563eb;
+  stroke: #111827;
+}
+#tip {
+  position: absolute;
+  pointer-events: none;
+  background: #111827;
+  color: #fff;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: none;
+}
