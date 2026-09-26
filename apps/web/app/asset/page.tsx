@@ -9,7 +9,7 @@ import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 
 function Loading() {
   return (
@@ -21,7 +21,7 @@ function Loading() {
 }
 
 function AssetInner() {
-  const { ready, state, dispatch, busy } = useDemo();
+  const { ready, state, dispatch, busy } = useChainStore();
   const account = useAccount();
   const id = normalizeAssetId(useSearchParams().get('asset') ?? '');
   const asset = id && state ? state.assets.find((a) => a.id === id) : undefined;
@@ -29,8 +29,8 @@ function AssetInner() {
 
   useEffect(() => {
     document.title = asset
-      ? `${asset.title} · Asset · ProjectTokyo`
-      : 'Asset · ProjectTokyo';
+      ? `${asset.title} · Asset · DayTrader`
+      : 'Asset · DayTrader';
   }, [asset]);
 
   if (!state) return <Loading />;
@@ -63,10 +63,6 @@ function AssetInner() {
           </>
         ) : null}
       </div>
-      <p>
-        Fixed 365-day JST calendar. Select a day or range to publish sales, edit
-        prices, or report a mock booking.
-      </p>
       <p>
         <Link href={cal}>Open calendar →</Link>
       </p>

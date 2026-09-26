@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { Nav } from '@/components/Nav';
-import { DemoProvider } from '@/lib/demo/store';
+import { ChainProvider } from '@/lib/chain/store';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Dashboard · ProjectTokyo',
+  title: 'Dashboard · DayTrader',
   description:
     'A market where hosts presell future room-nights and traders set the price.',
 };
@@ -18,12 +18,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <DemoProvider>
+        <ChainProvider>
           <Suspense
             fallback={
               <nav id="nav" aria-label="Main">
                 <span className="brand">
-                  ProjectTokyo<small>Loading…</small>
+                  DayTrader<small>Loading…</small>
                 </span>
               </nav>
             }
@@ -40,7 +40,7 @@ export default function RootLayout({
           >
             {children}
           </Suspense>
-        </DemoProvider>
+        </ChainProvider>
       </body>
     </html>
   );

@@ -1,5 +1,13 @@
 import type { Discounts } from './types';
 
+export const DEFAULT_DISCOUNTS: Discounts = {
+  3: 5,
+  7: 10,
+  14: 15,
+  21: 20,
+  30: 25,
+};
+
 export const MAX_DISCOUNT_TIERS = 8;
 export type DraftTier = { nights: string; pct: string };
 

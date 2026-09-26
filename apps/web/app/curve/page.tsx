@@ -10,11 +10,11 @@ import { CurveChart } from '@/components/curve/CurveChart';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { curveValue } from '@/lib/demo/curve';
 import { DOW, MONTHS } from '@/lib/demo/format';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 import type { Curve } from '@/lib/demo/types';
 import './curve.css';
 
-const TITLE = 'Price curve · ProjectTokyo';
+const TITLE = 'Price curve · DayTrader';
 const MON = MONTHS.map((m) => m.slice(0, 3));
 
 function label(s: string) {
@@ -33,7 +33,7 @@ function Loading() {
 }
 
 function CurveInner() {
-  const { ready, state, today, dispatch, busy } = useDemo();
+  const { ready, state, today, dispatch, busy } = useChainStore();
   const account = useAccount();
   const params = useSearchParams();
   const assetId = normalizeAssetId(params.get('asset') ?? '');
@@ -261,7 +261,7 @@ function CurveInner() {
             disabled={!editable || !dirty || !curve}
             onClick={() => curve && void commit(curve)}
           >
-            Save curve on Sepolia
+            Save curve
           </button>
         ) : null}
         <span id="note">{note}</span>
