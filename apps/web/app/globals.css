@@ -291,6 +291,9 @@
       position: static;
       padding: 8px 10px;
     }
+    body {
+      overflow-x: hidden;
+    }
   }
 
   .cal-layout {
