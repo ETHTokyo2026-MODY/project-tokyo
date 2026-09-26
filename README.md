@@ -44,3 +44,7 @@ MIT. See [`LICENSE`](LICENSE).
 Reused code: [1inch Aqua](https://github.com/1inch/aqua), [1inch SwapVM](https://github.com/1inch/swap-vm), [1inch solidity-utils](https://github.com/1inch/solidity-utils), [OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts), and [forge-std](https://github.com/foundry-rs/forge-std). Exact revisions are pinned in `contracts/scripts/bootstrap.sh`.
 
 **Powered by SwapVM — © Degensoft Ltd 2025.** The SwapVM adaptation uses [its upstream license](contracts/LICENSES/SwapVM-1.1.txt); the root MIT license does not replace that license.
+
+## Order backend
+
+[`apps/backend`](apps/backend/README.md) provides persistent signed orders, a local HTTP API, chain reconciliation, and a relayer library using [viem](https://viem.sh/) and Node SQLite. It consumes the contract schemas and has a real-contract Anvil integration test. The web app is not connected to it.

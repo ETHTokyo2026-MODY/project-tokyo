@@ -1,0 +1,50 @@
+# Rental order backend
+
+Persistent signed orders, chain reconciliation, and transaction submission for the contracts in `../../contracts`. No UI dependency. Uses [viem](https://viem.sh/) and Node's built-in SQLite; requires Node 22.13 or later.
+
+## Run and verify
+
+From the repository root:
+
+```sh
+npm ci
+npm test --workspace=@project-tokyo/backend
+# Requires Foundry and contracts/scripts/bootstrap.sh to have completed:
+npm run test:integration --workspace=@project-tokyo/backend
+```
+
+The integration test launches a disposable Anvil, deploys real Aqua and the rental contracts plus a six-decimal test USDC, then tests order persistence, Solidity/JavaScript hash parity, ERC-1271 intake, overlap rejection, saved-transaction recovery and reorg reconciliation. It does not use a funded wallet or write deployment receipts into Git.
+
+Run the internal order API with `RPC_URL`, `CHAIN_ID`, `ROUTER_ADDRESS`, `USDC_ADDRESS`, `START_BLOCK`, and an absolute `DATABASE_PATH` outside the repository. `START_BLOCK` must be the router's deployment block or earlier. Sepolia's chain ID is 11155111; published addresses are in `../../contracts/deployments/sepolia.json`.
+
+```sh
+npm start --workspace=@project-tokyo/backend
+```
+
+It binds to `127.0.0.1:8787` (`PORT` overrides the port). This is an internal service: put authentication, request quotas and transport security at the gateway before exposing it beyond the host. The HTTP service holds no signing key and offers no transaction-submission endpoint.
+
+| Route                            | Behavior                                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /orders`                   | Accept `{order, signature, program, mandate?}`. Numeric fields use decimal strings. Validate canonical fields and current EOA/ERC-1271 signature; persist idempotently by typed-data hash. |
+| `GET /orders?limit=100&offset=0` | List persisted orders; maximum page size 1000.                                                                                                                                             |
+| `GET /orders/:hash`              | Return the order and its status at the indexed block.                                                                                                                                      |
+| `GET /health`                    | Return indexed cursor, last sync time and whether sync is stale.                                                                                                                           |
+
+Admission reserves neither money nor inventory. Canonical envelopes are immutable; replacements use a new signed order. Onchain nonce/group cancellation is authoritative. `open` only means unconsumed at the indexed block, not currently executable: expiry, wallet funds, inventory, approval and ERC-1271 validity can change.
+
+## Matching and relaying
+
+`Matcher` takes the same `Store`, `OrderBook`, a viem public client, a viem wallet client with a configured signing account, and `{chainId, router}`. Keep one dedicated relayer account per database; do not send unrelated transactions from it. A remote signer can be supplied through the wallet client. No key storage is implemented here.
+
+- `candidates(limit, offset)` scans a bounded 100-order window for matching complete baskets/programs and simulates settlement. It is a bounded discovery primitive, not an optimal market-wide scheduler. Callers may supply any two known hashes directly to `submit`.
+- `submit(bidHash, askHash)` checks current chain execution, reserves a unique relayer nonce atomically, persists the unsigned request, signs it and persists exact signed bytes before broadcast. Repeated calls reuse that transaction. RPC estimation failures reserve no nonce.
+- `recover()` resumes persisted jobs in nonce order. If a signature or transport call fails, retry after restoring the signer/transport. A mined revert is returned explicitly; it is not retried with a new nonce or new fee bid automatically.
+- `status(id, index)` distinguishes prepared, broadcast, mined, reverted and confirmed. Confirmed means the exact transaction and both order hashes occur together in a canonical indexed settlement event, with the index's confirmation policy. It can change after a reorg.
+
+A successful simulation cannot guarantee a later fill: competing orders, wallet spending and price movement can win the race. The contract's atomic checks are decisive. A reverted transaction can consume relayer gas without moving rental inventory or USDC.
+
+The index processes up to 64 blocks per sync and defaults to two confirmations. It records empty blocks, validates block-hash-scoped logs, removes orphaned history, and consults nonce/group state at the indexed block. RPC outages propagate as unavailable status, not as empty history. Two confirmations are a configurable operational policy, not Ethereum finality.
+
+## Boundaries
+
+Whole units, one seller, exact basket/program matching, fixed or Dutch pricing, and the contract's 1–31-day limit. No automatic fee replacement, public relayer, multi-seller routing, supplier booking, redemption, refunds or production deployment. The database contains executable signed orders and transactions; protect its access and backups. Contracts and backend have not been independently audited.

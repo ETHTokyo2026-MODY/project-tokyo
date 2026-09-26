@@ -7,7 +7,9 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "start": "node src/server.mjs",
+    "test:integration": "forge build --root ../../contracts && node --test test/integration.mjs"
   },
   "dependencies": {
     "viem": "2.56.8"

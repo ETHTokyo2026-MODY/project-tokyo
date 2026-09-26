@@ -1,4 +1,4 @@
-# Rental order backend proof
+# Rental settlement specification
 
 ## Scope and trust
 
@@ -61,12 +61,12 @@ Fee is floor(price / 100), paid by buyer to an immutable fee recipient. Seller r
 7. Batch-transfer the seller's ERC-1155 rights to the buyer recipient.
 8. Emit signed order hashes, mandate hash, price and fee.
 
-Any revert unwinds the router, Aqua, ERC-20, and ERC-1155 state changes. ERC-1155 approval is not a sell order; the seller signature is independently mandatory. No matching/search is performed onchain. Tests construct an already-agreed match offchain.
+Any revert unwinds the router, Aqua, ERC-20, and ERC-1155 state changes. ERC-1155 approval is not a sell order; the seller signature is independently mandatory. No matching/search is performed onchain. The order backend in `../apps/backend` stores signed orders, simulates compatible matches, and submits the same settlement call.
 
 ## Scope boundaries
 
 Proof covers canonical Aqua integration, fixed and Dutch pricing, daily/weekly/31-day baskets, fungible room quantities, alternatives, independent orders, cancellations, revoked approvals, depleted wallet, moved inventory, authorization, budget refill, resale, rollback and malicious receivers. Invariants cover capacity/ownership, USDC conservation, and mandate cap over randomized sequences.
 
-Not implemented: order discovery database/API, multi-seller fills, partial fills, open-ended flexible date allocation, redemption, refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment. These are not necessary to prove the authorized settlement model.
+Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, redemption, refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment. These are not necessary to prove the authorized settlement model.
 
 No crowdsourcing threshold, pooled buyer commitment, or collective activation is implemented. The fee rate is fixed; only fixed-price and descending Dutch programs are accepted.
