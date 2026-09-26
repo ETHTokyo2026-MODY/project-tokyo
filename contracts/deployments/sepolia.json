@@ -10,5 +10,25 @@
     "purchase": "0xe0723e23a3d6bcf27cb5e3a20befc3b4300aa077c1242f3b440f0ba64fb2c7ed",
     "resale": "0x43557781baf095e4ca5060969d8ec8855a3ccb44dc863ba0b3c7adb396c0c3ba",
     "thirtyOneDays": "0xa94d90b026acc3df6a0b9775dba6cf419220271c07b4f6813a6b323dc4d4c15e"
+  },
+  "ensV2Discovery": {
+    "universalResolver": "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe",
+    "rootRegistry": "0x9703dbd26dab89504490994138cf2c575251a9ce",
+    "registrar": "0xabe76f6c8dfced81aa5a2bb8034202a7136b94ca",
+    "parent": "rental-proof-73e27831.eth",
+    "resolver": "0x58b09e0a39dc962d6b3d3caef8e5018714f7e5e2",
+    "name": "demo-room.rental-proof-73e27831.eth",
+    "initialPool": "0xb23e2cde557bde62259a770474154f21d3d6dc216fbee9cb0a8f20e76cbe945f",
+    "remappedPool": "0xbfbee1279116d4e881a5d75e03d5d6a050e1857979ec81067f80484095db31ce",
+    "initialResolutionBlock": 11786662,
+    "remappedResolutionBlock": 11786665,
+    "proofTransactions": {
+      "deployResolver": "0x4c46e016b2549397789de0eef6beb754a30d906e922259f3c98027b1cee40ec8",
+      "mapInitialPool": "0x57aae3a4f9eac14606521c6fdd7e48cd838736e60fade5dc74fe0231923ce897",
+      "registerParent": "0x2aa114ca54d307543d5b838265b1a3f605f817aa17ba451c14d91313446f280e",
+      "remapPool": "0x44d9fc9f5a66dfeff841630143ddab77d308ee5befc5333365cd28a4d25c37b5",
+      "shipMandate": "0x2e66740c321b9698a939a87742d0662d4f64b9a55edb62b8600c5b46b3bf989f",
+      "settleOriginalPool": "0x5d488c32d00f64830d78e3c06f0a940f220171a930f27ad1e2407289c320ec18"
+    }
   }
 }
