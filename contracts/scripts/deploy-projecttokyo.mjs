@@ -194,7 +194,7 @@ if (existing !== '0x0000000000000000000000000000000000000000') {
       location: 'Shibuya, Tokyo',
       description: 'ProjectTokyo ENSv2 demo',
     },
-    ({ startDay, endDay, hash, gasUsed }) => {
+    async ({ startDay, endDay, hash, gasUsed }) => {
       log(
         'day chunk',
         startDay,
@@ -204,7 +204,7 @@ if (existing !== '0x0000000000000000000000000000000000000000') {
         'gasUsed',
         gasUsed?.toString(),
       );
-      return undefined;
+      if (!(await afford('next day chunk', 8_000_000n))) return false;
     },
   );
   log('demo asset', created.asset);

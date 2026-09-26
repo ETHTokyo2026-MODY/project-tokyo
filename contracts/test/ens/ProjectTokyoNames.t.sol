@@ -87,7 +87,7 @@ contract ProjectTokyoNamesTest is Test {
     function testSupportsResolverInterfaces() public view {
         assertTrue(names.supportsInterface(0x9061b923));
         assertTrue(names.supportsInterface(0x01ffc9a7));
-        assertFalse(names.supportsInterface(0x4e2312e0));
+        assertTrue(names.supportsInterface(0x4e2312e0));
     }
 
     function _dayName(uint32 day, string memory assetLabel) internal view returns (bytes memory) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {
     EnsRoles,
@@ -17,7 +18,8 @@ import {
 import {ProjectTokyoDates} from "./ens/ProjectTokyoDates.sol";
 
 /// @notice Registrar for projecttokyo.eth asset/day names over live RentalAsset / DayToken.
-contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC165 {
+/// IERC1155Receiver is required because ENSv2 UserRegistry mints name tokens to this contract.
+contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Receiver {
     bytes4 private constant ADDR_SIG = 0x3b3b57de;
     bytes4 private constant ADDR_COIN_SIG = 0xf1cb7e06;
     bytes4 private constant TEXT_SIG = 0x59d1d43c;
@@ -151,7 +153,19 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC165 {
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {
-        return id == type(IERC165).interfaceId || id == 0x9061b923;
+        return id == type(IERC165).interfaceId || id == type(IERC1155Receiver).interfaceId || id == 0x9061b923;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return IERC1155Receiver.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return IERC1155Receiver.onERC1155BatchReceived.selector;
     }
 
     function _resolve(bytes calldata name, bytes calldata data) private view returns (bytes memory) {

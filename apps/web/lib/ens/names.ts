@@ -214,7 +214,7 @@ export async function createAsset(
     endDay: number;
     hash: Hex;
     gasUsed?: bigint;
-  }) => boolean | void,
+  }) => boolean | void | Promise<boolean | void>,
 ) {
   const rental = await createRentalAsset(
     clients,
@@ -250,7 +250,7 @@ export async function createAsset(
       chunkEnd,
     );
     hashes.push(registered.hash);
-    const stop = onChunk?.({
+    const stop = await onChunk?.({
       startDay: d,
       endDay: chunkEnd,
       hash: registered.hash,
