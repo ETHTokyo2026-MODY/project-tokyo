@@ -328,7 +328,10 @@ test(
     assert.equal(listed.status, 200);
     const alternatives = await listed.json();
     assert.equal(alternatives.quotes.length, 2);
-    assert.equal(alternatives.best.total, '1010000');
+    assert.equal(alternatives.bestByBasket.length, 2);
+    assert.ok(
+      alternatives.bestByBasket.every((quote) => quote.total === '1010000'),
+    );
     assert.equal(alternatives.quotes[0].bidMaker, buyer.account.address);
     assert.equal(alternatives.quotes[1].bidMaker, buyer.account.address);
     assert.match(alternatives.execution, /alternatives/);
@@ -588,8 +591,8 @@ test(
     const resaleAsk = await order(buyer, false, 4, day + 1);
     const resaleQuotes = await market.quotes();
     assert.equal(resaleQuotes.quotes.length, 1);
-    assert.equal(resaleQuotes.best.bidHash, resaleBid.hash);
-    assert.equal(resaleQuotes.best.askHash, resaleAsk.hash);
+    assert.equal(resaleQuotes.bestByBasket[0].bidHash, resaleBid.hash);
+    assert.equal(resaleQuotes.bestByBasket[0].askHash, resaleAsk.hash);
     const resale = await restarted.submit(resaleBid.hash, resaleAsk.hash);
     assert.equal(
       (await client.waitForTransactionReceipt({ hash: resale.transactionHash }))
@@ -621,8 +624,8 @@ test(
     );
     const afterResale = await market.quotes();
     assert.equal(afterResale.quotes.length, 1);
-    assert.equal(afterResale.best.bidHash, weekBid.hash);
-    assert.equal(afterResale.best.askHash, weekAsk.hash);
+    assert.equal(afterResale.bestByBasket[0].bidHash, weekBid.hash);
+    assert.equal(afterResale.bestByBasket[0].askHash, weekAsk.hash);
     await send(buyer, router, 'cancel', [2n]);
     assert.equal((await market.quotes()).quotes.length, 0);
     await order(buyer, true, 5, day + 1);

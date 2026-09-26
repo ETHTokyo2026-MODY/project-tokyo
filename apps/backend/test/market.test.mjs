@@ -71,8 +71,9 @@ test('ranks individual signed alternatives by buyer total at one block', async (
   }));
   const result = await instance.quotes();
   assert.equal(result.quotes.length, 2);
-  assert.equal(result.best.bidHash, hash(3));
-  assert.equal(result.best.total, '999900');
+  assert.equal(result.bestByBasket.length, 1);
+  assert.equal(result.bestByBasket[0].bidHash, hash(3));
+  assert.equal(result.bestByBasket[0].total, '999900');
   assert.deepEqual(
     result.quotes.map(({ bidMaker, mandate }) => [bidMaker, mandate]),
     [
@@ -83,6 +84,35 @@ test('ranks individual signed alternatives by buyer total at one block', async (
   assert.match(result.execution, /alternatives/);
   assert.equal(result.window.checkedPairs, 2);
   assert.ok(calls.every(({ blockNumber }) => blockNumber === 42n));
+});
+
+test('keeps buyers and unlike rental baskets in distinct price groups', async () => {
+  const secondBuyer = '0x3333333333333333333333333333333333333333';
+  const orders = [
+    order(1, true, hash(9)),
+    order(2, false, hash(9)),
+    order(3, true, hash(10), { startDay: '101', endDay: '102' }),
+    order(4, false, hash(10), { startDay: '101', endDay: '102' }),
+    order(5, true, hash(9), { maker: secondBuyer, mandate: hash(5) }),
+  ];
+  const { instance } = market(orders, async ({ args }) => ({
+    result:
+      args[0].programHash === hash(9)
+        ? [1_000_000n, 10_000n]
+        : [2_000_000n, 20_000n],
+  }));
+  const result = await instance.quotes();
+  assert.equal(result.quotes.length, 3);
+  assert.equal(result.bestByBasket.length, 3);
+  assert.deepEqual(
+    result.bestByBasket.map((quote) => [quote.bidMaker, quote.startDay]),
+    [
+      [MAKER, '100'],
+      [MAKER, '101'],
+      [secondBuyer, '100'],
+    ],
+  );
+  assert.equal(Object.hasOwn(result, 'best'), false);
 });
 
 test('filters expiry and contract failures, surfaces RPC failure and reorg', async () => {

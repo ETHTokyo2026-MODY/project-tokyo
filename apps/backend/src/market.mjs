@@ -45,6 +45,17 @@ function rank(a, b) {
   return 0;
 }
 
+function basketKey(quote) {
+  return JSON.stringify([
+    quote.bidMaker.toLowerCase(),
+    quote.pool.toLowerCase(),
+    quote.startDay,
+    quote.endDay,
+    quote.quantity,
+    quote.terms.toLowerCase(),
+  ]);
+}
+
 // Quotes are independent simulations at one block. A buyer may sign many
 // alternative orders against the same wallet funds; the list is not liquidity.
 export class Market {
@@ -128,12 +139,19 @@ export class Market {
     }
     await this.#canonical(block);
     quotes.sort(rank);
+    const byBasket = new Map();
+    for (const quote of quotes) {
+      const key = basketKey(quote);
+      if (!byBasket.has(key)) byBasket.set(key, quote);
+    }
     return {
       blockNumber: block.number.toString(),
       blockHash: block.hash,
       window: { limit, offset, checkedPairs },
       execution: 'one pair at a time; shared-wallet bids are alternatives',
-      best: quotes[0] ?? null,
+      bestByBasket: [...byBasket.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([, quote]) => quote),
       quotes,
     };
   }
