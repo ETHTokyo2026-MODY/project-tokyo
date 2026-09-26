@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { Matcher } from '../src/matcher.mjs';
+import { Matcher, ensureSubmissions } from '../src/matcher.mjs';
+import { StoredSubmission } from '../src/submission.mjs';
 import {
   hashMandate,
   hashOrder,
@@ -26,6 +27,153 @@ const config = {
   router: '0x1111111111111111111111111111111111111111',
   usdc: '0x2222222222222222222222222222222222222222',
 };
+
+test('saved signed jobs cannot be retried with a different exact call', async () => {
+  const store = new Store(filename());
+  try {
+    const sender = new StoredSubmission(store.db, fakeClient(), localWallet(), {
+      chainId: config.chainId,
+      kind: 'ordinary',
+    });
+    const args = {
+      id: 'saved-call',
+      bidHash: 'bid',
+      askHash: 'ask',
+      to: config.router,
+      data: '0x1234',
+      simulate: async () => {},
+    };
+    await sender.submit(args);
+    await assert.rejects(
+      sender.submit({ ...args, to: config.usdc }),
+      /Stored transaction differs/,
+    );
+    await assert.rejects(
+      sender.submit({ ...args, data: '0x5678' }),
+      /Stored transaction differs/,
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test('legacy ordinary submissions migrate into the shared nonce namespace', () => {
+  const store = new Store(filename());
+  try {
+    store.db.exec(`CREATE TABLE submissions (
+      id TEXT PRIMARY KEY, bid_hash TEXT NOT NULL, ask_hash TEXT NOT NULL,
+      sender TEXT NOT NULL, nonce INTEGER NOT NULL, unsigned TEXT,
+      raw TEXT, tx_hash TEXT, UNIQUE(sender, nonce)
+    )`);
+    store.db
+      .prepare(
+        'INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce) VALUES(?,?,?,?,?)',
+      )
+      .run('old', 'bid', 'ask', relayer.address.toLowerCase(), 7);
+    ensureSubmissions(store.db);
+    ensureSubmissions(store.db);
+    const old = store.db
+      .prepare('SELECT nonce,kind,payload FROM submissions WHERE id = ?')
+      .get('old');
+    assert.equal(old.nonce, 7);
+    assert.equal(old.kind, 'ordinary');
+    assert.equal(old.payload, null);
+    assert.throws(
+      () =>
+        store.db
+          .prepare(
+            "INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce,kind) VALUES(?,?,?,?,?,'conversion')",
+          )
+          .run('new', 'bid', 'ask', relayer.address.toLowerCase(), 7),
+      /UNIQUE constraint failed/,
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test('unsigned ordinary job blocks a later conversion nonce until recovered', async () => {
+  const store = new Store(filename());
+  const client = fakeClient();
+  const badWallet = localWallet();
+  badWallet.failSign = true;
+  const ordinary = new StoredSubmission(store.db, client, badWallet, {
+    chainId: config.chainId,
+    kind: 'ordinary',
+  });
+  const args = {
+    bidHash: 'bid',
+    askHash: 'ask',
+    to: config.router,
+    data: '0x1234',
+    simulate: async () => {},
+  };
+  await assert.rejects(
+    ordinary.submit({ ...args, id: 'ordinary' }),
+    /signing failed/,
+  );
+  const conversion = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId,
+    kind: 'conversion',
+  });
+  await assert.rejects(
+    conversion.submit({ ...args, id: 'conversion', payload: 'signed intent' }),
+    /Earlier relayer submission requires recovery/,
+  );
+  assert.equal(
+    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    1,
+  );
+  const recovered = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId,
+    kind: 'ordinary',
+  });
+  await recovered.submit({ ...args, id: 'ordinary' });
+  const later = await conversion.submit({
+    ...args,
+    id: 'conversion',
+    payload: 'signed intent',
+  });
+  assert.equal(later.job.nonce, 1);
+  store.close();
+});
+
+test('saved but unbroadcast ordinary transaction blocks later conversion', async () => {
+  const store = new Store(filename());
+  const client = fakeClient();
+  client.sendRawTransaction = async () => {
+    throw new Error('transport failed before acceptance');
+  };
+  const ordinary = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId,
+    kind: 'ordinary',
+  });
+  const args = {
+    bidHash: 'bid',
+    askHash: 'ask',
+    to: config.router,
+    data: '0x1234',
+    simulate: async () => {},
+  };
+  await assert.rejects(
+    ordinary.submit({ ...args, id: 'ordinary' }),
+    /transport failed/,
+  );
+  assert.ok(ordinary.get('ordinary').raw);
+  const conversion = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId,
+    kind: 'conversion',
+  });
+  await assert.rejects(
+    conversion.submit({ ...args, id: 'conversion', payload: 'intent' }),
+    /not accepted by RPC/,
+  );
+  assert.equal(
+    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    1,
+  );
+  store.close();
+});
 
 async function pair() {
   const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
@@ -91,7 +239,7 @@ function fakeClient() {
       return { result: [1_000_000n, 10_000n] };
     },
     async getTransactionCount() {
-      return 0;
+      return this.sent.length;
     },
     async getTransactionReceipt({ hash }) {
       if (this.receipts.has(hash)) return this.receipts.get(hash);

@@ -68,6 +68,8 @@ Legacy programs use a 1% fee. Economic-terms price is `unitPrice * durationDays 
 
 ## Atomic execution
 
+`RentalAtomicConverter` is an optional funding entry point for the same signed orders and Aqua mandates. Its `FundingIntent` EIP-712 domain (`RentalAtomicConverter`, version `1`, chain ID and converter address) binds buyer, router-derived bid/ask hashes, WETH source, exact input, minimum USDC output, buyer USDC cap, signed order recipient, deadline and single-use buyer nonce. The buyer approves the converter for WETH and Aqua for the USDC mandate; Aqua can be shipped while the buyer holds zero USDC. The converter quotes the chosen order, swaps through its immutable Uniswap V3 fee-tier route directly to the buyer, then calls the existing router. It requires the buyer's post-settlement USDC balance to be at least the balance before conversion. Any failure unwinds the swap, mandate pull, nonce, fee and inventory transfer. `output - price - fee` is the conversion surplus retained by the buyer.
+
 1. Globally lock settlement against cross-order reentrancy.
 2. Verify both signatures, deadlines, window, nonce and group status.
 3. Verify matching basket/program and buyer mandate/Aqua active status.
