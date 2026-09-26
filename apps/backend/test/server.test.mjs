@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { createServer, verifyDeployment } from '../src/server.mjs';
+import { DiscoveryInputError, DiscoveryNotFound } from '../src/discovery.mjs';
 import { SupplyInputError } from '../src/supply.mjs';
 import { OrderInputError } from '../src/orders.mjs';
 
@@ -55,7 +56,15 @@ const market = {
     return { page, sales: [] };
   },
 };
-const server = createServer({ book, index, market, supply });
+const discovery = {
+  async resolve(name) {
+    if (name === 'invalid') throw new DiscoveryInputError('private detail');
+    if (name === 'unknown') throw new DiscoveryNotFound('private detail');
+    if (name === 'rpc') throw new Error('RPC credential');
+    return { name, pool: hash };
+  },
+};
+const server = createServer({ book, index, market, supply, discovery });
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 after(() => server.close());
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -114,6 +123,28 @@ test('market read API bounds pages and surfaces unavailable chain state', async 
   } finally {
     marketFails = false;
   }
+});
+
+test('inventory discovery exposes concrete pools with bounded sanitized errors', async () => {
+  assert.deepEqual(await request('/inventory/resolve?name=room.rental.eth'), {
+    code: 200,
+    body: { name: 'room.rental.eth', pool: hash },
+  });
+  assert.equal((await request('/inventory/resolve')).code, 400);
+  assert.equal((await request('/inventory/resolve?name=a&name=b')).code, 400);
+  assert.equal((await request('/inventory/resolve?name=a&other=1')).code, 400);
+  assert.deepEqual(await request('/inventory/resolve?name=invalid'), {
+    code: 400,
+    body: { error: 'invalid pool name' },
+  });
+  assert.deepEqual(await request('/inventory/resolve?name=unknown'), {
+    code: 404,
+    body: { error: 'pool name not found' },
+  });
+  assert.deepEqual(await request('/inventory/resolve?name=rpc'), {
+    code: 503,
+    body: { error: 'pool discovery unavailable' },
+  });
 });
 
 test('startup verifies RPC chain and deployed router USDC', async () => {
