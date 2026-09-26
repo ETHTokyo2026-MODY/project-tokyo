@@ -44,3 +44,7 @@ deployment-secrets/
 # Next.js generated local agent guidance
 /apps/web/AGENTS.md
 /apps/web/CLAUDE.md
+
+# Only this dotenvx-encrypted runtime file is published. Private keys stay ignored.
+!/apps/web/.env.production
+.env.keys*
