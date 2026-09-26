@@ -292,6 +292,7 @@ test(
       'success',
     );
     await index.sync();
+    await client.waitForTransactionReceipt({ hash: saved.tx_hash });
     await index.sync();
     assert.equal(await index.status(bid), 'filled');
     assert.equal(
@@ -374,6 +375,7 @@ test(
       (await restarted.submit(bid.hash, ask.hash)).transactionHash,
       saved.tx_hash,
     );
+    await client.waitForTransactionReceipt({ hash: saved.tx_hash });
     await index.sync();
     assert.equal(await index.status(bid), 'filled');
     assert.equal(
