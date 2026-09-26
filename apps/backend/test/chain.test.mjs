@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { envelope, config } from './native-fixture.mjs';
 import { ChainIndex } from '../src/chain.mjs';
 
 const ROUTER = '0x1111111111111111111111111111111111111111';
@@ -9,12 +10,7 @@ const BUY = `0x${'a'.repeat(64)}`;
 const SELL = `0x${'b'.repeat(64)}`;
 const GROUP = `0x${'c'.repeat(64)}`;
 const hex = (n) => `0x${BigInt(n).toString(16).padStart(64, '0')}`;
-const order = (hash = BUY, nonce = 7n, group = GROUP) => ({
-  hash,
-  maker: MAKER,
-  nonce,
-  group,
-});
+const order = (hash = BUY) => ({ ...envelope(), hash });
 
 class FakeChain {
   constructor() {
@@ -28,6 +24,7 @@ class FakeChain {
     const number = this.blocks.length;
     const block = {
       number: BigInt(number),
+      timestamp: 100n,
       hash: hex(1000 + number + (this.fork ?? 0) * 10000),
       parentHash: number ? this.blocks[number - 1].hash : hex(0),
       events,
@@ -52,7 +49,10 @@ class FakeChain {
     return this.blocks[Number(blockNumber)] ?? null;
   }
   async getLogs({ address, blockHash }) {
-    assert.equal(address.toLowerCase(), ROUTER);
+    assert.deepEqual(
+      address.map((x) => x.toLowerCase()),
+      [ROUTER, config.aqua],
+    );
     const block = this.blocks.find((candidate) => candidate.hash === blockHash);
     return (block?.events ?? []).map((event, logIndex) => ({
       ...event,
@@ -65,10 +65,19 @@ class FakeChain {
   }
   async readContract({ functionName, args, blockNumber }) {
     assert.ok(this.blocks[Number(blockNumber)]);
-    const key = `${args[0].toLowerCase()}:${args[1].toString().toLowerCase()}`;
-    return functionName === 'used'
-      ? this.used.has(key)
-      : this.closedGroups.has(key);
+    if (functionName === 'rawBalances') return [300n, 1];
+    if (functionName === 'bitInvalidators')
+      return this.used.size ||
+        this.blocks
+          .slice(0, Number(blockNumber) + 1)
+          .some((b) =>
+            b.events.some((e) =>
+              ['Swapped', 'InvalidateBitUpdated'].includes(e.eventName),
+            ),
+          )
+        ? 2n
+        : 0n;
+    throw new Error('Unexpected read');
   }
 }
 
@@ -76,6 +85,8 @@ function index(db, chain, extra = {}) {
   return new ChainIndex({ db }, chain, {
     chainId: 31337,
     router: ROUTER,
+    aqua: config.aqua,
+    usdc: config.usdc,
     startBlock: 0,
     confirmations: 0,
     ...extra,
@@ -88,10 +99,10 @@ test('indexes empty blocks, persists cursor, and repeats sync without duplicates
   chain.add([]);
   chain.add([
     {
-      eventName: 'Settled',
+      eventName: 'Swapped',
       args: {
-        buyHash: BUY,
-        sellHash: SELL,
+        bidHash: BUY,
+        askHash: SELL,
         mandate: hex(3),
         price: 1n,
         fee: 0n,
@@ -119,10 +130,10 @@ test('unwinds orphaned events, including a reorg across an empty block', async (
   chain.add([]);
   chain.add([
     {
-      eventName: 'Settled',
+      eventName: 'Swapped',
       args: {
-        buyHash: BUY,
-        sellHash: SELL,
+        bidHash: BUY,
+        askHash: SELL,
         mandate: hex(3),
         price: 1n,
         fee: 0n,
@@ -133,7 +144,12 @@ test('unwinds orphaned events, including a reorg across an empty block', async (
   await idx.sync();
   chain.replace(1, [
     [],
-    [{ eventName: 'Cancelled', args: { maker: MAKER, nonce: 7n } }],
+    [
+      {
+        eventName: 'InvalidateBitUpdated',
+        args: { maker: MAKER, slotIndex: 0n, slotValue: 2n },
+      },
+    ],
   ]);
   assert.equal(await idx.sync(), 2);
   assert.equal(idx.settled(BUY), false);
@@ -154,7 +170,9 @@ test('bounds catchup, handles a shorter chain, and rejects mismatched identity',
   assert.equal(await idx.sync(), 2);
   assert.equal(db.prepare('SELECT count(*) AS n FROM blocks').get().n, 3);
   assert.throws(() => index(db, chain, { router: MAKER }), /identity/);
-  db.exec('CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+  db.exec(
+    'CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+  );
   db.prepare('INSERT INTO metadata (key, value) VALUES (?, ?)').run(
     'scope',
     JSON.stringify({ chainId: 31337, router: MAKER }),
@@ -163,27 +181,16 @@ test('bounds catchup, handles a shorter chain, and rejects mismatched identity',
   db.close();
 });
 
-test('checks used and closedGroup at the indexed block and returns unknown on a reorg', async () => {
+test('reads native authorization and invalidation at indexed state; detects reorg', async () => {
   const db = new DatabaseSync(':memory:');
   const chain = new FakeChain();
-  chain.add([]);
-  const idx = index(db, chain);
-  assert.equal(await idx.status(order()), 'unknown');
-  await idx.sync();
-  assert.equal(await idx.status(order()), 'open');
-  chain.used.add(`${MAKER}:7`);
-  assert.equal(
-    await idx.status({
-      hash: BUY,
-      order: { maker: MAKER, nonce: '7', group: GROUP },
-    }),
-    'closed',
-  );
-  chain.used.clear();
-  chain.closedGroups.add(`${MAKER}:${GROUP}`);
-  assert.equal(await idx.status(order()), 'closed');
-  chain.replace(1, [[]]);
-  assert.equal(await idx.status(order()), 'unknown');
+  const instance = index(db, chain);
+  await instance.sync();
+  assert.equal(await instance.status(order()), 'open');
+  chain.used.add('nonce');
+  assert.equal(await instance.status(order()), 'cancelled');
+  chain.replace(0, [[]]);
+  assert.equal(await instance.status(order()), 'unknown');
   db.close();
 });
 
@@ -191,7 +198,10 @@ test('rejects mixed block logs atomically and retries from the persisted cursor'
   const db = new DatabaseSync(':memory:');
   const chain = new FakeChain();
   chain.add([
-    { eventName: 'GroupClosed', args: { maker: MAKER, group: GROUP } },
+    {
+      eventName: 'InvalidateBitUpdated',
+      args: { maker: MAKER, slotIndex: 0n, slotValue: 2n },
+    },
   ]);
   const idx = index(db, chain);
   const originalGetLogs = chain.getLogs.bind(chain);

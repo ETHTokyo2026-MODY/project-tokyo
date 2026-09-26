@@ -2,7 +2,7 @@
 
 Powered by Aqua — © Degensoft Ltd 2025. SwapVM — © Degensoft Ltd 2025.
 
-This experimental protocol extension registers and transfers ERC-1155 assets in Aqua's own strategy ledger. It does not wrap rental rights as ERC-20s or delegate their transfer to `RentalSettlement`. It is a separate deployment, not an upgrade to official Aqua or a replacement already integrated with the existing HTTP API.
+This experimental protocol extension registers and transfers ERC-1155 assets in Aqua's own strategy ledger. It does not wrap rental rights as ERC-20s or delegate their transfer to `RentalSettlement`. It is a separate deployment from official Aqua. The HTTP backend consumes this protocol; the historical public deployment has not been replaced.
 
 ## Source and changes
 
@@ -33,8 +33,8 @@ Upstream InvalidateBit can make a strategy single-use, or implement OCO when alt
 | EIP-712 order authorization                              | Shipped authorization suffices here, at the cost of an onchain registration; this does not prove offchain-only order publication |
 | Daily issuance, capacity and redemption                  | Existing RentalInventory works unchanged                                                                                         |
 | Aggregate budget across several distinct strategies      | Not automatically provided by per-strategy balances; still requires an explicit policy if requested                              |
-| Indexing, persistence, matching and transaction recovery | Still needed; no HTTP/backend migration is included here                                                                         |
-| Revenue payouts, ENS and conversion                      | Separate capabilities; not needed to establish native asset settlement                                                           |
+| Indexing, persistence, matching and transaction recovery | Reused by the migrated AquaVapor backend                                                                         |
+| Revenue payouts, ENS and conversion                      | ENS and conversion consumers migrated; legacy revenue lifecycle remains separate                                                           |
 
 No old production path is removed by this change. The generic router does not certify supplier identity, physical availability, reservation fulfillment, or ERC-1155 implementation honesty. Test fixtures use standard ERC-1155 and ERC-20 behavior; fee-on-transfer/rebasing payment tokens are outside the USDC contract assumption.
 
@@ -75,3 +75,7 @@ The native path has no 31-day trading cap. Aqua's inherited packed status/count 
 This is tested local feasibility, not an audited or public-testnet deployment. Fresh registrations and approvals are required for this fork. Official Aqua SDKs, deployments and application liquidity are not automatically compatible.
 
 The Tokyo prize explicitly permits a modified SwapVM deployment but does not explicitly grant the same exception for modified Aqua. Sponsor eligibility therefore remains unconfirmed; no sponsor contact or eligibility claim is implied by this implementation.
+
+## Backend consumers
+
+The [backend](../../../apps/backend/README.md) consumes shipped strategies and native events, verifies independent programs, and recovers durable transactions. `AssetAtomicConverter` reuses the existing conversion design with native strategy hashes and `AssetSwapVM.swap`; both payment and rights still move through AquaVapor. `DeployVapor.s.sol` deploys the native pair on Sepolia against Circle test USDC. Historical published addresses are not migrated deployments.

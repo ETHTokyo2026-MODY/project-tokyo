@@ -1,3 +1,4 @@
+import { routerAbi, rentalStrategy } from './protocol.mjs';
 import {
   decodeAbiParameters,
   encodeFunctionData,
@@ -27,7 +28,7 @@ const RESOLVER = parseAbi([
 const INVENTORY = parseAbi([
   'function pools(bytes32) view returns (address supplier,uint32 startDay,uint32 endDay,uint32 capacity)',
 ]);
-const ROUTER = parseAbi(['function inventory() view returns (address)']);
+
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export class DiscoveryInputError extends Error {}
@@ -55,8 +56,7 @@ function nameParts(value) {
   return parts;
 }
 
-// Discovery returns a concrete pool before an order is signed. No name or
-// resolver address appears in RentalSettlement.Order.
+// Discovery resolves a concrete inventory and pool before IDs enter the shipped strategy.
 export class InventoryDiscovery {
   constructor(
     client,
@@ -67,6 +67,8 @@ export class InventoryDiscovery {
       poolResolver,
       inventory,
       router,
+      aqua,
+      usdc,
       parentName,
     },
   ) {
@@ -93,6 +95,8 @@ export class InventoryDiscovery {
     this.poolResolver = getAddress(poolResolver);
     this.inventory = getAddress(inventory);
     this.router = getAddress(router);
+    this.aqua = getAddress(aqua);
+    this.usdc = getAddress(usdc);
     this.parentLabels = nameParts(parentName).length;
     if (this.parentLabels < 2) throw new Error('Invalid discovery parent');
     this.parentName = parentName;
@@ -123,7 +127,8 @@ export class InventoryDiscovery {
       routerCode,
       root,
       boundInventory,
-      routerInventory,
+      routerAqua,
+      routerUSDC,
       parentNode,
       parentDnsHash,
     ] = await Promise.all([
@@ -144,8 +149,14 @@ export class InventoryDiscovery {
       }),
       this.client.readContract({
         address: this.router,
-        abi: ROUTER,
-        functionName: 'inventory',
+        abi: routerAbi,
+        functionName: 'AQUA',
+        ...at,
+      }),
+      this.client.readContract({
+        address: this.router,
+        abi: routerAbi,
+        functionName: 'USDC',
         ...at,
       }),
       this.client.readContract({
@@ -170,7 +181,8 @@ export class InventoryDiscovery {
       routerCode === '0x' ||
       getAddress(root) !== this.rootRegistry ||
       getAddress(boundInventory) !== this.inventory ||
-      getAddress(routerInventory) !== this.inventory ||
+      getAddress(routerAqua) !== this.aqua ||
+      getAddress(routerUSDC) !== this.usdc ||
       parentNode.toLowerCase() !== this.parentNode.toLowerCase() ||
       parentDnsHash.toLowerCase() !== this.parentDnsHash.toLowerCase()
     )
@@ -231,16 +243,23 @@ export class InventoryDiscovery {
     };
   }
 
-  /** Freeze the resolved pool into the unsigned draft before wallet signing; later remaps cannot redirect it. */
-  async prepareOrder(name, draft) {
+  /** Freeze the resolved pool into the unsigned draft before wallet registration; later remaps cannot redirect it. */
+  async prepareStrategy(name, draft) {
     if (
       !draft ||
       typeof draft !== 'object' ||
       Array.isArray(draft) ||
-      Object.hasOwn(draft, 'pool')
+      Object.hasOwn(draft, 'pool') ||
+      Object.hasOwn(draft, 'inventory')
     )
       throw new DiscoveryInputError('order draft must not contain a pool');
     const discovery = await this.resolve(name);
-    return { discovery, order: { ...draft, pool: discovery.pool } };
+    return {
+      discovery,
+      strategy: rentalStrategy(
+        { ...draft, inventory: this.inventory, pool: discovery.pool },
+        { usdc: this.usdc },
+      ),
+    };
   }
 }

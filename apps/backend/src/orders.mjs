@@ -1,255 +1,135 @@
-import { getAddress, isAddress, isHex, keccak256 } from 'viem';
 import {
-  hashMandate,
-  hashOrder,
-  orderDomain,
-  orderTypes,
-  routerAbi,
-  ZERO_HASH,
+  address,
+  aquaAbi,
+  assetsFor,
+  decodeStrategy,
+  hashStrategy,
+  normalizeStrategy,
+  programTerms,
+  PROTOCOL,
+  serialize,
+  verifyDeployment,
 } from './protocol.mjs';
 
-const UINT256_MAX = (1n << 256n) - 1n;
-const UINT32_MAX = (1n << 32n) - 1n;
-const UINT128_MAX = (1n << 128n) - 1n;
-const UINT64_MAX = (1n << 64n) - 1n;
-const DAY = 86_400n;
-const orderFields = orderTypes.Order;
-const mandateFields = routerAbi[0].inputs[4].components;
-
 export class OrderInputError extends Error {}
-function fail(message) {
-  throw new OrderInputError(message);
-}
-function exactObject(value, fields, label) {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    Object.keys(value).length !== fields.length ||
-    fields.some(({ name }) => !Object.hasOwn(value, name))
-  )
-    fail(`invalid ${label} fields`);
-}
-function uint(value, bits, label) {
-  if (!(
-    typeof value === 'bigint' ||
-    (typeof value === 'number' && Number.isSafeInteger(value)) ||
-    (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))
-  ))
-    fail(`invalid ${label}`);
-  const n = BigInt(value);
-  if (n < 0n || n > (bits === 32 ? UINT32_MAX : UINT256_MAX))
-    fail(`invalid ${label}`);
-  return n.toString();
-}
-function hex(value, bytes, label) {
-  if (
-    typeof value !== 'string' ||
-    !isHex(value) ||
-    value.length !== bytes * 2 + 2
-  )
-    fail(`invalid ${label}`);
-  return value.toLowerCase();
-}
-function addr(value, label) {
-  if (typeof value !== 'string' || !isAddress(value)) fail(`invalid ${label}`);
-  const canonical = getAddress(value);
-  if (canonical === getAddress('0x0000000000000000000000000000000000000000'))
-    fail(`zero ${label}`);
-  return canonical;
-}
-function normalize(value, fields, label) {
-  exactObject(value, fields, label);
-  return Object.fromEntries(
-    fields.map(({ name, type }) => {
-      const v = value[name];
-      if (type === 'address') return [name, addr(v, `${label}.${name}`)];
-      if (type === 'bytes32') return [name, hex(v, 32, `${label}.${name}`)];
-      if (type === 'bool') {
-        if (typeof v !== 'boolean') fail(`invalid ${label}.${name}`);
-        return [name, v];
-      }
-      if (type === 'uint32') return [name, uint(v, 32, `${label}.${name}`)];
-      if (type === 'uint256') return [name, uint(v, 256, `${label}.${name}`)];
-      fail(`unsupported ${label}.${name}`);
-    }),
-  );
-}
-function normalizeProgram(value) {
-  if (typeof value !== 'string' || !isHex(value) || value.length % 2)
-    fail('invalid program');
-  const p = value.toLowerCase();
-  const bytes = Buffer.from(p.slice(2), 'hex');
-  const lengths = new Map([
-    [0x9e, 37],
-    [0x9f, 133],
-    [0xa0, 133],
-    [0xa1, 229],
-  ]);
-  if (
-    bytes.length !== lengths.get(bytes[0]) ||
-    bytes[1] !== bytes.length - 5 ||
-    bytes.at(-3) !== 0x54 ||
-    bytes.at(-2) !== 1 ||
-    bytes.at(-1) !== 0x80
-  )
-    fail('invalid program');
-  const word = (offset) =>
-    BigInt(`0x${bytes.subarray(offset, offset + 32).toString('hex')}`);
-  if (bytes[0] === 0x9e && word(2) === 0n) fail('invalid fixed program');
-  if (bytes[0] === 0xa0 || bytes[0] === 0xa1) {
-    const feeOffset = bytes[0] === 0xa0 ? 34 : 130;
-    const feeBps = word(feeOffset);
-    const threshold = word(feeOffset + 32);
-    const discountBps = word(feeOffset + 64);
-    if (
-      feeBps > 1000n ||
-      discountBps > 9000n ||
-      (discountBps === 0n
-        ? threshold !== 0n
-        : threshold < 1n || threshold > 31n)
-    )
-      fail('invalid economic terms');
-    if (bytes[0] === 0xa0 && (word(2) === 0n || word(2) > UINT128_MAX))
-      fail('invalid fixed unit price');
-  }
-  if (bytes[0] === 0x9f || bytes[0] === 0xa1) {
-    const [high, low, start, end] = [word(2), word(34), word(66), word(98)];
-    if (
-      high > UINT128_MAX ||
-      high < low ||
-      low === 0n ||
-      end <= start ||
-      end - start > UINT64_MAX
-    )
-      fail('invalid Dutch program');
-  }
-  return p;
-}
+const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+const hashValue = (h) => {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(h))
+    throw new OrderInputError('Invalid strategy hash');
+  return h.toLowerCase();
+};
 
-/**
- * Immutable signed envelopes scoped to one chain/router/USDC deployment.
- * Admission authenticates intent; it reserves neither funds nor inventory.
- * Current executability must be checked by simulating the complete settlement.
- */
+/** A durable cache of immutable shipped strategies. Onchain authorization remains authoritative. */
 export class OrderBook {
   constructor(store, publicClient, config) {
-    if (!store?.db || typeof publicClient?.verifyTypedData !== 'function')
-      fail('invalid order book dependencies');
-    if (!Number.isSafeInteger(config?.chainId) || config.chainId <= 0)
-      fail('invalid chainId');
+    if (
+      !store?.db ||
+      !publicClient?.readContract ||
+      !Number.isSafeInteger(config?.chainId) ||
+      config.chainId <= 0
+    )
+      throw new OrderInputError('Invalid order book dependencies');
     this.config = {
+      protocol: PROTOCOL,
       chainId: config.chainId,
-      router: addr(config.router, 'router'),
-      usdc: addr(config.usdc, 'usdc'),
+      router: address(config.router),
+      aqua: address(config.aqua),
+      usdc: address(config.usdc),
     };
     this.store = store;
     this.publicClient = publicClient;
-    const scope = JSON.stringify(this.config);
-    const existing = store.db
-      .prepare("SELECT value FROM metadata WHERE key = 'scope'")
+    const scope = serialize(this.config);
+    const prior = store.db
+      .prepare("SELECT value FROM metadata WHERE key='scope'")
       .get();
-    if (existing && existing.value !== scope)
-      fail('order store chain/router/token mismatch');
-    if (!existing)
+    if (prior && prior.value !== scope)
+      throw new OrderInputError(
+        'Order store deployment/protocol mismatch; use a new database',
+      );
+    if (!prior)
       store.db
-        .prepare("INSERT INTO metadata (key, value) VALUES ('scope', ?)")
+        .prepare("INSERT INTO metadata(key,value) VALUES ('scope',?)")
         .run(scope);
   }
 
-  /** Validate canonical fields and current signature authority, then deduplicate by EIP-712 hash. */
+  /** Fast-path intake after wallet registration; no offchain signature or separate funding mandate. */
   async submit(envelope) {
-    exactObject(
-      envelope,
-      [
-        { name: 'order' },
-        { name: 'signature' },
-        { name: 'program' },
-        ...(envelope && Object.hasOwn(envelope, 'mandate')
-          ? [{ name: 'mandate' }]
-          : []),
-      ],
-      'envelope',
-    );
-    const order = normalize(envelope.order, orderFields, 'order');
-    const signature = envelope.signature;
-    if (
-      typeof signature !== 'string' ||
-      !isHex(signature) ||
-      signature.length <= 2 ||
-      signature.length % 2
-    )
-      fail('invalid signature');
-    const program = normalizeProgram(envelope.program);
-    if (keccak256(program).toLowerCase() !== order.programHash)
-      fail('program hash mismatch');
-    const now = BigInt(Math.floor(Date.now() / 1000));
-    const start = BigInt(order.startDay);
-    const end = BigInt(order.endDay);
-    if (
-      start >= end ||
-      end - start > 31n ||
-      BigInt(order.quantity) === 0n ||
-      now >= start * DAY ||
-      now >= BigInt(order.expiry)
-    )
-      fail('inactive basket or order');
-    let mandate;
-    if (order.buy) {
-      if (!envelope.mandate) fail('missing mandate');
-      mandate = normalize(envelope.mandate, mandateFields, 'mandate');
-      if (
-        mandate.buyer !== order.maker ||
-        mandate.app !== this.config.router ||
-        mandate.token !== this.config.usdc ||
-        now >= BigInt(mandate.expiry) ||
-        hashMandate(mandate).toLowerCase() !== order.mandate
-      )
-        fail('mandate mismatch');
-    } else if (order.mandate !== ZERO_HASH || envelope.mandate !== undefined)
-      fail('ask must have zero mandate');
-    const hash = hashOrder(order, this.config).toLowerCase();
-    const stored = {
-      hash,
-      order,
-      signature: signature.toLowerCase(),
-      program,
-      ...(mandate ? { mandate } : {}),
-    };
-    const prior = this.get(hash);
-    if (prior) {
-      if (JSON.stringify(prior) !== JSON.stringify(stored))
-        fail('conflicting signed order');
+    let strategy;
+    try {
+      if (!envelope || Object.keys(envelope).join() !== 'strategy')
+        throw new Error('Expected strategy');
+      strategy = normalizeStrategy(envelope.strategy, this.config.usdc);
+    } catch (e) {
+      throw new OrderInputError(e.message);
     }
-    const valid = await this.publicClient.verifyTypedData({
-      address: order.maker,
-      domain: orderDomain(this.config),
-      types: orderTypes,
-      primaryType: 'Order',
-      message: order,
-      signature,
+    const hash = hashStrategy(strategy);
+    const block = await this.publicClient.getBlock();
+    const at = { blockNumber: block.number };
+    await verifyDeployment(this.publicClient, this.config, at);
+    if (programTerms(strategy, this.config.usdc).expiry < block.timestamp)
+      throw new OrderInputError('Expired strategy');
+    const balances = await Promise.all(
+      assetsFor(strategy, this.config.usdc).map((asset) =>
+        this.publicClient.readContract({
+          address: this.config.aqua,
+          abi: aquaAbi,
+          functionName: 'rawBalances',
+          args: [strategy.maker, this.config.router, hash, asset],
+          ...at,
+        }),
+      ),
+    );
+    if (
+      balances.some(
+        ([amount, count]) =>
+          Number(count) === 0 || Number(count) === 255 || BigInt(amount) === 0n,
+      )
+    )
+      throw new OrderInputError('Strategy is not actively registered');
+    const after = await this.publicClient.getBlock({
+      blockNumber: block.number,
     });
-    if (!valid) fail('invalid signature');
-    if (prior) return prior;
+    if (!same(after.hash, block.hash))
+      throw new Error('Registration snapshot reorganized');
+    return this.persist(strategy);
+  }
+
+  /** Called only for verified canonical Shipped logs from the configured AquaVapor deployment. */
+  ingestShipped(event) {
+    if (!same(event.app, this.config.router)) return;
+    let strategy;
+    try {
+      strategy = decodeStrategy(event.strategy, this.config.usdc);
+    } catch {
+      return;
+    }
+    if (
+      !same(strategy.maker, event.maker) ||
+      !same(hashStrategy(strategy), event.strategyHash)
+    )
+      return;
+    return this.persist(strategy);
+  }
+
+  persist(strategy) {
+    const hash = hashStrategy(strategy),
+      payload = serialize({ hash, strategy });
+    const prior = this.get(hash);
+    if (prior && serialize(prior) !== payload)
+      throw new OrderInputError('Conflicting strategy');
     this.store.db
       .prepare(
-        'INSERT OR IGNORE INTO orders (hash, payload, created_at) VALUES (?, ?, ?)',
+        'INSERT OR IGNORE INTO orders(hash,payload,created_at) VALUES (?,?,?)',
       )
-      .run(hash, JSON.stringify(stored), Math.floor(Date.now() / 1000));
-    const persisted = this.get(hash);
-    if (JSON.stringify(persisted) !== JSON.stringify(stored))
-      fail('conflicting signed order');
-    return persisted;
+      .run(hash, payload, Math.floor(Date.now() / 1000));
+    return this.get(hash);
   }
-
   get(hash) {
-    const normalized = hex(hash, 32, 'order hash');
     const row = this.store.db
-      .prepare('SELECT payload FROM orders WHERE hash = ?')
-      .get(normalized);
+      .prepare('SELECT payload FROM orders WHERE hash=?')
+      .get(hashValue(hash));
     return row ? JSON.parse(row.payload) : undefined;
   }
-
   list({ limit = 100, offset = 0 } = {}) {
     if (
       !Number.isSafeInteger(limit) ||
@@ -258,10 +138,10 @@ export class OrderBook {
       !Number.isSafeInteger(offset) ||
       offset < 0
     )
-      fail('invalid pagination');
+      throw new OrderInputError('Invalid pagination');
     return this.store.db
       .prepare(
-        'SELECT payload FROM orders ORDER BY created_at, rowid LIMIT ? OFFSET ?',
+        'SELECT payload FROM orders ORDER BY created_at,rowid LIMIT ? OFFSET ?',
       )
       .all(limit, offset)
       .map(({ payload }) => JSON.parse(payload));

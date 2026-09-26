@@ -6,7 +6,7 @@ import {
   parseEventLogs,
 } from 'viem';
 import { compatible } from './matcher.mjs';
-import { routerAbi } from './protocol.mjs';
+import { routerAbi, strategyFields } from './protocol.mjs';
 import { StoredSubmission } from './submission.mjs';
 
 const address = (value) => {
@@ -82,7 +82,6 @@ const conversionEvent = {
     { name: 'input', type: 'uint256', indexed: false },
     { name: 'output', type: 'uint256', indexed: false },
     { name: 'price', type: 'uint256', indexed: false },
-    { name: 'fee', type: 'uint256', indexed: false },
   ],
 };
 export const converterAbi = [
@@ -93,17 +92,12 @@ export const converterAbi = [
     inputs: [
       tuple('intent', intentFields),
       { name: 'intentSig', type: 'bytes' },
-      routerAbi[0].inputs[0],
-      routerAbi[0].inputs[1],
-      routerAbi[0].inputs[2],
-      routerAbi[0].inputs[3],
-      routerAbi[0].inputs[4],
-      routerAbi[0].inputs[5],
+      tuple('bid', strategyFields),
+      tuple('ask', strategyFields),
     ],
     outputs: [
       { name: 'output', type: 'uint256' },
       { name: 'price', type: 'uint256' },
-      { name: 'fee', type: 'uint256' },
     ],
   },
   ...['rentalRouter', 'swapRouter', 'sourceToken', 'usdc'].map((name) => ({
@@ -127,7 +121,7 @@ export const intentTypes = {
   FundingIntent: intentFields.map(({ name, type }) => ({ name, type })),
 };
 export const intentDomain = ({ chainId, executor }) => ({
-  name: 'RentalAtomicConverter',
+  name: 'AssetAtomicConverter',
   version: '1',
   chainId: Number(chainId),
   verifyingContract: executor,
@@ -277,7 +271,7 @@ export class ConversionRelay {
     const entries = canonicalPairs.map(({ bidHash, askHash }) => {
       const bid = this.book.get(bidHash);
       const ask = this.book.get(askHash);
-      if (!bid || !ask || !compatible(bid, ask) || bid.program !== ask.program)
+      if (!bid || !ask || !compatible(bid, ask))
         throw new Error('Unknown or incompatible conversion orders');
       return { bid, ask };
     });
@@ -301,7 +295,7 @@ export class ConversionRelay {
     );
     const signed = signature(intentSig, 'funding signature');
     const selected = entries.filter(({ bid }) =>
-      same(bid.order.maker, normalized.buyer),
+      same(bid.strategy.maker, normalized.buyer),
     );
     if (selected.length !== 1)
       throw new Error('Conversion buyer must occur exactly once');
@@ -309,7 +303,7 @@ export class ConversionRelay {
     if (
       !same(normalized.bidHash, chosen.bid.hash) ||
       !same(normalized.askHash, chosen.ask.hash) ||
-      !same(normalized.recipient, chosen.bid.order.recipient) ||
+      !same(normalized.recipient, chosen.bid.strategy.maker) ||
       !same(normalized.sourceToken, this.config.sourceToken) ||
       !same(normalized.executor, this.config.executor) ||
       normalized.chainId !== BigInt(this.config.chainId) ||
@@ -320,30 +314,12 @@ export class ConversionRelay {
       throw new Error(
         'Funding intent differs from signed orders or deployment',
       );
-    const fills = entries.map(({ bid, ask }) => ({
-      bid: bid.order,
-      bidSig: bid.signature,
-      ask: ask.order,
-      askSig: ask.signature,
-      mandate: bid.mandate,
-      program: bid.program,
-    }));
     const functionName = 'execute';
-    const args = [
-      normalized,
-      signed,
-      fills[0].bid,
-      fills[0].bidSig,
-      fills[0].ask,
-      fills[0].askSig,
-      fills[0].mandate,
-      fills[0].program,
-    ];
+    const args = [normalized, signed, chosen.bid.strategy, chosen.ask.strategy];
     return {
       pairs: canonicalPairs,
       entries,
       chosen,
-      fills,
       normalized,
       signed,
       functionName,
@@ -485,7 +461,7 @@ export class ConversionRelay {
     const settled = parseEventLogs({
       abi: routerAbi,
       logs: receipt.logs.filter((log) => same(log.address, this.config.router)),
-      eventName: 'Settled',
+      eventName: 'Swapped',
       strict: true,
     });
     if (converted.length !== 1 || settled.length !== prepared.entries.length)
@@ -497,9 +473,8 @@ export class ConversionRelay {
       conversion.input !== prepared.normalized.maxInput ||
       settled.some(
         ({ args: sale }, i) =>
-          !same(sale.buyHash, prepared.entries[i].bid.hash) ||
-          !same(sale.sellHash, prepared.entries[i].ask.hash) ||
-          !same(sale.mandate, prepared.entries[i].bid.order.mandate),
+          !same(sale.bidHash, prepared.entries[i].bid.hash) ||
+          !same(sale.askHash, prepared.entries[i].ask.hash),
       )
     )
       throw new Error('Conversion settlement events mismatched');
@@ -507,14 +482,11 @@ export class ConversionRelay {
     if (
       !same(conversion.bidHash, prepared.chosen.bid.hash) ||
       !same(conversion.askHash, prepared.chosen.ask.hash) ||
-      conversion.price !== sale.price ||
-      conversion.fee !== sale.fee
+      conversion.price !== sale.payment
     )
       throw new Error('Conversion settlement event mismatched');
-    const buyerPrice = sale.price,
-      buyerFee = sale.fee;
-    const totalPrice = buyerPrice,
-      totalFee = buyerFee;
+    const buyerPrice = sale.payment;
+    const totalPrice = buyerPrice;
     return {
       id: job.id,
       state: 'confirmed',
@@ -523,10 +495,8 @@ export class ConversionRelay {
       input: conversion.input,
       output: conversion.output,
       buyerPrice,
-      buyerFee,
       totalPrice,
-      totalFee,
-      conversionSurplus: conversion.output - buyerPrice - buyerFee,
+      conversionSurplus: conversion.output - buyerPrice,
     };
   }
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { encodeAbiParameters, keccak256, toHex } from 'viem';
+import { rentalStrategy, ZERO_HASH } from '../src/protocol.mjs';
 import { namehash, packetToBytes } from 'viem/ens';
 import {
   DiscoveryInputError,
@@ -16,6 +17,8 @@ const config = {
   poolResolver: '0x3333333333333333333333333333333333333333',
   inventory: '0x4444444444444444444444444444444444444444',
   router: '0x6666666666666666666666666666666666666666',
+  aqua: '0x7777777777777777777777777777777777777777',
+  usdc: '0x8888888888888888888888888888888888888888',
   parentName: 'rental-proof.eth',
 };
 const name = `demo-room.${config.parentName}`;
@@ -34,6 +37,10 @@ function fixture() {
     readContract: async (request) => {
       calls.push(request);
       switch (request.functionName) {
+        case 'AQUA':
+          return config.aqua;
+        case 'USDC':
+          return config.usdc;
         case 'ROOT_REGISTRY':
           return config.rootRegistry;
         case 'inventory':
@@ -64,11 +71,21 @@ function fixture() {
 
 test('resolves a wildcard ENS name to a fixed pool before signing', async () => {
   const { discovery, calls } = fixture();
-  const result = await discovery.prepareOrder(name, {
+  const result = await discovery.prepareStrategy(name, {
     maker: config.inventory,
+    startDay: 40000,
+    endDay: 40001,
+    terms: pool,
+    quantity: 1,
+    buy: true,
+    price: 100,
+    expiry: 10000,
+    nonce: 1,
+    salt: ZERO_HASH,
   });
-  assert.equal(result.order.pool, pool);
-  assert.equal(result.order.maker, config.inventory);
+  assert.equal(result.strategy.ids.length, 1);
+  assert.equal(result.strategy.inventory, config.inventory);
+  assert.equal(result.strategy.maker, config.inventory);
   assert.equal(result.discovery.blockHash, block.hash);
   assert.equal(result.discovery.resolver, config.poolResolver);
   assert.equal(result.discovery.router, config.router);
@@ -79,7 +96,7 @@ test('resolves a wildcard ENS name to a fixed pool before signing', async () => 
   assert.equal(universalCall.args[1].slice(10), namehash(name).slice(2));
   assert.ok(calls.every((call) => call.blockNumber === 42n));
   await assert.rejects(
-    discovery.prepareOrder(name, { pool }),
+    discovery.prepareStrategy(name, { pool }),
     DiscoveryInputError,
   );
 });
@@ -117,10 +134,13 @@ test('rejects resolver override, unknown pool, wrong deployment and reorg', asyn
   await assert.rejects(discovery.resolve(name), /deployment mismatch/);
   client.readContract = originalRead;
   client.readContract = async (request) =>
-    request.functionName === 'inventory' && request.address === config.router
-      ? '0x7777777777777777777777777777777777777777'
+    request.functionName === 'AQUA' && request.address === config.router
+      ? '0x9999999999999999999999999999999999999999'
       : originalRead(request);
-  await assert.rejects(discovery.prepareOrder(name, {}), /deployment mismatch/);
+  await assert.rejects(
+    discovery.prepareStrategy(name, {}),
+    /deployment mismatch/,
+  );
   client.readContract = originalRead;
   client.getBlock = async (request) =>
     request?.blockNumber ? { ...block, hash: `0x${'bb'.repeat(32)}` } : block;

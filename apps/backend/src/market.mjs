@@ -1,9 +1,8 @@
 import { compatible } from './matcher.mjs';
-import { routerAbi } from './protocol.mjs';
+import { routerAbi, programTerms } from './protocol.mjs';
 
 const MAX_ORDERS = 20;
 const MAX_HISTORY = 20;
-const DAY = 86_400n;
 
 export class MarketInputError extends Error {}
 
@@ -26,12 +25,8 @@ function reverted(error) {
   );
 }
 
-function live(order, timestamp) {
-  return (
-    timestamp < BigInt(order.order.expiry) &&
-    timestamp < BigInt(order.order.startDay) * DAY &&
-    (!order.order.buy || timestamp < BigInt(order.mandate.expiry))
-  );
+function live(order, timestamp, usdc) {
+  return timestamp <= programTerms(order.strategy, usdc).expiry;
 }
 
 function rank(a, b) {
@@ -48,18 +43,15 @@ function rank(a, b) {
 function basketKey(quote) {
   return JSON.stringify([
     quote.bidMaker.toLowerCase(),
-    quote.bidRecipient.toLowerCase(),
-    quote.pool.toLowerCase(),
-    quote.startDay,
-    quote.endDay,
+    quote.inventory.toLowerCase(),
+    quote.ids,
     quote.quantity,
-    quote.terms.toLowerCase(),
   ]);
 }
 
-// Quotes are independent simulations at one block. A buyer may sign many
+// Quotes are independent simulations at one block. A buyer may register many
 // alternative orders against the same wallet funds; the list is not liquidity.
-/** Bounded, funding-aware views of signed orders and canonical right-sale events. */
+/** Bounded, funding-aware views of shipped strategies and canonical right-sale events. */
 export class Market {
   constructor(book, index, client, config) {
     if (!book?.list || !index?.tip || !client?.simulateContract)
@@ -98,9 +90,11 @@ export class Market {
       throw new Error('Market block unavailable');
     const orders = this.book
       .list({ limit, offset })
-      .filter((order) => live(order, BigInt(block.timestamp)));
-    const bids = orders.filter((order) => order.order.buy);
-    const asks = orders.filter((order) => !order.order.buy);
+      .filter((order) =>
+        live(order, BigInt(block.timestamp), this.config.usdc),
+      );
+    const bids = orders.filter((order) => order.strategy.buy);
+    const asks = orders.filter((order) => !order.strategy.buy);
     const quotes = [];
     let checkedPairs = 0;
     for (const bid of bids) {
@@ -111,33 +105,21 @@ export class Market {
           const { result } = await this.client.simulateContract({
             address: this.config.router,
             abi: routerAbi,
-            functionName: 'settle',
-            args: [
-              bid.order,
-              bid.signature,
-              ask.order,
-              ask.signature,
-              bid.mandate,
-              bid.program,
-            ],
+            functionName: 'swap',
+            args: [bid.strategy, ask.strategy],
             blockNumber: block.number,
           });
-          const [price, fee] = result;
+          const price = result;
           quotes.push({
             bidHash: bid.hash,
             askHash: ask.hash,
-            bidMaker: bid.order.maker,
-            bidRecipient: bid.order.recipient,
-            askMaker: ask.order.maker,
-            mandate: bid.order.mandate,
-            pool: bid.order.pool,
-            startDay: bid.order.startDay,
-            endDay: bid.order.endDay,
-            quantity: bid.order.quantity,
-            terms: bid.order.terms,
+            bidMaker: bid.strategy.maker,
+            askMaker: ask.strategy.maker,
+            inventory: bid.strategy.inventory,
+            ids: bid.strategy.ids,
+            quantity: bid.strategy.quantity,
             price: price.toString(),
-            fee: fee.toString(),
-            total: (price + fee).toString(),
+            total: price.toString(),
           });
         } catch (error) {
           if (!reverted(error)) throw error;
@@ -177,15 +159,15 @@ export class Market {
         `WITH event_window AS MATERIALIZED (
            SELECT block_number, log_index, transaction_hash, args
            FROM chain_events
-           WHERE name = 'Settled'
+           WHERE name = 'Swapped'
            ORDER BY block_number DESC, log_index DESC
            LIMIT ? OFFSET ?
          )
          SELECT e.block_number, e.transaction_hash, e.args,
           bid.payload AS bid, ask.payload AS ask
          FROM event_window e
-         LEFT JOIN orders bid ON bid.hash = json_extract(e.args, '$.buyHash')
-         LEFT JOIN orders ask ON ask.hash = json_extract(e.args, '$.sellHash')
+         LEFT JOIN orders bid ON bid.hash = json_extract(e.args, '$.bidHash')
+         LEFT JOIN orders ask ON ask.hash = json_extract(e.args, '$.askHash')
          ORDER BY e.block_number DESC, e.log_index DESC`,
       )
       .all(limit, offset);
@@ -193,22 +175,19 @@ export class Market {
       .filter((row) => row.bid && row.ask)
       .map((row) => {
         const event = JSON.parse(row.args);
-        const bid = JSON.parse(row.bid).order;
-        const ask = JSON.parse(row.ask).order;
+        const bid = JSON.parse(row.bid).strategy;
+        const ask = JSON.parse(row.ask).strategy;
         return {
           blockNumber: String(row.block_number),
           transactionHash: row.transaction_hash,
-          bidHash: event.buyHash,
-          askHash: event.sellHash,
-          pool: bid.pool,
-          startDay: bid.startDay,
-          endDay: bid.endDay,
+          bidHash: event.bidHash,
+          askHash: event.askHash,
+          inventory: bid.inventory,
+          ids: bid.ids,
           quantity: bid.quantity,
-          terms: bid.terms,
           buyer: bid.maker,
           seller: ask.maker,
-          price: event.price,
-          fee: event.fee,
+          price: event.payment,
         };
       });
     if (this.index.tip()?.hash !== tip.hash)

@@ -19,13 +19,8 @@ import { RevenueClient, bookingStrategy } from '../src/revenue.mjs';
 import { Store } from '../src/store.mjs';
 import { OrderBook } from '../src/orders.mjs';
 import { Matcher } from '../src/matcher.mjs';
-import {
-  hashMandate,
-  orderDomain,
-  orderTypes,
-  routerAbi,
-  ZERO_HASH,
-} from '../src/protocol.mjs';
+import { rentalStrategy, ZERO_HASH } from '../src/protocol.mjs';
+import { StrategyWallet } from '../src/wallet.mjs';
 
 const artifact = (path) =>
   JSON.parse(
@@ -36,7 +31,7 @@ const artifact = (path) =>
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test(
-  'Aqua-backed claim resale, guest booking, and funded payout to the buyer',
+  'AquaVapor resale of legacy revenue claims retains booking and payout regression coverage',
   { timeout: 90000 },
   async (t) => {
     const port = await new Promise((resolve) => {
@@ -108,11 +103,10 @@ test(
       inventory.address,
       usdc.address,
     ]);
-    const claimRouter = await deploy('RentalSwapVM.sol/RentalSwapVM', [
-      aqua.address,
-      revenue.address,
+    const vapor = await deploy('AquaVapor.sol/AquaVapor');
+    const claimRouter = await deploy('AssetSwapVM.sol/AssetSwapVM', [
+      vapor.address,
       usdc.address,
-      seller.account.address,
     ]);
     const config = {
       chainId: 31337,
@@ -139,7 +133,7 @@ test(
     await send(seller, inventory, 'setApprovalForAll', [revenue.address, true]);
     await send(seller, usdc, 'mint', [buyer.account.address, 1_000_000n]);
     await send(seller, usdc, 'mint', [guest.account.address, 1_000_000n]);
-    await send(buyer, usdc, 'approve', [aqua.address, 1_000_000n]);
+    await send(buyer, usdc, 'approve', [vapor.address, 1_000_000n]);
     await send(guest, usdc, 'approve', [aqua.address, 1_000_000n]);
 
     const { claimId } = await sellerClient.createClaim(pool, day, terms);
@@ -153,74 +147,36 @@ test(
     );
     await sellerClient.transferClaim(claimId, reseller.account.address);
     await resellerClient.setPrice(claimId, 200_000n);
-    await send(reseller, revenue, 'setApprovalForAll', [
-      claimRouter.address,
-      true,
-    ]);
+    await send(reseller, revenue, 'setApprovalForAll', [vapor.address, true]);
 
-    const saleMandate = {
-      buyer: buyer.account.address,
-      app: claimRouter.address,
-      token: usdc.address,
-      limit: 101_000n,
-      expiry: BigInt(Math.floor(Date.now() / 1000) + 3600),
-      salt: keccak256(toHex('claim-sale')),
-    };
-    await send(buyer, aqua, 'ship', [
-      claimRouter.address,
-      encodeAbiParameters([routerAbi[0].inputs[4]], [saleMandate]),
-      [usdc.address],
-      [101_000n],
-    ]);
-    const saleProgram = `0x9e20${toHex(100_000n, { size: 32 }).slice(2)}540180`;
     const saleConfig = {
       chainId: 31337,
       router: claimRouter.address,
+      aqua: vapor.address,
       usdc: usdc.address,
+      confirmations: 1,
     };
     const saleOrder = async (wallet, buy) => {
-      const order = {
-        maker: wallet.account.address,
-        buy,
-        pool,
-        startDay: day,
-        endDay: day + 1,
-        quantity: 1,
-        terms,
-        recipient: wallet.account.address,
-        priceLimit: buy ? 101_000n : 1n,
-        maxFee: 1_000n,
-        expiry: saleMandate.expiry,
-        nonce: 1n,
-        group: ZERO_HASH,
-        mandate: buy ? hashMandate(saleMandate) : ZERO_HASH,
-        programHash: keccak256(saleProgram),
-      };
-      const signature = await wallet.signTypedData({
-        domain: orderDomain(saleConfig),
-        types: orderTypes,
-        primaryType: 'Order',
-        message: order,
-      });
-      const envelope = {
-        order: JSON.parse(
-          JSON.stringify(order, (_, value) =>
-            typeof value === 'bigint' ? value.toString() : value,
-          ),
-        ),
-        signature,
-        program: saleProgram,
-        ...(buy
-          ? {
-              mandate: JSON.parse(
-                JSON.stringify(saleMandate, (_, value) =>
-                  typeof value === 'bigint' ? value.toString() : value,
-                ),
-              ),
-            }
-          : {}),
-      };
-      return book.submit(envelope);
+      const strategy = rentalStrategy(
+        {
+          maker: wallet.account.address,
+          inventory: revenue.address,
+          pool,
+          terms,
+          startDay: day,
+          endDay: day + 1,
+          quantity: 1,
+          buy,
+          price: buy ? 101_000n : 100_000n,
+          expiry: BigInt(Math.floor(Date.now() / 1000) + 3600),
+          nonce: 1,
+          salt: ZERO_HASH,
+        },
+        saleConfig,
+      );
+      strategy.ids = [claimId.toString()];
+      await new StrategyWallet(publicClient, wallet, saleConfig).ship(strategy);
+      return book.submit({ strategy });
     };
     const directory = mkdtempSync(join(tmpdir(), 'rental-claim-sale-'));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -345,7 +301,7 @@ test(
         functionName: 'balanceOf',
         args: [buyer.account.address],
       }),
-      1_000_000n - 101_000n + 250_000n,
+      1_000_000n - 100_000n + 250_000n,
     );
     assert.equal(
       await publicClient.readContract({
@@ -376,7 +332,7 @@ test(
         functionName: 'balanceOf',
         args: [seller.account.address],
       }),
-      1_000n,
+      0n,
     );
   },
 );

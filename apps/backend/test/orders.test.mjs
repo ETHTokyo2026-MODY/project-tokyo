@@ -1,227 +1,158 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { after, test } from 'node:test';
-import { keccak256, toHex, verifyTypedData } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { OrderBook } from '../src/orders.mjs';
+import { test } from 'node:test';
+import { decodeFunctionData } from 'viem';
+import { Store } from '../src/store.mjs';
+import { OrderBook, OrderInputError } from '../src/orders.mjs';
 import {
-  hashMandate,
-  orderDomain,
-  orderTypes,
+  aquaAbi,
+  decodeStrategy,
+  encodeStrategy,
+  hashStrategy,
+  registration,
+  rentalStrategy,
   ZERO_HASH,
 } from '../src/protocol.mjs';
-import { Store } from '../src/store.mjs';
-
-const directory = mkdtempSync(join(tmpdir(), 'rental-orders-'));
-after(() => rmSync(directory, { recursive: true, force: true }));
-const account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
-const router = '0x1111111111111111111111111111111111111111';
-const usdc = '0x2222222222222222222222222222222222222222';
-const config = { chainId: 11155111, router, usdc };
-const client = { verifyTypedData: (args) => verifyTypedData(args) };
-const day = Math.floor(Date.now() / 1000 / 86_400) + 2;
-const expiry = Math.floor(Date.now() / 1000) + 3600;
-const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
-const programHash = keccak256(program);
-const word = (value) => toHex(BigInt(value), { size: 32 }).slice(2);
-const fixedTerms = (unitPrice, feeBps, threshold, discountBps) =>
-  `0xa080${[unitPrice, feeBps, threshold, discountBps].map(word).join('')}540180`;
-const dutchTerms = (high, low, start, end, feeBps, threshold, discountBps) =>
-  `0xa1e0${[high, low, start, end, feeBps, threshold, discountBps].map(word).join('')}540180`;
-const filename = () => join(directory, `${Math.random()}.db`);
-
-async function envelope({
-  buy = true,
-  overrides = {},
-  programBytes = program,
-} = {}) {
-  const mandate = {
-    buyer: account.address,
-    app: router,
-    token: usdc,
-    limit: '100000000',
-    expiry: String(expiry),
-    salt: `0x${'77'.repeat(32)}`,
+import { config, envelope, inventory, buyer, hex } from './native-fixture.mjs';
+function fixture() {
+  const store = new Store(':memory:');
+  const client = {
+    getChainId: async () => 31337,
+    getBlock: async () => ({ number: 1n, hash: hex(1), timestamp: 100n }),
+    readContract: async ({ functionName }) =>
+      functionName === 'AQUA'
+        ? config.aqua
+        : functionName === 'USDC'
+          ? config.usdc
+          : [300n, 1],
   };
-  const order = {
-    maker: account.address,
-    buy,
-    pool: `0x${'33'.repeat(32)}`,
-    startDay: String(day),
-    endDay: String(day + 7),
-    quantity: '2',
-    terms: `0x${'44'.repeat(32)}`,
-    recipient: account.address,
-    priceLimit: '2000000',
-    maxFee: '20000',
-    expiry: String(expiry),
-    nonce: '1',
-    group: ZERO_HASH,
-    mandate: buy ? hashMandate(mandate) : ZERO_HASH,
-    programHash: keccak256(programBytes),
-    ...overrides,
-  };
-  const signature = await account.signTypedData({
-    domain: orderDomain(config),
-    types: orderTypes,
-    primaryType: 'Order',
-    message: order,
-  });
-  return {
-    order,
-    signature,
-    program: programBytes,
-    ...(buy ? { mandate } : {}),
-  };
+  const book = new OrderBook(store, client, config);
+  return { store, client, book };
 }
-
-test('valid EOA order is canonical, idempotent, and survives restart', async () => {
-  const path = filename();
-  let store = new Store(path);
-  assert.equal(
-    store.db.prepare('PRAGMA journal_mode').get().journal_mode,
-    'wal',
+test('onchain authorization intake is immutable and idempotent, without signatures or mandates', async (t) => {
+  const { store, book } = fixture();
+  t.after(() => store.close());
+  const expected = envelope();
+  const accepted = await book.submit({ strategy: expected.strategy });
+  assert.deepEqual(accepted, expected);
+  assert.deepEqual(
+    await book.submit({ strategy: expected.strategy }),
+    expected,
   );
-  assert.equal(store.db.prepare('PRAGMA synchronous').get().synchronous, 2);
-  assert.equal(store.db.prepare('PRAGMA busy_timeout').get().timeout, 5000);
-  let book = new OrderBook(store, client, config);
-  const input = await envelope();
-  const first = await book.submit(input);
-  assert.equal(first.order.startDay, String(day));
-  assert.equal(first.order.quantity, '2');
-  assert.equal(first.hash.length, 66);
-  assert.deepEqual(await book.submit(input), first);
-  assert.deepEqual(book.list(), [first]);
-  assert.deepEqual(book.list({ limit: 1, offset: 1 }), []);
-  assert.throws(() => book.list({ limit: 1001 }), /invalid pagination/);
-  assert.throws(() => book.list({ offset: -1 }), /invalid pagination/);
-  store.close();
-  store = new Store(path);
-  book = new OrderBook(store, client, config);
-  assert.deepEqual(book.get(first.hash), first);
+  assert.equal(book.list().length, 1);
+  assert.deepEqual(
+    new OrderBook(store, book.publicClient, config).get(expected.hash),
+    expected,
+  );
+  await assert.rejects(
+    book.submit({ strategy: expected.strategy, signature: '0x1234' }),
+    OrderInputError,
+  );
+});
+test('rejects wrong deployment, absent/docked registrations, malformed and duplicate IDs', async (t) => {
+  const { store, book, client } = fixture();
+  t.after(() => store.close());
+  for (const ids of [[], ['2', '1'], ['1', '1']])
+    await assert.rejects(
+      book.submit({ strategy: { ...envelope().strategy, ids } }),
+      OrderInputError,
+    );
+  const original = client.readContract;
+  for (const count of [0, 255]) {
+    client.readContract = async (x) =>
+      x.functionName === 'rawBalances' ? [300n, count] : original(x);
+    await assert.rejects(
+      book.submit({ strategy: envelope().strategy }),
+      /not actively registered/,
+    );
+  }
+  client.readContract = async () => config.router;
+  await assert.rejects(
+    book.submit({ strategy: envelope().strategy }),
+    /deployment mismatch/,
+  );
+});
+test('registration snapshot reorg and RPC outage cannot authorize intake', async (t) => {
+  const { store, book, client } = fixture();
+  t.after(() => store.close());
+  client.getBlock = async (args) => ({
+    number: 1n,
+    hash: args ? hex(2) : hex(1),
+    timestamp: 100n,
+  });
+  await assert.rejects(
+    book.submit({ strategy: envelope().strategy }),
+    /reorganized/,
+  );
+  client.readContract = async () => {
+    throw new Error('offline');
+  };
+  await assert.rejects(
+    book.submit({ strategy: envelope().strategy }),
+    /offline/,
+  );
+  assert.equal(book.list().length, 0);
+});
+test('different protocol/deployment databases cannot be silently reused', (t) => {
+  const { store, client } = fixture();
+  t.after(() => store.close());
   assert.throws(
-    () => new OrderBook(store, client, { ...config, chainId: 1 }),
+    () => new OrderBook(store, client, { ...config, aqua: inventory }),
     /mismatch/,
   );
-  store.close();
 });
-
-test('rejects changed signed fields, conflicting signature bytes, and malformed payload', async () => {
-  const store = new Store(filename());
-  const book = new OrderBook(store, client, config);
-  const input = await envelope();
-  const first = await book.submit(input);
-  assert.equal((await book.submit(input)).hash, first.hash);
-  await assert.rejects(
-    book.submit({ ...input, order: { ...input.order, quantity: '3' } }),
-    /invalid signature/,
-  );
-  await assert.rejects(
-    book.submit({ ...input, signature: `0x${'00'.repeat(65)}` }),
-    /conflicting signed order/,
-  );
-  await assert.rejects(
-    book.submit({ ...input, program: '0x1234' }),
-    /invalid program/,
-  );
-  await assert.rejects(
-    book.submit({ ...input, order: { ...input.order, extra: 1 } }),
-    /invalid order fields/,
-  );
-  await assert.rejects(
-    book.submit({ ...input, order: { ...input.order, recipient: '0x1234' } }),
-    /invalid order.recipient/,
-  );
-  await assert.rejects(
-    book.submit({
-      ...input,
-      order: { ...input.order, endDay: String(day + 32) },
-    }),
-    /inactive basket/,
-  );
-  await assert.rejects(
-    book.submit({ ...input, mandate: { ...input.mandate, token: router } }),
-    /mandate mismatch/,
-  );
-  store.close();
+test('canonical shipped log can populate the book; mismatched maker or app cannot', (t) => {
+  const { store, book } = fixture();
+  t.after(() => store.close());
+  const e = envelope();
+  const log = {
+    app: config.router,
+    maker: e.strategy.maker,
+    strategyHash: e.hash,
+    strategy: encodeStrategy(e.strategy),
+  };
+  book.ingestShipped({ ...log, maker: inventory });
+  book.ingestShipped({ ...log, app: inventory });
+  assert.equal(book.list().length, 0);
+  book.ingestShipped(log);
+  assert.deepEqual(book.get(e.hash), e);
 });
-
-test('ask has zero mandate and verification is delegated to the public client (mock, not ERC-1271 proof)', async () => {
-  const input = await envelope({ buy: false });
-  let observed;
-  let valid = true;
-  const store = new Store(filename());
-  const book = new OrderBook(
-    store,
+test('registration calldata binds native assets, basket and budget; a 90-day range needs no 31-day trading cap', () => {
+  const s = rentalStrategy(
     {
-      verifyTypedData: async (args) => {
-        observed = args;
-        return valid;
-      },
+      maker: buyer,
+      inventory,
+      pool: hex(1),
+      terms: hex(2),
+      startDay: 30000,
+      endDay: 30090,
+      quantity: 1,
+      buy: false,
+      price: 300n,
+      expiry: 10000n,
+      nonce: 1,
+      salt: ZERO_HASH,
     },
     config,
   );
-  const stored = await book.submit(input);
-  assert.equal(stored.order.mandate, ZERO_HASH);
-  assert.equal(observed.address, account.address);
-  assert.equal(observed.message.programHash, programHash);
-  await assert.rejects(
-    book.submit({ ...input, mandate: {} }),
-    /ask must have zero mandate/,
+  assert.equal(s.ids.length, 90);
+  const r = registration(s, config);
+  const decoded = decodeFunctionData({ abi: aquaAbi, data: r.request.data });
+  assert.equal(decoded.functionName, 'ship');
+  assert.equal(decoded.args[2].length, 90);
+  assert.deepEqual(decodeStrategy(decoded.args[1], config.usdc), s);
+  assert.equal(r.hash, hashStrategy(s));
+  assert.throws(() =>
+    rentalStrategy(
+      {
+        ...s,
+        pool: hex(1),
+        terms: hex(2),
+        startDay: 1,
+        endDay: 256,
+        price: 1,
+        expiry: 1,
+      },
+      config,
+    ),
   );
-  valid = false;
-  await assert.rejects(book.submit(input), /invalid signature/);
-  store.close();
-});
-
-test('accepts signed fixed and Dutch economic terms and rejects altered program bytes', async () => {
-  const store = new Store(filename());
-  const book = new OrderBook(store, client, config);
-  const fixed = fixedTerms(10_000_000, 250, 7, 1000);
-  const input = await envelope({ programBytes: fixed });
-  assert.equal((await book.submit(input)).program, fixed);
-  await assert.rejects(
-    book.submit({ ...input, program: fixedTerms(10_000_000, 250, 7, 999) }),
-    /program hash mismatch/,
-  );
-  const dutch = dutchTerms(
-    11_000_000,
-    7_000_000,
-    expiry,
-    expiry + 100,
-    1000,
-    3,
-    3333,
-  );
-  assert.equal(
-    (await book.submit(await envelope({ programBytes: dutch }))).program,
-    dutch,
-  );
-  store.close();
-});
-
-test('backend rejects the same fee, discount, curve, and shape bounds as the VM', async () => {
-  const store = new Store(filename());
-  const book = new OrderBook(store, client, config);
-  const invalid = [
-    fixedTerms(0, 0, 0, 0),
-    fixedTerms(1n << 128n, 0, 0, 0),
-    fixedTerms(1, 1001, 0, 0),
-    fixedTerms(1, 0, 0, 9001),
-    fixedTerms(1, 0, 7, 0),
-    fixedTerms(1, 0, 32, 1),
-    dutchTerms(1, 2, 1, 2, 0, 0, 0),
-    dutchTerms(2, 1, 2, 2, 0, 0, 0),
-    dutchTerms(1n << 128n, 1, 1, 2, 0, 0, 0),
-    fixedTerms(1, 0, 0, 0).slice(0, -2),
-  ];
-  for (const programBytes of invalid) {
-    await assert.rejects(
-      book.submit(await envelope({ programBytes })),
-      /invalid/,
-    );
-  }
-  store.close();
 });
