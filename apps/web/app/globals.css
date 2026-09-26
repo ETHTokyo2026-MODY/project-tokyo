@@ -23,12 +23,9 @@
 @layer base {
   body {
     margin: 0;
-    font-family:
-      system-ui,
-      -apple-system,
-      'Segoe UI',
-      Roboto,
-      sans-serif;
+    font-family: var(--font-sora), system-ui, sans-serif;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
     color: #111827;
     background: #f8fafc;
   }
@@ -58,16 +55,18 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
+    gap: 8px;
+    min-height: 64px;
+    padding: 10px 24px;
     background: #111827;
     color: #fff;
   }
 
   #nav .brand {
     font-weight: 800;
-    font-size: 17px;
-    margin-right: 14px;
+    font-size: 19px;
+    letter-spacing: -0.04em;
+    margin-right: 12px;
     white-space: nowrap;
   }
 
@@ -75,7 +74,9 @@
     font-weight: 400;
     color: #9ca3af;
     font-size: 12px;
-    margin-left: 6px;
+    display: block;
+    margin-left: 0;
+    letter-spacing: 0;
   }
 
   #nav a.tab {
@@ -83,7 +84,7 @@
     text-decoration: none;
     font-weight: 600;
     font-size: 15px;
-    padding: 6px 12px;
+    padding: 10px 12px;
     border-radius: 8px;
   }
 
@@ -117,12 +118,16 @@
   .page {
     max-width: 1240px;
     margin: 0 auto;
-    padding: 14px 16px 40px;
+    padding: 24px 24px 40px;
+    width: 100%;
+    min-width: 0;
   }
 
   .page h1 {
     margin: 4px 0 2px;
-    font-size: 24px;
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 650;
+    letter-spacing: -0.045em;
   }
 
   .page h2 {
@@ -157,7 +162,7 @@
 
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
     gap: 12px;
   }
 
@@ -189,7 +194,8 @@
   .kv {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 2px 10px;
+    gap: 6px 12px;
+    align-items: baseline;
     font-size: 14px;
   }
 
@@ -218,6 +224,7 @@
 
   table.list {
     width: 100%;
+    min-width: 720px;
     border-collapse: collapse;
     background: #fff;
     border: 1px solid var(--line);
@@ -267,7 +274,9 @@
   .btn {
     font: inherit;
     font-size: 14px;
-    padding: 6px 12px;
+    min-height: 40px;
+    padding: 8px 12px;
+    color: #111827;
     border-radius: 8px;
     border: 1px solid #cbd5e1;
     background: #fff;
@@ -291,16 +300,15 @@
       position: static;
       padding: 8px 10px;
     }
-    body {
-      overflow-x: hidden;
-    }
   }
 
   .cal-layout {
     display: grid;
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: minmax(0, 1fr) 360px;
     gap: 16px;
-    padding: 8px 16px;
+    padding: 16px 24px;
+    max-width: 1600px;
+    margin-inline: auto;
   }
   .cal-layout h1 {
     margin: 0 0 4px;
@@ -314,9 +322,7 @@
     margin: 0 0 8px;
   }
   .stickyhead {
-    position: sticky;
-    top: 46px;
-    z-index: 30;
+    position: static;
     background: #f8fafc;
     padding: 6px 0 4px;
   }
@@ -476,8 +482,9 @@
     padding: 6px 14px;
     align-self: start;
     position: sticky;
-    top: 58px;
-    max-height: calc(100vh - 66px);
+    top: 86px;
+    max-height: calc(100dvh - 102px);
+    overscroll-behavior: contain;
     overflow-y: auto;
   }
   .panel section {
@@ -488,7 +495,7 @@
     border-bottom: 0;
   }
   .panel .kv {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 3px 12px;
     font-size: 15px;
   }
@@ -507,7 +514,7 @@
   }
   #flash {
     position: fixed;
-    top: 58px;
+    top: 86px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 200;
@@ -535,7 +542,8 @@
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
+    align-items: center;
     margin-top: 8px;
   }
   .row input:disabled {
@@ -628,6 +636,12 @@
   }
   #cal {
     container: cal / inline-size;
+    overflow-x: auto;
+    padding: 4px;
+    overscroll-behavior-x: contain;
+  }
+  #cal .month {
+    min-width: 560px;
   }
   @container cal (max-width: 560px) {
     .cell {
@@ -654,10 +668,10 @@
     .cal-layout {
       grid-template-columns: minmax(0, 1fr);
       padding: 8px 10px;
-      padding-bottom: calc(45vh + 16px);
+      padding-bottom: calc(45dvh + 32px + env(safe-area-inset-bottom));
     }
     .stickyhead {
-      top: 0;
+      position: static;
     }
     .panel {
       position: fixed;
@@ -665,7 +679,8 @@
       bottom: 0;
       left: 10px;
       right: 10px;
-      max-height: 45vh;
+      max-height: 45dvh;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
       box-shadow: 0 -4px 16px rgba(17, 24, 39, 0.15);
       z-index: 35;
     }
@@ -724,6 +739,106 @@
     .cell .price.blk {
       font-size: 11px;
       letter-spacing: -0.5px;
+    }
+  }
+  .cal-layout > main,
+  .card,
+  .row > *,
+  .kv > * {
+    min-width: 0;
+  }
+  .card .t,
+  .card .sub,
+  .ahead,
+  .page > h1,
+  .kv > *,
+  .err {
+    overflow-wrap: anywhere;
+  }
+  .kv > :not(.contents):nth-child(even),
+  .kv > .contents > :nth-child(even) {
+    text-align: right;
+  }
+  input:not([type='checkbox']):not([type='radio']),
+  select {
+    min-height: 40px;
+    max-width: 100%;
+    font: inherit;
+  }
+  .limit-buy > label,
+  .limit-buy > input,
+  .limit-buy > select {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+  }
+  .limit-buy > input,
+  .limit-buy > select {
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+  }
+  .limit-buy .row input {
+    flex: 1 1 100px;
+    text-align: right;
+  }
+  .nav-links {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 4px;
+  }
+  #flash {
+    max-width: calc(100% - 32px);
+    text-align: center;
+  }
+  @media (max-width: 1100px) {
+    #nav {
+      position: static;
+    }
+    .stickyhead {
+      position: static;
+    }
+    .panel {
+      top: 16px;
+      max-height: calc(100dvh - 32px);
+    }
+  }
+  @media (max-width: 760px) {
+    #nav {
+      gap: 8px;
+      padding: 12px;
+    }
+    #nav .brand {
+      flex-basis: 100%;
+    }
+    .nav-links {
+      flex: 1 0 100%;
+      justify-content: space-between;
+    }
+    #nav a.tab {
+      padding: 10px 8px;
+      font-size: 14px;
+    }
+    .page {
+      padding: 20px 12px 32px;
+    }
+    .panel {
+      top: auto;
+      max-height: 45dvh;
+    }
+    button,
+    .btn,
+    input:not([type='checkbox']):not([type='radio']),
+    select {
+      min-height: 44px;
+    }
+    input:not([type='checkbox']):not([type='radio']),
+    select {
+      font-size: 16px;
+    }
+    .cell .price.blk {
+      white-space: normal;
     }
   }
   .contents {

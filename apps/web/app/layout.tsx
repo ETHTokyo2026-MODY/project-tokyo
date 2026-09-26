@@ -1,8 +1,16 @@
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import { Suspense } from 'react';
 import { Nav } from '@/components/Nav';
 import { ChainProvider } from '@/lib/chain/store';
 import './globals.css';
+
+const sora = localFont({
+  src: './fonts/Sora.ttf',
+  variable: '--font-sora',
+  weight: '100 800',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Dashboard · DayTrader',
@@ -16,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={sora.variable}>
       <body>
         <ChainProvider>
           <Suspense
