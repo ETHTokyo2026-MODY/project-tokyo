@@ -11,15 +11,15 @@ import { linkTo, useAccount } from '@/lib/demo/account';
 import { usdText } from '@/lib/chain/model';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 import './dash.css';
 import './screener.css';
 import './add.css';
 
-const TITLE = 'Dashboard · ProjectTokyo';
+const TITLE = 'Dashboard · DayTrader';
 
 export default function DashboardPage() {
-  const { ready, state, today, dispatch, busy } = useDemo();
+  const { ready, state, today, dispatch, busy } = useChainStore();
   const accountId = useAccount();
 
   useEffect(() => {
@@ -44,16 +44,12 @@ export default function DashboardPage() {
     return (
       <main className="page">
         <h1>Dashboard</h1>
-        <p className="muted">
-          Browse assets and prices. Connect a wallet from the navigation to
-          create assets, trade days, or view your portfolio.
-        </p>
+        <p className="muted">Connect a wallet to trade or add an asset.</p>
         <h2>All assets</h2>
         <Screener assets={list} account={accountId} />
       </main>
     );
 
-  const pl = acct.cash - acct.startCash;
   const provided = list.filter((a) => a.provider === accountId);
   const holding = list.filter(
     (a) =>
@@ -75,19 +71,10 @@ export default function DashboardPage() {
   return (
     <main className="page">
       <h1>Dashboard</h1>
-      <div className="muted">
-        {acct.name} · {acct.role} · cash {money(acct.cash)} · P/L{' '}
-        <span className={pl >= 0 ? 'pos' : 'neg'}>
-          {state?.chain ? 'Not indexed' : signed(pl)}
-        </span>
-      </div>
-      <AddAssetForm account={accountId} today={today} />
+      <AddAssetForm account={accountId} />
       <div className="scroll-x">
         {!provided.length && !holding.length ? (
-          <div className="empty">
-            You don&apos;t provide any assets or own any days yet. Pick an asset
-            below to buy days, or add your own with &quot;+ Add asset&quot;.
-          </div>
+          <div className="empty">No assets or days owned yet.</div>
         ) : null}
         {provided.length ? (
           <table className="list">
@@ -100,7 +87,6 @@ export default function DashboardPage() {
                 <th className="n">Booked</th>
                 <th className="n">Owned by others</th>
                 <th className="n">Received</th>
-                <th />
               </tr>
             </thead>
             <tbody>
@@ -138,37 +124,7 @@ export default function DashboardPage() {
                     <td className="n">{p.booked}</td>
                     <td className="n">{a.futureDays - p.owned}</td>
                     <td className="n">
-                      {state?.chain ? 'Not indexed' : money(p.received)}
-                    </td>
-                    <td className="n">
-                      {a.custom && a.provider === accountId ? (
-                        <button
-                          type="button"
-                          className="del"
-                          disabled={a.othersOwn > 0}
-                          title={
-                            a.othersOwn
-                              ? `Other accounts own ${a.othersOwn} day(s) of this asset`
-                              : 'Delete this asset (nobody else owns its days)'
-                          }
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (
-                              !confirm(
-                                'Delete this asset and its calendar? This cannot be undone.',
-                              )
-                            )
-                              return;
-                            const out = await dispatch('delete-asset', {
-                              account: accountId,
-                              asset: a.id,
-                            });
-                            if (!out.ok) alert(out.error);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      ) : null}
+                      {state?.chain ? 'Unavailable' : money(p.received)}
                     </td>
                   </tr>
                 );
@@ -225,13 +181,13 @@ export default function DashboardPage() {
                     <td className="n">{p.booked}</td>
                     <td className="n">{money(p.value)}</td>
                     <td className="n">
-                      {state?.chain ? 'Not indexed' : money(p.paid)}
+                      {state?.chain ? 'Unavailable' : money(p.paid)}
                     </td>
                     <td className="n">
-                      {state?.chain ? 'Not indexed' : money(p.received)}
+                      {state?.chain ? 'Unavailable' : money(p.received)}
                     </td>
                     <td className={`n ${rpl >= 0 ? 'pos' : 'neg'}`}>
-                      {state?.chain ? 'Not indexed' : signed(rpl)}
+                      {state?.chain ? 'Unavailable' : signed(rpl)}
                     </td>
                   </tr>
                 );
@@ -243,10 +199,6 @@ export default function DashboardPage() {
       {state?.chain ? (
         <section>
           <h2>Open buy orders</h2>
-          <div className="note">
-            Orders share wallet USDC. An open order is conditional on available
-            days and funds at fill.
-          </div>
           {state.bids?.length ? (
             state.bids.map((bid) => (
               <div className="row" key={bid.id}>

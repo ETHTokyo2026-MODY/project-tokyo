@@ -36,3 +36,13 @@
   font-size: 13px;
   line-height: 1.8;
 }
+
+@media (max-width: 760px) {
+  :global(body:has(.cal-layout)) .drawer {
+    bottom: calc(45dvh + 20px);
+    max-height: calc(55dvh - 32px);
+  }
+  :global(body:has(.cal-layout)) .list {
+    max-height: calc(55dvh - 88px);
+  }
+}

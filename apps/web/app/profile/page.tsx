@@ -8,9 +8,9 @@ import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { longDate, money, signed } from '@/lib/demo/format';
 import { profile } from '@/lib/demo/profile';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 
-const TITLE = 'Profile · ProjectTokyo';
+const TITLE = 'Profile · DayTrader';
 const WHAT = {
   bought: 'Bought',
   sold: 'Sold',
@@ -27,7 +27,7 @@ function Loading() {
 }
 
 function ProfileInner() {
-  const { ready, state, today } = useDemo();
+  const { ready, state, today } = useChainStore();
   const account = useAccount();
 
   useEffect(() => {
@@ -44,10 +44,7 @@ function ProfileInner() {
     return (
       <main className="page">
         <h1>Profile</h1>
-        <p className="muted">
-          Connect a wallet from the navigation to view your portfolio. You can
-          browse assets and calendars without connecting.
-        </p>
+        <p className="muted">Connect a wallet to view your portfolio.</p>
       </main>
     );
 
@@ -73,7 +70,7 @@ function ProfileInner() {
             className={`t ${p.pnl > 0 ? 'pos' : p.pnl < 0 ? 'neg' : ''}`}
             style={{ fontSize: 22 }}
           >
-            {state.chain ? 'Not indexed' : signed(p.pnl)}
+            {state.chain ? 'Unavailable' : signed(p.pnl)}
           </div>
         </div>
         <div className="card">
@@ -86,7 +83,7 @@ function ProfileInner() {
           <div className="sub">Trades</div>
           <div className="t" style={{ fontSize: 22 }}>
             {state.chain && !state.historyReady
-              ? 'Not indexed'
+              ? 'Unavailable'
               : p.historyCount}
           </div>
         </div>
@@ -191,7 +188,7 @@ function ProfileInner() {
               <div className="muted">
                 Showing the latest {p.history.length} of{' '}
                 {state.chain && !state.historyReady
-                  ? 'Not indexed'
+                  ? 'Unavailable'
                   : p.historyCount}
                 .
               </div>
@@ -201,8 +198,8 @@ function ProfileInner() {
           <div className="empty">
             {state.chain
               ? state.historyReady
-                ? 'No indexed trades for this wallet.'
-                : 'Trade history is not indexed.'
+                ? 'No trades yet.'
+                : 'Trade history unavailable.'
               : 'No trades yet.'}
           </div>
         )}

@@ -1,6 +1,7 @@
 import { getAddress } from 'viem';
 
-const BATCH = 64;
+const BATCH = 500;
+const READY_LAG = 5;
 const hash = (value) => {
   if (typeof value !== 'string' || !/^0x[0-9a-f]{64}$/i.test(value))
     throw new Error('Invalid chain hash');
@@ -40,7 +41,7 @@ function transaction(db, action) {
   }
 }
 
-/** Rebuildable chain data only. Empty blocks retain ancestry; confirmations are not finality. */
+/** Rebuildable chain data only. Range tips and log-bearing blocks retain ancestry; confirmations are not finality. */
 export class EventIndex {
   #syncing;
   #reorgVersion = 0;
@@ -172,14 +173,15 @@ export class EventIndex {
       block?.hash?.toLowerCase() === tip.hash &&
       this.tip()?.hash === tip.hash;
     return {
-      ready: !this.#syncing && canonical && tip.number === target,
+      ready:
+        canonical && tip.number <= target && target - tip.number <= READY_LAG,
       canonical,
       tip,
       target,
     };
   }
 
-  // Concurrent callers share one sync; each run reads at most 64 new blocks.
+  // Concurrent callers share one sync; each run walks 500-block ranges to target.
   async sync() {
     if (this.#syncing) return this.#syncing;
     this.#syncing = this.#sync();
@@ -208,67 +210,119 @@ export class EventIndex {
       remaining--;
     }
     if (!remaining || target < this.startBlock) return this.tip();
-    const first = tip ? tip.number + 1 : this.startBlock;
-    const last = Math.min(target, first + remaining - 1);
-    for (let number = first; number <= last; number++) {
-      const block = await this.client.getBlock({ blockNumber: BigInt(number) });
-      if (!block || integer(block.number, 'block number') !== number)
-        throw new Error(`Missing or mismatched block ${number}`);
-      const blockHash = hash(block.hash),
-        parentHash = hash(block.parentHash);
-      if (tip && parentHash !== tip.hash) {
+    while (true) {
+      const first = tip ? tip.number + 1 : this.startBlock;
+      if (first > target) return this.tip();
+      const last = Math.min(target, first + BATCH - 1);
+      const fromBlock = BigInt(first),
+        toBlock = BigInt(last);
+      // Drain every source before accepting a range or propagating a failure.
+      const [firstBlock, lastBlock, results] = await Promise.all([
+        this.client.getBlock({ blockNumber: fromBlock }),
+        this.client.getBlock({ blockNumber: toBlock }),
+        Promise.allSettled(
+          this.sources.map((source) =>
+            this.client.getLogs({
+              address: source.address,
+              events: source.events,
+              strict: true,
+              fromBlock,
+              toBlock,
+            }),
+          ),
+        ),
+      ]);
+      if (!firstBlock || integer(firstBlock.number, 'block number') !== first)
+        throw new Error(`Missing or mismatched block ${first}`);
+      if (!lastBlock || integer(lastBlock.number, 'block number') !== last)
+        throw new Error(`Missing or mismatched block ${last}`);
+      if (tip && hash(firstBlock.parentHash) !== tip.hash) {
         this.#removeFrom(tip.number);
         return this.tip();
       }
-      const logs = [];
-      // Drain every source before accepting a block or propagating a failure.
-      const results = await Promise.allSettled(
-        this.sources.map(async (source) =>
-          this.client.getLogs({
-            address: source.address,
-            events: source.events,
-            strict: true,
-            blockHash,
-          }),
-        ),
-      );
       const failed = results.find((result) => result.status === 'rejected');
       if (failed) throw failed.reason;
+      const logs = [];
+      const needed = new Set([last]);
+      const rows = new Map([
+        [
+          first,
+          {
+            hash: hash(firstBlock.hash),
+            parentHash: hash(firstBlock.parentHash),
+          },
+        ],
+        [
+          last,
+          {
+            hash: hash(lastBlock.hash),
+            parentHash: hash(lastBlock.parentHash),
+          },
+        ],
+      ]);
       for (let i = 0; i < this.sources.length; i++) {
         const source = this.sources[i];
         for (const log of results[i].value) {
+          const number = integer(log.blockNumber, 'log block number');
           if (
             log.removed ||
             log.address?.toLowerCase() !== source.address ||
             !source.events.some((event) => event.name === log.eventName) ||
-            hash(log.blockHash) !== blockHash ||
-            integer(log.blockNumber, 'log block number') !== number ||
+            number < first ||
+            number > last ||
             !log.args ||
             typeof log.args !== 'object'
           )
             throw new Error(`Log does not match source or block ${number}`);
           logs.push({
+            number,
+            blockHash: hash(log.blockHash),
             address: source.address,
             name: log.eventName,
             args: encode(log.args),
             transactionHash: hash(log.transactionHash),
             logIndex: integer(log.logIndex, 'log index'),
           });
+          needed.add(number);
         }
       }
-      // Pin log queries to the hash and re-read canonical height after all sources.
-      const after = await this.client.getBlock({ blockNumber: BigInt(number) });
-      if (after?.hash?.toLowerCase() !== blockHash) return this.tip();
+      const missing = [...needed].filter((number) => !rows.has(number));
+      const fetched = await Promise.all(
+        missing.map((number) =>
+          this.client.getBlock({ blockNumber: BigInt(number) }),
+        ),
+      );
+      for (let i = 0; i < missing.length; i++) {
+        const block = fetched[i],
+          number = missing[i];
+        if (!block || integer(block.number, 'block number') !== number)
+          throw new Error(`Missing or mismatched block ${number}`);
+        rows.set(number, {
+          hash: hash(block.hash),
+          parentHash: hash(block.parentHash),
+        });
+      }
+      for (const log of logs) {
+        if (log.blockHash !== rows.get(log.number)?.hash)
+          throw new Error(`Log does not match source or block ${log.number}`);
+      }
+      const lastHash = rows.get(last).hash;
+      const after = await this.client.getBlock({ blockNumber: toBlock });
+      if (after?.hash?.toLowerCase() !== lastHash) return this.tip();
       transaction(this.db, () => {
-        this.db
-          .prepare('INSERT INTO event_index_blocks VALUES(?, ?, ?)')
-          .run(number, blockHash, parentHash);
+        const insertBlock = this.db.prepare(
+          'INSERT INTO event_index_blocks VALUES(?, ?, ?)',
+        );
+        for (const number of needed) {
+          const row = rows.get(number);
+          insertBlock.run(number, row.hash, row.parentHash);
+        }
         const insert = this.db.prepare(
           'INSERT INTO event_index_logs VALUES(?, ?, ?, ?, ?, ?)',
         );
         for (const log of logs)
           insert.run(
-            number,
+            log.number,
             log.logIndex,
             log.address,
             log.name,
@@ -276,9 +330,8 @@ export class EventIndex {
             log.transactionHash,
           );
       });
-      tip = { number, hash: blockHash };
+      tip = { number: last, hash: lastHash };
     }
-    return this.tip();
   }
 
   #removeFrom(number) {

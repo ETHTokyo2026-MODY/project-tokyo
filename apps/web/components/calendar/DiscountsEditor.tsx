@@ -7,7 +7,7 @@ import {
   MAX_DISCOUNT_TIERS,
   rowsFromDiscounts,
 } from '@/lib/demo/discounts';
-import { DEFAULT_DISCOUNTS } from '@/lib/demo/seed';
+import { DEFAULT_DISCOUNTS } from '@/lib/demo/discounts';
 import type { Asset } from '@/lib/demo/types';
 
 export function DiscountsEditor({

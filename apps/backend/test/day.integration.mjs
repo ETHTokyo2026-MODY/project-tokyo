@@ -821,7 +821,7 @@ test(
       params: [`0x${originalBlockGasLimit.toString(16)}`],
     });
 
-    for (const size of [7, 31]) {
+    for (const size of [7, 31, 120]) {
       const snapshot = await f.client.request({ method: 'evm_snapshot' });
       const bounded = {
         ...bid,
@@ -838,6 +838,19 @@ test(
       });
       const mined = await f.receipt(hash);
       assert.ok(mined.gasUsed < gasCap);
+      const settled = await f.read(f.asset, 'rangeState', [
+        bounded.startDay,
+        bounded.endDayExclusive,
+      ]);
+      assert.ok(settled.every((day) => day.owner === bid.buyer && !day.listed));
+      assert.equal(
+        await f.read(f.usdc, 'balanceOf', [bid.buyer]),
+        balances[0] - BigInt(size) * 90_000000n,
+      );
+      assert.equal(
+        await f.read(f.usdc, 'balanceOf', [f.host.account.address]),
+        balances[1] + BigInt(size) * 90_000000n,
+      );
       assert.equal(
         await f.read(f.router, 'used', [bid.buyer, bounded.nonce]),
         true,

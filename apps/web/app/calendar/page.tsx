@@ -33,10 +33,10 @@ import {
 import { normalizeAssetId, usdText, rangeQuote } from '@/lib/chain/model';
 import { quoteBlock } from '@/lib/demo/quote';
 import { summaries } from '@/lib/demo/summaries';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
 
-const TITLE = 'Calendar · ProjectTokyo';
+const TITLE = 'Calendar · DayTrader';
 const DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
 function Loading() {
@@ -221,7 +221,7 @@ function History({ day, account }: { day: Day; account: string }) {
             ))}
           </ol>
         ) : (
-          <div className="note">No indexed trades.</div>
+          <div className="note">No trades yet.</div>
         )
       ) : day.history.length ? (
         <ol className="hist">
@@ -231,7 +231,7 @@ function History({ day, account }: { day: Day; account: string }) {
         </ol>
       ) : (
         <div className="note">
-          {day.token ? 'Trade history is not indexed.' : 'Never sold.'}
+          {day.token ? 'Trade history unavailable.' : 'Never sold.'}
         </div>
       )}
     </>
@@ -354,7 +354,7 @@ function TradeBody({
   busy: boolean;
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
-  const { state } = useDemo();
+  const { state } = useChainStore();
   const asset = state?.assets.find((a) => a.id === assetId);
   const host = asset?.provider === account;
   const dayEns =
@@ -437,7 +437,6 @@ function TradeBody({
         to={d.date}
         account={account}
         onAct={onAct}
-        discount="No length discount"
         onSubmit={(limit) =>
           onAct(
             'buy',
@@ -491,6 +490,7 @@ function TradeBody({
           >
             {booked ? 'Undo booking' : 'Report booking'}
           </button>
+          <span className="note">Demo booking report · no payout</span>
         </div>
       ) : null}
       <History day={d} account={account} />
@@ -499,7 +499,7 @@ function TradeBody({
 }
 
 function CalendarInner() {
-  const { ready, state, today } = useDemo();
+  const { ready, state, today } = useChainStore();
   const account = useAccount();
   const params = useSearchParams();
   const assetId = normalizeAssetId(params.get('asset') ?? '');
@@ -582,7 +582,7 @@ function AssetGrid({
   acct: Account | undefined;
   today: string;
 }) {
-  const { dispatch, reset, busy: walletBusy, ready } = useDemo();
+  const { dispatch, busy: walletBusy, ready } = useChainStore();
   const [anchor, setAnchor] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null);
@@ -635,7 +635,7 @@ function AssetGrid({
   const tabStop = kbd || focus || today;
 
   useEffect(() => {
-    document.title = `${asset.title} · Calendar · ProjectTokyo`;
+    document.title = `${asset.title} · Calendar · DayTrader`;
   }, [asset.title]);
   useEffect(() => {
     if (scrolled.current) return;
@@ -706,15 +706,6 @@ function AssetGrid({
     [account, asset.id, dispatch],
   );
 
-  const onReset = () => {
-    if (!confirm('Master reset: restore the initial sample data?')) return;
-    setAnchor(null);
-    setFocus(null);
-    setKbd(null);
-    setError('');
-    reset();
-  };
-
   const onCalKeyDown = (e: ReactKeyboardEvent) => {
     const cell = (e.target as HTMLElement).closest('[data-date]');
     if (!cell) return;
@@ -774,8 +765,7 @@ function AssetGrid({
         </div>
         {asset.chain ? (
           <div className="note">
-            Listing authorization required: a listed price alone cannot execute.
-            Publish each range through the wallet, and republish after the host
+            Publish listings through your wallet. Republish after the host
             changes discounts.
           </div>
         ) : null}
@@ -853,7 +843,7 @@ function AssetGrid({
               <div>{money(acct.cash)}</div>
               <div>Profit / loss</div>
               <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
-                {asset.chain ? 'Not indexed' : signed(pl)}
+                {asset.chain ? 'Unavailable' : signed(pl)}
               </div>
               <div>Booked public prices (unfunded)</div>
               <div>{money(lockedIn)}</div>
@@ -910,11 +900,6 @@ function AssetGrid({
           )}
           <div className="err">{error}</div>
         </section>
-        {!asset.chain ? (
-          <button className="reset" type="button" onClick={onReset}>
-            Master reset
-          </button>
-        ) : null}
       </aside>
     </div>
   );

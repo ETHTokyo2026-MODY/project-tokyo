@@ -8,12 +8,13 @@
 }
 #addForm .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
   gap: 10px 14px;
 }
 #addForm label {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 4px;
   color: var(--muted);
   font-size: 13px;
@@ -21,8 +22,10 @@
 #addForm input,
 #addForm select {
   font: inherit;
-  font-size: 14px;
-  padding: 6px 8px;
+  font-size: 16px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 8px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   color: #111827;

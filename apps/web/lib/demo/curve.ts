@@ -1,5 +1,5 @@
 import { dayNum } from './dates';
-import type { Curve, Day } from './types';
+import type { Curve } from './types';
 
 export function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -28,35 +28,4 @@ export function curveValueX(curve: Curve, x: number): number {
 
 export function curveValue(curve: Curve, date: string): number {
   return curveValueX(curve, dayNum(date));
-}
-
-export function seedCurve(
-  date: string,
-  startPrice: number,
-  today: string,
-  min = 40,
-): Curve {
-  const start = Math.max(min, startPrice);
-  if (date === today) return { min, points: [{ date, price: start }] };
-  return {
-    min,
-    points: [
-      { date: today, price: start },
-      { date, price: min },
-    ],
-  };
-}
-
-/** Restart the curve at today, move earlier points to `past`, set `day.price`. */
-export function priceFromCurve(day: Day, today: string): void {
-  const curve = day.curve;
-  if (!curve) return;
-  const v = Math.round(curveValue(curve, today));
-  const gone = curve.points.filter((p) => p.date < today);
-  if (gone.length) curve.past = [...(curve.past || []), ...gone];
-  curve.points = [
-    { date: today, price: v },
-    ...curve.points.filter((p) => p.date > today),
-  ];
-  day.price = v;
 }

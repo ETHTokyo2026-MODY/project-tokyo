@@ -1,4 +1,4 @@
-# ProjectTokyo
+# DayTrader
 
 Hosts presell future room-nights and get paid now. Traders buy those nights and set the public rental price.
 
@@ -63,3 +63,7 @@ open taker. The frontend uses [Wagmi Core](https://wagmi.sh/core) and [viem](htt
 for wallet connections and signing. The backend uses viem and Node SQLite for a rebuildable
 index and durable transaction recovery. The HTTP integration test creates,
 lists and purchases an asset through the same interface used by the website.
+
+### Typography
+
+[Sora](https://github.com/sora-xor/sora-font) is self-hosted as a variable font under the SIL Open Font License. The license is included in `apps/web/app/fonts/OFL.txt`.

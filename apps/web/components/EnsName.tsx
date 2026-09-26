@@ -2,7 +2,7 @@ const EXPLORER = 'https://eth-sepolia.blockscout.com';
 const ENS_APP = 'https://app.ens.domains';
 
 export function ensExplorerUrl(name: string) {
-  return `${EXPLORER}/enslookup-search?search=${encodeURIComponent(name)}`;
+  return `https://sepolia.etherscan.io/enslookup-search?search=${encodeURIComponent(name)}`;
 }
 
 export function ensAppUrl(name: string) {

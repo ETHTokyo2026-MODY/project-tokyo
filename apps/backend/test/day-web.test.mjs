@@ -68,6 +68,29 @@ test('cold reads yield while a single batch progresses and late RPC errors remai
   await assert.rejects(sync(), /RPC unavailable/);
 });
 
+test('caught-up polls stay ready while a later sync is in flight', async () => {
+  let finish,
+    calls = 0;
+  const work = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const sync = boundedIndexSync(
+    {
+      sync: () => {
+        calls++;
+        return calls === 1 ? Promise.resolve() : work;
+      },
+      readiness: async () => ({ ready: calls >= 1 }),
+    },
+    1,
+  );
+  assert.equal(await sync(), true);
+  assert.equal(await sync(), true);
+  assert.equal(await sync(), true);
+  assert.equal(calls, 2);
+  finish();
+});
+
 test('a slow completed batch is consumed before another sync begins', async () => {
   let finish,
     calls = 0;

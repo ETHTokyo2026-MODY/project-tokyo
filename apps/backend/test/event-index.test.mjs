@@ -58,17 +58,24 @@ class Chain {
   async getLogs(query) {
     this.queries.push(query);
     assert.equal(query.strict, true);
-    assert.equal(query.fromBlock, undefined);
-    const block = this.blocks.find((b) => b.hash === query.blockHash);
-    const logs = (block?.events ?? [])
-      .map((e, logIndex) => ({
-        ...e,
-        blockHash: block.hash,
-        blockNumber: block.number,
-        transactionHash: hex(5000 + Number(block.number)),
-        logIndex,
-      }))
-      .filter((log) => log.address === query.address);
+    assert.equal(query.blockHash, undefined);
+    const from = Number(query.fromBlock),
+      to = Number(query.toBlock);
+    const logs = [];
+    for (let n = from; n <= to; n++) {
+      const block = this.blocks[n];
+      if (!block) continue;
+      for (const [logIndex, e] of block.events.entries()) {
+        if (e.address !== query.address) continue;
+        logs.push({
+          ...e,
+          blockHash: block.hash,
+          blockNumber: block.number,
+          transactionHash: hex(5000 + Number(block.number)),
+          logIndex,
+        });
+      }
+    }
     return this.onLogs ? this.onLogs(query, logs) : logs;
   }
 }
@@ -95,7 +102,7 @@ test('persists decoded events and empty ancestry across index restart', async (t
   assert.equal((await index.sync()).number, 2);
   assert.equal(
     db.prepare('SELECT count(*) AS n FROM event_index_blocks').get().n,
-    3,
+    2,
   );
   assert.deepEqual(index.events('Shipped'), [
     {
@@ -145,7 +152,9 @@ test('reorg through empty descendants removes orphan Shipped and replays replace
   );
   assert.ok(index.reorgVersion > 0);
   assert.deepEqual(index.block(0), genesis);
-  assert.notEqual(index.block(1).hash, original.hash);
+  assert.equal(index.block(1), null);
+  assert.ok(index.block(2));
+  assert.notEqual(index.block(2).hash, original.hash);
   const version = index.reorgVersion;
   chain.add();
   await index.sync();
@@ -210,6 +219,7 @@ test('foreign log rejects the entire block even after a valid source was read', 
 
 test('duplicate positions roll back both block and prior event insert', async (t) => {
   const { chain, index } = setup(t);
+  await index.sync();
   chain.add([event()]);
   chain.onLogs = (_, logs) => [...logs, ...logs];
   await assert.rejects(index.sync(), /UNIQUE/);
@@ -237,7 +247,7 @@ test('concurrent sync calls share one in-flight pass', async (t) => {
   const second = index.sync();
   release();
   assert.deepEqual(await first, await second);
-  assert.equal(chain.queries.length, 4);
+  assert.equal(chain.queries.length, 2);
   assert.equal(index.events().length, 1);
 });
 
@@ -290,7 +300,6 @@ test('reorg during log reads cannot commit the old block or its events', async (
   await index.sync();
   assert.equal(index.tip().number, 0);
   assert.deepEqual(index.events(), []);
-  assert.equal((await index.readiness()).ready, false);
   await index.sync();
   assert.deepEqual(
     index.events().map((e) => e.args.amount),
@@ -298,11 +307,9 @@ test('reorg during log reads cannot commit the old block or its events', async (
   );
 });
 
-test('caps catch-up at 64 blocks and reports confirmed readiness', async (t) => {
+test('indexes a confirmed range in one batch and reports readiness', async (t) => {
   const { chain, index } = setup(t, { confirmations: 2 });
   for (let n = 1; n <= 70; n++) chain.add(n === 69 ? [event()] : []);
-  assert.equal((await index.sync()).number, 63);
-  assert.equal((await index.readiness()).ready, false);
   assert.equal((await index.sync()).number, 68);
   assert.equal((await index.readiness()).ready, true);
   assert.deepEqual(index.events(), []);
@@ -311,21 +318,66 @@ test('caps catch-up at 64 blocks and reports confirmed readiness', async (t) => 
   assert.equal(index.tip().number, 62);
 });
 
-test('deep reorg rewinds in bounded passes and never reports a stale tip ready', async (t) => {
+test('deep reorg rewinds and never reports a stale tip ready', async (t) => {
   const { chain, index } = setup(t);
   chain.add([event(1n)]);
   for (let n = 2; n < 130; n++) chain.add();
-  for (let n = 0; n < 3; n++) await index.sync();
+  await index.sync();
   chain.replace(
     1,
     Array.from({ length: 129 }, () => []),
   );
-  assert.equal((await index.sync()).number, 65);
-  assert.equal((await index.readiness()).ready, false);
-  assert.equal((await index.sync()).number, 1);
-  assert.equal((await index.readiness()).ready, false);
-  while (!(await index.readiness()).ready) await index.sync();
+  assert.equal((await index.readiness()).canonical, false);
+  await index.sync();
+  assert.equal((await index.readiness()).ready, true);
   assert.deepEqual(index.events('Shipped'), []);
+});
+
+test('indexes a multi-block range with logs in one batch', async (t) => {
+  const { db, chain, index } = setup(t);
+  chain.add([event(1n)]);
+  chain.add();
+  chain.add([event(2n)]);
+  await index.sync();
+  assert.equal(index.tip().number, 3);
+  assert.deepEqual(
+    index.events('Shipped').map((e) => e.args.amount),
+    ['2', '1'],
+  );
+  assert.equal(chain.queries.length, 2);
+  assert.ok(chain.queries.every((q) => q.fromBlock === 0n && q.toBlock === 3n));
+  assert.equal(
+    db.prepare('SELECT count(*) AS n FROM event_index_blocks').get().n,
+    2,
+  );
+  assert.ok(index.block(1) && index.block(3));
+});
+
+test('readiness stays true within a small lag of target', async (t) => {
+  const { chain, index } = setup(t);
+  chain.add([event()]);
+  await index.sync();
+  assert.equal((await index.readiness()).ready, true);
+  for (let n = 0; n < 5; n++) chain.add();
+  assert.equal((await index.readiness()).ready, true);
+  chain.add();
+  assert.equal((await index.readiness()).ready, false);
+});
+
+test('parentHash mismatch rolls back the batch without committing new logs', async (t) => {
+  const { chain, index } = setup(t);
+  chain.add([event(1n)]);
+  await index.sync();
+  assert.equal(index.tip().number, 1);
+  assert.deepEqual(
+    index.events('Shipped').map((e) => e.args.amount),
+    ['1'],
+  );
+  chain.add([event(2n)]);
+  chain.blocks[2].parentHash = hex(999);
+  await index.sync();
+  assert.equal(index.tip(), null);
+  assert.deepEqual(index.events(), []);
 });
 
 test('pins deployment, ABI, start and confirmations across restarts', (t) => {
@@ -356,6 +408,7 @@ test('rejects wrong chain and malformed decoded logs without committing', async 
   chain.getChainId = async () => 1;
   await assert.rejects(index.sync(), /RPC chain ID/);
   chain.getChainId = async () => 11155111;
+  await index.sync();
   chain.add([event()]);
   for (const changes of [
     { eventName: 'Created' },
