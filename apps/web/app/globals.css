@@ -650,15 +650,20 @@
     .cal-layout {
       grid-template-columns: minmax(0, 1fr);
       padding: 8px 10px;
+      padding-bottom: calc(45vh + 16px);
     }
     .stickyhead {
       top: 0;
     }
     .panel {
+      position: fixed;
       top: auto;
       bottom: 0;
+      left: 10px;
+      right: 10px;
       max-height: 45vh;
       box-shadow: 0 -4px 16px rgba(17, 24, 39, 0.15);
+      z-index: 35;
     }
   }
 }
