@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useDemo } from './store';
 
@@ -48,9 +48,15 @@ export function linkTo(
 export function useAccount(): string {
   const params = useSearchParams();
   const { state, ready } = useDemo();
+  const [stored, setStored] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStored(storedAccount());
+  }, []);
+
   const account = pickAccount(
     params.get('account'),
-    storedAccount(),
+    stored,
     ready && state ? state.accounts : undefined,
   );
 
