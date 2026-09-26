@@ -27,7 +27,8 @@ agents must also follow `docs/PLAN.md`.
 - Change the repo only via pull requests from branches. Never push to `main`.
 - Never force push or rewrite history.
 - One thing per PR.
-- PRs are squash merged through the merge queue once checks pass.
+- PRs are squash merged directly, with no merge queue or required checks. CI
+  still runs on PRs and `main` but does not block merges; failures get fixed.
 
 ## PR title
 

@@ -28,7 +28,7 @@ npm run build
 
 ## Contributing
 
-Changes go through PRs only. See `AGENTS.md` and the PR template. Squash merged through the merge queue once the `checks`, `pr-format` and `secrets` checks pass.
+Changes go through PRs only. See `AGENTS.md` and the PR template. Squash merged directly, with no merge queue or required checks; CI still runs on PRs and `main` but does not block merges.
 
 ## Plan
 
