@@ -1,13 +1,16 @@
 'use client';
 
+import Link from 'next/link';
+
 import { Suspense, useEffect, useMemo } from 'react';
+import { usdText } from '@/lib/chain/model';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { longDate, money, signed } from '@/lib/demo/format';
 import { profile } from '@/lib/demo/profile';
 import { useDemo } from '@/lib/demo/store';
 
-const TITLE = 'Profile · Project Tokyo (demo)';
+const TITLE = 'Profile · ProjectTokyo';
 const WHAT = {
   bought: 'Bought',
   sold: 'Sold',
@@ -18,7 +21,7 @@ function Loading() {
   return (
     <main className="page">
       <h1>Profile</h1>
-      <div className="muted">Loading demo…</div>
+      <div className="muted">Loading…</div>
     </main>
   );
 }
@@ -60,7 +63,7 @@ function ProfileInner() {
             className={`t ${p.pnl > 0 ? 'pos' : p.pnl < 0 ? 'neg' : ''}`}
             style={{ fontSize: 22 }}
           >
-            {signed(p.pnl)}
+            {state.chain ? 'Not indexed' : signed(p.pnl)}
           </div>
         </div>
         <div className="card">
@@ -72,7 +75,9 @@ function ProfileInner() {
         <div className="card">
           <div className="sub">Trades</div>
           <div className="t" style={{ fontSize: 22 }}>
-            {p.historyCount}
+            {state.chain && !state.historyReady
+              ? 'Not indexed'
+              : p.historyCount}
           </div>
         </div>
       </div>
@@ -84,7 +89,7 @@ function ProfileInner() {
               <tr>
                 <th>Asset</th>
                 <th className="n">Days</th>
-                <th className="n">For sale</th>
+                <th className="n">Listed for sale</th>
                 <th className="n">Booked</th>
                 <th className="n">Value (public prices)</th>
               </tr>
@@ -102,9 +107,9 @@ function ProfileInner() {
                     }}
                   >
                     <td>
-                      <a className="rowlink" href={href}>
+                      <Link className="rowlink" href={href}>
                         <b>{o.title}</b>
-                      </a>{' '}
+                      </Link>{' '}
                       <TypeBadge type={o.type} />
                     </td>
                     <td className="n">{o.days}</td>
@@ -155,19 +160,41 @@ function ProfileInner() {
                     </td>
                     <td>{h.title}</td>
                     <td>{longDate(h.date)}</td>
-                    <td className="n">{money(h.price)}</td>
+                    <td className="n">
+                      {h.transactionHash && h.priceRaw ? (
+                        <a
+                          href={`https://sepolia.etherscan.io/tx/${h.transactionHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          ${usdText(h.priceRaw)} USDC
+                        </a>
+                      ) : (
+                        money(h.price)
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {p.historyCount > p.history.length ? (
               <div className="muted">
-                Showing the latest {p.history.length} of {p.historyCount}.
+                Showing the latest {p.history.length} of{' '}
+                {state.chain && !state.historyReady
+                  ? 'Not indexed'
+                  : p.historyCount}
+                .
               </div>
             ) : null}
           </>
         ) : (
-          <div className="empty">No trades yet.</div>
+          <div className="empty">
+            {state.chain
+              ? state.historyReady
+                ? 'No indexed trades for this wallet.'
+                : 'Trade history is not indexed.'
+              : 'No trades yet.'}
+          </div>
         )}
       </div>
     </main>

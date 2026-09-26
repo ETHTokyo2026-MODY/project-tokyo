@@ -18,7 +18,10 @@ export const MONTHS = [
 export const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 export function money(n: number): string {
-  return (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+  return (
+    (n < 0 ? '-$' : '$') +
+    Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 6 })
+  );
 }
 
 export function signed(n: number): string {

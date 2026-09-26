@@ -5,7 +5,7 @@ import { DemoProvider } from '@/lib/demo/store';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Dashboard · Project Tokyo (demo)',
+  title: 'Dashboard · ProjectTokyo',
   description:
     'A market where hosts presell future room-nights and traders set the price.',
 };
@@ -23,7 +23,7 @@ export default function RootLayout({
             fallback={
               <nav id="nav" aria-label="Main">
                 <span className="brand">
-                  Project Tokyo<small>demo · sample data</small>
+                  ProjectTokyo<small>Loading…</small>
                 </span>
               </nav>
             }
@@ -34,7 +34,7 @@ export default function RootLayout({
             fallback={
               <main className="page">
                 <h1>Dashboard</h1>
-                <div className="muted">Loading demo…</div>
+                <div className="muted">Loading…</div>
               </main>
             }
           >

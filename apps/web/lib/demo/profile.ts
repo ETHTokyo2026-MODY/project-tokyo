@@ -11,6 +11,8 @@ export type ProfileOwned = {
 };
 
 export type ProfileHistory = {
+  priceRaw?: string;
+  transactionHash?: string;
   asset: string;
   title: string;
   date: string;
@@ -52,6 +54,20 @@ export function profile(state: DemoState, id: string, today: string): Profile {
       });
     }
     for (const d of as.days) {
+      for (const trade of d.settlements ?? []) {
+        if (trade.buyer === id || trade.seller === id)
+          history.push({
+            asset: as.id,
+            title: as.title,
+            date: d.date,
+            type: trade.buyer === id ? 'bought' : 'sold',
+            price: trade.price,
+            priceRaw: trade.priceRaw,
+            transactionHash: trade.transactionHash,
+            at: trade.at,
+            block: trade.rangeLength,
+          });
+      }
       for (const h of d.history) {
         if (h.type === 'trade' && (h.to === id || h.from === id)) {
           history.push({

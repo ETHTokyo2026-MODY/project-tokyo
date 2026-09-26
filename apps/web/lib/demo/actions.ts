@@ -29,6 +29,10 @@ export function assetById(
 
 /** The account's saved tiers on that asset, or a copy of the defaults. */
 export function discountsFor(asset: Asset, accountId: string): Discounts {
+  if (asset.chain)
+    return Object.fromEntries(
+      (asset.discountLadder ?? []).map((s) => [s.minDays, s.discountBps / 100]),
+    );
   const saved = asset.discounts[accountId];
   return saved ? { ...saved } : { ...DEFAULT_DISCOUNTS };
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { LeadChart, VolumeChart } from '@/components/stats/BarCharts';
@@ -13,13 +15,13 @@ import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import '../stats.css';
 
-const TITLE = 'Stats · Project Tokyo (demo)';
+const TITLE = 'Stats · ProjectTokyo';
 
 function Loading() {
   return (
     <main className="page">
       <h1>Stats</h1>
-      <div className="muted">Loading demo…</div>
+      <div className="muted">Loading…</div>
     </main>
   );
 }
@@ -60,6 +62,16 @@ function StatsInner() {
   );
 
   if (!ready || !state) return <Loading />;
+  if (state.chain)
+    return (
+      <main className="page">
+        <h1>Stats</h1>
+        <div className="muted">
+          Charts and profit statistics are unavailable. Confirmed trade prices
+          are shown per day in the calendar and in Profile.
+        </div>
+      </main>
+    );
 
   if (!assetQ) {
     return (
@@ -71,7 +83,7 @@ function StatsInner() {
         </div>
         <h2>Assets</h2>
         <div className="cards">
-          <a
+          <Link
             className="card"
             href={linkTo('/stats', { asset: 'all' }, account)}
           >
@@ -79,9 +91,9 @@ function StatsInner() {
             <div className="sub">
               {list.length} assets · averages across assets
             </div>
-          </a>
+          </Link>
           {list.map((a) => (
-            <a
+            <Link
               key={a.id}
               className="card"
               href={linkTo('/stats', { asset: a.id }, account)}
@@ -93,12 +105,12 @@ function StatsInner() {
                 {a.providerName} · {a.location}
               </div>
               <div className="kv">
-                <div>Days for sale</div>
+                <div>Listed days</div>
                 <div>{a.forSale}</div>
                 <div>Booked (future)</div>
                 <div>{a.bookedFuture}</div>
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       </main>
@@ -124,7 +136,7 @@ function StatsInner() {
   return (
     <main className="page stats-page">
       <div className="crumbs">
-        <a href={linkTo('/stats', {}, account)}>Stats</a> ›{' '}
+        <Link href={linkTo('/stats', {}, account)}>Stats</Link> ›{' '}
         {one ? one.title : 'All assets'}
       </div>
       <h1>
@@ -313,29 +325,29 @@ function StatsInner() {
         tool-flavoured rules; they are not data from, or endorsed by, these
         tools. Tools chosen as the most-used dynamic pricing tools for
         short-term rentals and Turo&apos;s own pricing:{' '}
-        <a
+        <Link
           href="https://www.hostfully.com/blog/airbnb-pricing-tools/"
           target="_blank"
           rel="noopener"
         >
           Hostfully: Smart Pricing vs PriceLabs vs Beyond vs Wheelhouse
-        </a>
+        </Link>
         ,{' '}
-        <a
+        <Link
           href="https://revenuenaire.com/airbnb-dynamic-pricing-tools/"
           target="_blank"
           rel="noopener"
         >
           Revenuenaire comparison 2026
-        </a>
+        </Link>
         ,{' '}
-        <a
+        <Link
           href="https://help.turo.com/en_us/setting-your-vehicle-price-S12VrVlVc"
           target="_blank"
           rel="noopener"
         >
           Turo help: dynamic pricing
-        </a>
+        </Link>
         .
       </div>
     </main>

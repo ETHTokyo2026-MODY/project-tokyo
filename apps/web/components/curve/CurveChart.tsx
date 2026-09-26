@@ -111,34 +111,39 @@ export function CurveChart({
         : day.curve
           ? Math.round(curveValue(day.curve, dayDate))
           : day.base;
-    const listed = listingDate(dayDate);
-    const first = windowStart(dayDate, today);
+    const listed = day.token ? curve.points[0].date : listingDate(dayDate);
+    const first = day.token
+      ? curve.points[0].date
+      : windowStart(dayDate, today);
     const N = dayNum(dayDate) - dayNum(first);
     const s0 = dayNum(first);
     const iT = past ? N : dayNum(today) - s0;
     const hist = {
       min: 0,
-      points: historyPoints({
-        day: dayDate,
-        start: first,
-        today,
-        past,
-        finalPrice,
-        seededOn,
-        base: day.base,
-        curve: day.curve,
-        publicPrice: day.price,
-      }),
+      points: day.token
+        ? curve.points
+        : historyPoints({
+            day: dayDate,
+            start: first,
+            today,
+            past,
+            finalPrice,
+            seededOn,
+            base: day.base,
+            curve: day.curve,
+            publicPrice: day.price,
+          }),
     };
-    const c = booked
-      ? {
-          min: 0,
-          points: [
-            { date: today, price: day.price },
-            { date: dayDate, price: day.price },
-          ],
-        }
-      : curve;
+    const c =
+      booked && !day.token
+        ? {
+            min: 0,
+            points: [
+              { date: today, price: day.price },
+              { date: dayDate, price: day.price },
+            ],
+          }
+        : curve;
     const valueAt = (i: number) =>
       i < iT || past ? curveValueX(hist, s0 + i) : curveValueX(c, s0 + i);
     const futPts = past ? [] : c.points;
@@ -205,8 +210,9 @@ export function CurveChart({
       'text',
       { x: L + pw / 2, y: T + ph + 40, 'text-anchor': 'middle' },
       ax,
-    ).textContent =
-      listed > today
+    ).textContent = day.token
+      ? `Authored public-price curve through ${label(dayDate)}, ${y}; booking history is not indexed`
+      : listed > today
         ? `listing price on each day from today until ${label(dayDate)}, ${y} (listed ${label(listed)}, ${listed.slice(0, 4)}: no history yet)`
         : `listing price on each day, from listing (${label(first)}, ${first.slice(0, 4)}) until ${label(dayDate)}, ${y}`;
     if (!past && !booked) {
