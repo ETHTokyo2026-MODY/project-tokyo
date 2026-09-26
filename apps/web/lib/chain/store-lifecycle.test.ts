@@ -123,7 +123,10 @@ it('unsubscribes before replacing the session and disconnect clears its identity
   const first = wallet(),
     second = wallet(other);
   mocks.select.mockReturnValueOnce(first).mockReturnValueOnce(second);
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url)));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => response(url)),
+  );
   await connectWallet({ legacy: true });
   first.dispose.mockImplementation(() => {
     expect(first.listeners.size).toBe(0);

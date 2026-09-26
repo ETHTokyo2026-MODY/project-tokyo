@@ -242,8 +242,8 @@ export function AddAssetForm({ account }: { account: string }) {
                 onChange={(e) => setSellingPrice(e.target.value)}
               />
               <span className="note">
-                The ownership sale price is separate from the guest price
-                above. Edit individual sale days in the calendar.
+                The ownership sale price is separate from the guest price above.
+                Edit individual sale days in the calendar.
               </span>
             </label>
             <label htmlFor="add-min">
