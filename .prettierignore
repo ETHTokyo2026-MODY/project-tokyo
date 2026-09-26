@@ -3,4 +3,5 @@ node_modules
 package-lock.json
 docs/
 next-env.d.ts
+apps/web/lib/demo/__fixtures__
 
