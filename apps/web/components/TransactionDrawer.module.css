@@ -1,0 +1,48 @@
+.drawer {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 28px #0f172a26;
+}
+
+.drawer summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drawer:not([open]) {
+  width: auto;
+}
+
+.drawer[open] summary {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.list {
+  max-height: min(320px, calc(100dvh - 88px));
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px 14px 10px 38px;
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+@media (max-width: 760px) {
+  :global(body:has(.cal-layout)) .drawer {
+    bottom: calc(45dvh + 20px);
+    max-height: calc(55dvh - 32px);
+  }
+  :global(body:has(.cal-layout)) .list {
+    max-height: calc(55dvh - 88px);
+  }
+}

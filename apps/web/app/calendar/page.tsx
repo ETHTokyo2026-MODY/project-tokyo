@@ -200,7 +200,7 @@ function History({ day, account }: { day: Day; account: string }) {
             {day.settlements.map((trade, i) => (
               <li key={`${trade.transactionHash}:${i}`}>
                 <a
-                  href={`https://sepolia.etherscan.io/tx/${trade.transactionHash}`}
+                  href={`https://eth-sepolia.blockscout.com/tx/${trade.transactionHash}`}
                   target="_blank"
                   rel="noreferrer"
                 >

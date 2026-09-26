@@ -14,6 +14,7 @@ import {
 } from '@/lib/chain/store';
 import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
+import styles from './TransactionDrawer.module.css';
 
 const TABS = [
   { href: '/', label: 'Dashboard' },
@@ -100,7 +101,7 @@ export function Nav() {
           onDisconnect={() => void act(disconnectWallet)}
         />
       </nav>
-      {progress || message || error || hashes.length > 0 ? (
+      {progress || message || error ? (
         <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
           {progress ? <div role="status">{progress}</div> : null}
           {message || error ? (
@@ -108,23 +109,27 @@ export function Nav() {
               {message || error}
             </div>
           ) : null}
-          {hashes.length ? (
-            <details>
-              <summary>Transactions ({hashes.length})</summary>
-              {hashes.map((hash, i) => (
-                <div key={`${hash}:${i}`}>
-                  <a
-                    href={`https://sepolia.etherscan.io/tx/${hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {hash.slice(0, 10)}…{hash.slice(-6)}
-                  </a>
-                </div>
-              ))}
-            </details>
-          ) : null}
         </div>
+      ) : null}
+      {hashes.length ? (
+        <details className={styles.drawer}>
+          <summary>Transactions ({hashes.length})</summary>
+          <ol className={styles.list}>
+            {hashes.map((hash, i) => (
+              <li key={`${hash}:${i}`}>
+                <a
+                  href={`https://eth-sepolia.blockscout.com/tx/${hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`View transaction ${hash} on Blockscout`}
+                  title={hash}
+                >
+                  {`${hash.slice(0, 10)}…${hash.slice(-8)}`}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </details>
       ) : null}
     </>
   );
