@@ -20,6 +20,7 @@ import { OrderBook } from '../src/orders.mjs';
 import { ChainIndex } from '../src/chain.mjs';
 import { Matcher } from '../src/matcher.mjs';
 import { createServer } from '../src/server.mjs';
+import { Redemption } from '../src/redemption.mjs';
 import {
   hashMandate,
   orderDomain,
@@ -298,6 +299,55 @@ test(
       'confirmed',
     );
     assert.equal(await balance(), 8_990_000n);
+    const redemption = new Redemption(client, buyer, {
+      chainId: 31337,
+      inventory: inventory.address,
+      confirmations: 1,
+    });
+    const reservation = await redemption.reserve({
+      holder: buyer.account.address,
+      pool,
+      startDay: day,
+      endDay: day + 1,
+      terms,
+      quantity: 1,
+      beneficiary: relayer.account.address,
+    });
+    assert.equal(reservation.reservationId, 1n);
+    assert.equal(
+      await client.readContract({
+        ...inventory,
+        functionName: 'consumed',
+        args: [pool, day],
+      }),
+      1n,
+    );
+    assert.equal(
+      await client.readContract({
+        ...inventory,
+        functionName: 'issued',
+        args: [pool, day],
+      }),
+      1n,
+    );
+    const record = await client.readContract({
+      ...inventory,
+      functionName: 'reservations',
+      args: [reservation.reservationId],
+    });
+    assert.equal(record[0], buyer.account.address);
+    assert.equal(record[1], relayer.account.address);
+    await assert.rejects(
+      redemption.reserve({
+        holder: buyer.account.address,
+        pool,
+        startDay: day,
+        endDay: day + 1,
+        terms,
+        quantity: 1,
+        beneficiary: relayer.account.address,
+      }),
+    );
     await assert.rejects(restarted.submit(weekBid.hash, weekAsk.hash)); // Overlap must fail without payment.
     assert.equal(await balance(), 8_990_000n);
     assert.equal(await index.status(weekBid), 'open'); // Open does not guarantee available inventory.
@@ -310,6 +360,14 @@ test(
     await index.sync();
     assert.equal(await index.status(bid), 'open');
     assert.equal(await balance(), 10_000_000n);
+    assert.equal(
+      await client.readContract({
+        ...inventory,
+        functionName: 'consumed',
+        args: [pool, day],
+      }),
+      0n,
+    );
     assert.equal(index.settled(bid.hash), false);
     // The persisted raw transaction is safe to rebroadcast after a reorg.
     assert.equal(

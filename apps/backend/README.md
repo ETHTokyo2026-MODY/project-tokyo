@@ -45,6 +45,10 @@ A successful simulation cannot guarantee a later fill: competing orders, wallet 
 
 The index processes up to 64 blocks per sync and defaults to two confirmations. It records empty blocks, validates block-hash-scoped logs, removes orphaned history, and consults nonce/group state at the indexed block. RPC outages propagate as unavailable status, not as empty history. Two confirmations are a configurable operational policy, not Ethereum finality.
 
+## Reservation consumer
+
+`Redemption` in `src/redemption.mjs` accepts a public client, a wallet client for the holder or an ERC-1155 approved operator, and `{chainId, inventory, confirmations}`. Call `reserve({holder,pool,startDay,endDay,terms,quantity,beneficiary})` with a positive whole-unit quantity and a future half-open UTC-day range of at most 31 days. It simulates the actual inventory call, signs and submits from the supplied wallet, waits for the configured confirmations, checks the block hash, and returns the exact `Reserved` event's ID and transaction hash. The contract, rather than the backend, decides ownership, operator authority, capacity, and atomic consumption. A later reorg can change a receipt's canonical status; callers that need durable state should recheck the reservation ID on the canonical chain. The internal HTTP service does not hold a booking signer or expose reservation submission.
+
 ## Boundaries
 
-Whole units, one seller, exact basket/program matching, fixed or Dutch pricing, and the contract's 1–31-day limit. No automatic fee replacement, public relayer, multi-seller routing, supplier booking, redemption, refunds or production deployment. The database contains executable signed orders and transactions; protect its access and backups. Contracts and backend have not been independently audited.
+Whole units, one seller, exact basket/program matching, fixed or Dutch pricing, and the contract's 1–31-day limit. No automatic fee replacement, public relayer, multi-seller routing, supplier booking, reservation cancellation/refunds or production deployment. The database contains executable signed orders and transactions; protect its access and backups. Contracts and backend have not been independently audited.

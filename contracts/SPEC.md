@@ -4,14 +4,20 @@
 
 This implements transferable daily allotments, full-fill signed orders, shared wallet funding through Aqua, and atomic USDC/ERC-1155 settlement. A trusted supplier attests that the physical allotment exists and is excluded from other booking channels. It is a backend proof, not an audited marketplace or a fulfillment guarantee.
 
-The administrator creates immutable-capacity pools. Suppliers issue up to that cap for each day, summed across terms versions. Different pool identifiers must not describe the same physical allotment; that offchain identity check remains the administrator's responsibility. There is no burn, redemption, cancellation refund, or post-use remint API in this scope. Historical tokens can be transferred directly but the settlement router rejects service windows that have started.
+The administrator creates immutable-capacity pools. Suppliers issue up to that cap for each day, summed across terms versions. Different pool identifiers must not describe the same physical allotment; that offchain identity check remains the administrator's responsibility. Historical tokens can be transferred directly but the settlement router rejects service windows that have started.
 
 ## Inventory
 
 `tokenId = uint256(keccak256(abi.encode(pool, day, terms)))`.
 Days are UTC integer Unix days. Ranges are half-open `[startDay,endDay)`, one to 31 slots. Quantity is a positive whole-unit count on every included day. Hotel-local check-in rules and same-room continuity must be included in the supplier terms; UTC slots are the proof's canonical accounting grid. A range is a basket of daily IDs, never independently minted overlapping supply.
 
-Capacity is immutable per pool. `issued[pool][day] <= capacity` across all terms. Only the pool supplier may issue, and quantity never resets through resale. The supplier can hold overlapping asks, but after a sale they no longer own the sold slot; subsequent overlapping transfers fail atomically. Multiple equivalent rooms use one ID with quantity greater than one.
+Capacity is immutable per pool. `issued[pool][day] <= capacity` across all terms. Only the pool supplier may issue, and historical issuance never resets through resale or reservation. The supplier can hold overlapping asks, but after a sale they no longer own the sold slot; subsequent overlapping transfers fail atomically. Multiple equivalent rooms use one ID with quantity greater than one.
+
+## Reservation and consumption
+
+`reserve(holder,pool,start,end,terms,quantity,beneficiary)` burns the holder's complete daily basket and records an immutable reservation ID with the beneficiary. The holder or an ERC-1155 approved operator must call it. Every day has the same pool, terms, and positive whole-unit quantity; the range remains half-open, at most 31 UTC days, and its first day must not have begun. All days succeed or the transaction reverts. `consumed[pool][day]` rises once per burned unit and never decreases; `issued` stays historical, so consumption cannot restore issue capacity. Reservations cannot be transferred or cancelled, and the contract has no remint or refund path. `Reserved` is the onchain allocation event. Beneficiary identity is public; keep personal booking details offchain.
+
+The pool represents interchangeable capacity within a supplier-attested class. A multi-day reservation preserves that class and quantity across days, but fungible daily tokens cannot establish that a guest receives the same physical room on each day. A capacity-one pool can represent one identified unit across the range if the administrator and supplier attest that identity. Reservation records an entitlement allocation; supplier confirmation and actual fulfillment remain outside this contract.
 
 ## Funding mandate
 
@@ -67,6 +73,6 @@ Any revert unwinds the router, Aqua, ERC-20, and ERC-1155 state changes. ERC-115
 
 Proof covers canonical Aqua integration, fixed and Dutch pricing, daily/weekly/31-day baskets, fungible room quantities, alternatives, independent orders, cancellations, revoked approvals, depleted wallet, moved inventory, authorization, budget refill, resale, rollback and malicious receivers. Invariants cover capacity/ownership, USDC conservation, and mandate cap over randomized sequences.
 
-Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, redemption, refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment. These are not necessary to prove the authorized settlement model.
+Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, reservation cancellation/refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment.
 
 No crowdsourcing threshold, pooled buyer commitment, or collective activation is implemented. The fee rate is fixed; only fixed-price and descending Dutch programs are accepted.
