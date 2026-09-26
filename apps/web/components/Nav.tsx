@@ -12,6 +12,7 @@ import {
   switchNetwork,
   walletChoices,
 } from '@/lib/chain/store';
+import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
 
 const TABS = [
@@ -91,60 +92,28 @@ export function Nav() {
             </select>
           </label>
         ) : (
-          <div className="who row">
-            <label>
-              Wallet{' '}
-              <select
-                aria-label="Wallet provider"
-                value={selected}
-                disabled={waiting || busy}
-                onChange={(e) => setChoice(e.target.value)}
-              >
-                <option value="" disabled>
-                  Select extension
-                </option>
-                {providers.map((p) => (
-                  <option key={p.uuid} value={p.uuid}>
-                    {p.name} ({p.rdns})
-                  </option>
-                ))}
-                <option value="legacy">Injected wallet (legacy)</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              disabled={!selected || waiting || busy}
-              onClick={() =>
-                void act(() =>
-                  connectWallet(
-                    selected === 'legacy'
-                      ? { legacy: true }
-                      : { uuid: selected },
-                  ),
-                )
-              }
-            >
-              {account ? 'Reconnect' : 'Connect wallet'}
-            </button>
-            {hasWalletSession ? (
-              <>
-                <button
-                  type="button"
-                  disabled={waiting || busy}
-                  onClick={() => void act(switchNetwork)}
-                >
-                  Switch to Sepolia
-                </button>
-                <button
-                  type="button"
-                  disabled={waiting || busy}
-                  onClick={() => void act(disconnectWallet)}
-                >
-                  Disconnect
-                </button>
-              </>
-            ) : null}
-          </div>
+          <WalletMenu
+            account={account}
+            hasSession={Boolean(hasWalletSession)}
+            balance={
+              state?.accounts[account]
+                ? money(state.accounts[account].cash)
+                : undefined
+            }
+            providers={providers}
+            selected={selected}
+            busy={waiting || busy}
+            onSelect={setChoice}
+            onConnect={() =>
+              void act(() =>
+                connectWallet(
+                  selected === 'legacy' ? { legacy: true } : { uuid: selected },
+                ),
+              )
+            }
+            onSwitch={() => void act(switchNetwork)}
+            onDisconnect={() => void act(disconnectWallet)}
+          />
         )}
       </nav>
       {mode === 'chain' ? (
