@@ -33,8 +33,8 @@ Upstream InvalidateBit can make a strategy single-use, or implement OCO when alt
 | EIP-712 order authorization                              | Shipped authorization suffices here, at the cost of an onchain registration; this does not prove offchain-only order publication |
 | Daily issuance, capacity and redemption                  | Existing RentalInventory works unchanged                                                                                         |
 | Aggregate budget across several distinct strategies      | Not automatically provided by per-strategy balances; still requires an explicit policy if requested                              |
-| Indexing, persistence, matching and transaction recovery | Reused by the migrated AquaVapor backend                                                                         |
-| Revenue payouts, ENS and conversion                      | ENS and conversion consumers migrated; legacy revenue lifecycle remains separate                                                           |
+| Indexing, persistence, matching and transaction recovery | Reused by the migrated AquaVapor backend                                                                                         |
+| Revenue payouts, ENS and conversion                      | ENS and conversion consumers migrated; legacy revenue lifecycle remains separate                                                 |
 
 No old production path is removed by this change. The generic router does not certify supplier identity, physical availability, reservation fulfillment, or ERC-1155 implementation honesty. Test fixtures use standard ERC-1155 and ERC-20 behavior; fee-on-transfer/rebasing payment tokens are outside the USDC contract assumption.
 
