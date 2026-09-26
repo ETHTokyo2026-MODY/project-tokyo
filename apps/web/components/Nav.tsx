@@ -14,6 +14,7 @@ import {
 } from '@/lib/chain/store';
 import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
+import styles from './TransactionDrawer.module.css';
 
 const TABS = [
   { href: '/', label: 'Dashboard' },
@@ -142,23 +143,27 @@ export function Nav() {
               {message || error}
             </div>
           ) : null}
-          {hashes.length ? (
-            <details open>
-              <summary>Submitted transactions ({hashes.length})</summary>
-              {hashes.map((hash, i) => (
-                <div key={`${hash}:${i}`}>
-                  <a
-                    href={`https://sepolia.etherscan.io/tx/${hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {hash}
-                  </a>
-                </div>
-              ))}
-            </details>
-          ) : null}
         </div>
+      ) : null}
+      {mode === 'chain' && hashes.length ? (
+        <details className={styles.drawer}>
+          <summary>Transactions ({hashes.length})</summary>
+          <ol className={styles.list}>
+            {hashes.map((hash, i) => (
+              <li key={`${hash}:${i}`}>
+                <a
+                  href={`https://eth-sepolia.blockscout.com/tx/${hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`View transaction ${hash} on Blockscout`}
+                  title={hash}
+                >
+                  {`${hash.slice(0, 10)}…${hash.slice(-8)}`}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </details>
       ) : null}
     </>
   );

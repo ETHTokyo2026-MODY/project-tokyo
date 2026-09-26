@@ -173,7 +173,7 @@ function ProfileInner() {
                     <td className="n">
                       {h.transactionHash && h.priceRaw ? (
                         <a
-                          href={`https://sepolia.etherscan.io/tx/${h.transactionHash}`}
+                          href={`https://eth-sepolia.blockscout.com/tx/${h.transactionHash}`}
                           target="_blank"
                           rel="noreferrer"
                         >

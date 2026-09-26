@@ -100,7 +100,7 @@ export function WalletMenu(props: Props) {
                 Copy address
               </button>
               <a
-                href={`https://sepolia.etherscan.io/address/${props.account}`}
+                href={`https://eth-sepolia.blockscout.com/address/${props.account}`}
                 target="_blank"
                 rel="noreferrer"
               >
