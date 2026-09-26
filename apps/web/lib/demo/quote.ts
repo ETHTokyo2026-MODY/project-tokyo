@@ -1,3 +1,4 @@
+import { money } from './format';
 import type { Day, Discounts } from './types';
 
 export type QuoteOk = {
@@ -78,4 +79,17 @@ export function quoteBlock(
     own: ownCount === n,
     mixed: ownCount > 0 && ownCount < n,
   };
+}
+
+/** Short line under Submit buy. 0% (1–2 nights by default) is plain. */
+export function discountLine(
+  n: number,
+  q: Pick<QuoteOk, 'pct' | 'pctText' | 'subtotal' | 'total' | 'sellers'>,
+): string {
+  if (q.pct <= 0) return 'No length discount';
+  const off =
+    q.sellers > 1 && q.pctText.includes('–')
+      ? `${q.pctText.replace(' (per owner)', '')} off per owner`
+      : `${q.pct}% off`;
+  return `${n} night${n === 1 ? '' : 's'} · ${off} · saves ${money(q.subtotal - q.total)}`;
 }

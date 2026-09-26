@@ -390,6 +390,7 @@ function TradeBody({
         to={d.date}
         account={account}
         onAct={onAct}
+        discount="No length discount"
         onSubmit={(limit) =>
           onAct(
             'buy',

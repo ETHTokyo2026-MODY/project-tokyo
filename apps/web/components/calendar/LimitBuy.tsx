@@ -16,6 +16,7 @@ export function LimitBuy({
   account,
   onSubmit,
   onAct,
+  discount,
 }: {
   ask: number;
   resetKey: string;
@@ -28,6 +29,7 @@ export function LimitBuy({
   account: string;
   onSubmit: (limit: number) => void;
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
+  discount?: string;
 }) {
   return (
     <LimitForm
@@ -42,6 +44,7 @@ export function LimitBuy({
       account={account}
       onSubmit={onSubmit}
       onAct={onAct}
+      discount={discount}
     />
   );
 }
@@ -57,6 +60,7 @@ function LimitForm({
   account,
   onSubmit,
   onAct,
+  discount,
 }: {
   ask: number;
   cash: number;
@@ -68,6 +72,7 @@ function LimitForm({
   account: string;
   onSubmit: (limit: number) => void;
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
+  discount?: string;
 }) {
   const { state } = useDemo();
   const mine = (state?.bids ?? []).filter(
@@ -110,6 +115,7 @@ function LimitForm({
             ? `Submit buy for ${money(limit)}`
             : 'Submit buy'}
       </button>
+      {discount ? <div className="note">{discount}</div> : null}
       {short ? (
         <div className="warn">
           You have {money(cash)}. List some of your days for sale to raise cash.
