@@ -54,6 +54,7 @@ export const dayFactoryAbi = parseAbi([
   discountDefinition,
   'function createAsset(bytes32 hostSalt,string metadataURI,AssetDefaults defaults,DiscountStep[] discounts) returns (address asset)',
   'function isAsset(address asset) view returns (bool)',
+  'function assets(address host,bytes32 salt) view returns (address)',
   'event AssetCreated(address indexed asset,address indexed host,bytes32 indexed hostSalt,uint32 startDay,uint32 endDayExclusive)',
 ]);
 export const dayAssetAbi = parseAbi([
@@ -70,6 +71,7 @@ export const dayAssetAbi = parseAbi([
   'function setListing(uint32 start,uint32 endExclusive,bool listed,uint128 sellingPrice)',
   'function setListedPrice(uint32 start,uint32 endExclusive,uint128 listedPrice)',
   'function setCurve(uint32 day,uint128 minimum,Point[] points)',
+  'function bookingRelayers(address reporter) view returns (bool)',
   'function curve(uint32 day) view returns (uint128 minimum,Point[] points)',
   'function setBooked(uint32 day,bool booked,uint128 expectedListedPrice)',
   'function setBookingRelayer(address relayer,bool allowed)',

@@ -5,6 +5,7 @@ import { getAddress, parseEventLogs, zeroHash } from 'viem';
 import { localChain } from './local-chain.mjs';
 import { readDayAsset } from '../src/day-catalog.mjs';
 import { EventIndex } from '../src/event-index.mjs';
+import { DayTaker } from '../src/day-taker.mjs';
 import {
   approveDayFunding,
   dayAssetAbi,
@@ -53,7 +54,12 @@ async function dayMarket(t) {
   assert.ok(creation);
   const asset = { address: creation.args.asset, abi: dayAssetAbi };
   const startDay = creation.args.startDay;
-  const config = { chainId: 31337, router: router.address };
+  const config = {
+    chainId: 31337,
+    router: router.address,
+    aqua: aqua.address,
+    factory: factory.address,
+  };
   const send = (wallet, transaction) =>
     wallet.sendTransaction(transaction).then(receipt);
   const approve = (wallet, token, amount) =>
@@ -162,6 +168,7 @@ function chainIndex(t, f) {
     ],
   };
   return {
+    db,
     index: new EventIndex(db, f.client, options),
     restart: () => new EventIndex(db, f.client, options),
   };
@@ -250,6 +257,12 @@ test(
     const indexed = chainIndex(t, f);
     let index = indexed.index;
     await syncToHead(index);
+    const taker = new DayTaker(indexed.db, index, client, f.taker, f.config);
+    assert.equal((await taker.tick()).submissions.length, 0);
+    assert.equal(
+      indexed.db.prepare('SELECT count(*) AS n FROM submissions').get().n,
+      0,
+    );
     assert.equal(index.events('AssetCreated').length, 1);
     const publications = index
       .events('Shipped')
@@ -278,7 +291,12 @@ test(
       quoted.result[1].map((fill) => fill.payment),
       [90_000000n, 63_000000n, 90_000000n],
     );
-    assert.equal((await f.settle(bid, asks)).total, 243_000000n);
+    const executed = await taker.tick();
+    assert.equal(executed.submissions.length, 1);
+    await f.receipt(executed.submissions[0].transactionHash);
+    const confirmed = await taker.tick();
+    assert.equal(confirmed.recovered[0].state, 'filled');
+    assert.equal(confirmed.recovered[0].total, 243_000000n);
     assert.equal(await read(usdc, 'balanceOf', [buyerAddress]), 57_000000n);
     assert.equal(
       await read(usdc, 'balanceOf', [host.account.address]),
@@ -346,9 +364,63 @@ test(
     }
     await assert.rejects(f.simulate(otherBid, asks)); // 57 actual USDC cannot satisfy its 250 virtual cap.
     assert.equal(await read(router, 'used', [buyerAddress, 2n]), false);
+    assert.equal((await taker.tick()).submissions.length, 0);
     await write(host, usdc, 'mint', [buyerAddress, 186_000000n]);
     await f.approve(buyer, usdc.address, 243_000000n);
-    assert.equal((await f.settle(otherBid, asks)).total, 243_000000n);
+    // Lose the RPC response immediately after the real node accepted and mined the signed bytes.
+    let crashed = false;
+    const crashingClient = {
+      ...client,
+      async sendRawTransaction(request) {
+        await client.sendRawTransaction(request);
+        crashed = true;
+        throw new Error('process lost after broadcast');
+      },
+      async getTransactionReceipt(request) {
+        if (crashed) throw new Error('process lost after broadcast');
+        return client.getTransactionReceipt(request);
+      },
+    };
+    const crashTaker = new DayTaker(
+      indexed.db,
+      index,
+      crashingClient,
+      f.taker,
+      f.config,
+    );
+    await assert.rejects(crashTaker.tick(), /process lost after broadcast/);
+    const saved = indexed.db
+      .prepare('SELECT * FROM submissions ORDER BY nonce')
+      .all();
+    assert.equal(saved.length, 2);
+    assert.ok(saved.every((job) => job.raw && job.tx_hash));
+    await f.receipt(saved[1].tx_hash);
+    const noSign = {
+      ...f.taker,
+      signTransaction: async () => {
+        throw new Error('unexpected signature');
+      },
+    };
+    const recovered = await new DayTaker(
+      indexed.db,
+      index,
+      client,
+      noSign,
+      f.config,
+    ).tick();
+    assert.deepEqual(
+      recovered.recovered.map((job) => job.state),
+      ['filled', 'filled'],
+    );
+    assert.equal(recovered.submissions.length, 0);
+    assert.deepEqual(
+      indexed.db.prepare('SELECT * FROM submissions ORDER BY nonce').all(),
+      saved,
+    );
+    assert.equal(
+      await client.getTransactionCount({ address: f.taker.account.address }),
+      2,
+    );
     assert.equal(await read(usdc, 'balanceOf', [buyerAddress]), 0n);
     await syncToHead(index);
     assert.equal(index.events('Settled').length, 2);
@@ -365,6 +437,19 @@ test(
       true,
     );
     await write(buyer, router, 'cancel', [100n]);
+    await client.request({ method: 'anvil_mine', params: ['0x80'] });
+    const waiting = await new DayTaker(
+      indexed.db,
+      index,
+      client,
+      noSign,
+      f.config,
+    ).tick();
+    assert.equal(waiting.state, 'indexing');
+    assert.equal(
+      await client.getTransactionCount({ address: f.taker.account.address }),
+      2,
+    );
     await syncToHead(index);
     assert.deepEqual(
       index.events('Cancelled').map((event) => event.args.nonce),
@@ -377,3 +462,138 @@ test(
     );
   },
 );
+
+// The same unsigned plans consumed by the website execute against real contracts.
+test('HTTP create, list, conditional bid and taker fill use canonical calendars', async (t) => {
+  const { createDayServer } = await import('../src/day-server.mjs');
+  const chain = await localChain(t);
+  const {
+    client,
+    wallets: [host, trader, , relayer],
+    deploy,
+    write,
+    receipt,
+    read,
+  } = chain;
+  const usdc = await deploy('MarketUSDC', [], 'DaySwapVM.t');
+  const aqua = await deploy('Aqua');
+  const factory = await deploy('RentalAssetFactory');
+  const router = await deploy('DaySwapVM', [
+    aqua.address,
+    usdc.address,
+    factory.address,
+  ]);
+  const config = {
+    chainId: 31337,
+    usdc: usdc.address,
+    aqua: aqua.address,
+    factory: factory.address,
+    router: router.address,
+    bookingReporter: relayer.account.address,
+  };
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  const index = new EventIndex(db, client, {
+    chainId: 31337,
+    startBlock: 0,
+    confirmations: 0,
+    scope: 'http',
+    sources: [
+      { address: factory.address, events: events(dayFactoryAbi) },
+      { address: aqua.address, events: events(officialAquaAbi) },
+      { address: router.address, events: events(dayRouterAbi) },
+    ],
+  });
+  const server = createDayServer({ client, index, config });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  async function request(path, body) {
+    const response = await fetch(
+      base + path,
+      body
+        ? {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {},
+    );
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result));
+    return result;
+  }
+  async function execute(wallet, action, body) {
+    const plan = await request('/prepare', {
+      actor: wallet.account.address,
+      action,
+      body,
+    });
+    let last;
+    for (const transaction of plan.transactions)
+      last = await receipt(
+        await wallet.sendTransaction({
+          ...transaction,
+          value: BigInt(transaction.value),
+        }),
+      );
+    return last;
+  }
+  const created = await execute(host, 'create-asset', {
+    salt: zeroHash,
+    metadataURI: 'data:application/json,{"name":"Host car"}',
+    defaults: {
+      minimum: '1000000',
+      listedPrices: Array(7).fill('120000000'),
+      sellingPrices: Array(7).fill('100000000'),
+    },
+    discounts: [],
+  });
+  const result = await request(`/receipt/${created.transactionHash}`);
+  const asset = result.asset;
+  assert.ok(asset);
+  const state = await request('/state');
+  assert.equal(state.ready, true);
+  assert.equal(state.calendars.length, 1);
+  assert.equal(state.calendars[0].days.length, 365);
+  const day = state.today + 1;
+  await execute(host, 'list', {
+    asset,
+    startDay: day,
+    endDayExclusive: day + 1,
+    sellingPrice: '100000000',
+  });
+  await execute(host, 'authorize-reporter', { asset });
+  assert.equal(
+    await read({ address: asset, abi: dayAssetAbi }, 'bookingRelayers', [
+      relayer.account.address,
+    ]),
+    true,
+  );
+  const curve = await request(`/curve?asset=${asset}&day=${day}`);
+  assert.ok(curve.points.length >= 2);
+  await write(host, usdc, 'mint', [trader.account.address, 100000000n]);
+  const deadline = String((await client.getBlock()).timestamp + 3600n);
+  await execute(trader, 'publish-bid', {
+    asset,
+    startDay: day,
+    endDayExclusive: day + 1,
+    maxTotal: '100000000',
+    nonce: '1',
+    deadline,
+    salt: zeroHash,
+  });
+  const open = await request(`/state?account=${trader.account.address}`);
+  assert.equal(open.bids.length, 1);
+  assert.equal(open.usdcBalance, '100000000');
+  const taker = new DayTaker(db, index, client, relayer, config);
+  await taker.tick();
+  await taker.tick();
+  const filled = await request(`/state?account=${trader.account.address}`);
+  assert.equal(filled.bids.length, 0);
+  assert.equal(filled.usdcBalance, '0');
+  assert.equal(
+    filled.calendars[0].days.find((d) => d.day === day).owner.toLowerCase(),
+    trader.account.address.toLowerCase(),
+  );
+});
