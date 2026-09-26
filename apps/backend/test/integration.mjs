@@ -328,6 +328,55 @@ test(
     const matcher = new Matcher(store, book, client, relayer, config);
     assert.deepEqual(book.get(bid.hash), bid);
     assert.equal((await matcher.candidates()).length, 3);
+    // Execute the persisted economic program through the production relay, then
+    // restore the fixture chain for the independent recovery scenario below.
+    const economicSnapshot = await client.request({ method: 'evm_snapshot' });
+    const economicStore = new Store(join(directory, 'economic.sqlite'));
+    try {
+      const economicMatcher = new Matcher(
+        economicStore,
+        book,
+        client,
+        relayer,
+        config,
+      );
+      const executed = await economicMatcher.submit(
+        economicBid.hash,
+        economicAsk.hash,
+      );
+      assert.equal(
+        (
+          await client.waitForTransactionReceipt({
+            hash: executed.transactionHash,
+          })
+        ).status,
+        'success',
+      );
+      assert.equal(await balance(), 9_354_250n);
+      assert.equal(
+        await client.readContract({
+          ...inventory,
+          functionName: 'balanceOf',
+          args: [
+            buyer.account.address,
+            await client.readContract({
+              ...inventory,
+              functionName: 'tokenId',
+              args: [pool, day, terms],
+            }),
+          ],
+        }),
+        1n,
+      );
+    } finally {
+      economicStore.close();
+      await client.request({
+        method: 'evm_revert',
+        params: [economicSnapshot],
+      });
+    }
+    assert.equal(await balance(), 10_000_000n);
+
     await send(buyer, usd, 'transfer', [seller.account.address, 10_000_000n]);
     await assert.rejects(matcher.submit(bid.hash, ask.hash));
     assert.equal(
