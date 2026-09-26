@@ -233,7 +233,6 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
   }
 });
 
-
 it('maps exact WETH and USDC funding bounds without floating point', () => {
   const result = command('buy-weth', {
     asset: txs[0].to,
@@ -369,23 +368,40 @@ it('refreshes public market data after disconnect and rejects walletless mutatio
   const request = vi.fn(async ({ method }: { method: string }) =>
     method === 'eth_chainId' ? '0xaa36a7' : [account],
   );
-  vi.stubGlobal('window', Object.assign(new EventTarget(), {
-    ethereum: { request, on: () => {}, removeListener: () => {} },
-  }));
+  vi.stubGlobal(
+    'window',
+    Object.assign(new EventTarget(), {
+      ethereum: { request, on: () => {}, removeListener: () => {} },
+    }),
+  );
   const fetcher = vi.fn(async () => ({
     ok: true,
-    json: async () => ({ ready: true, today: 20722, blockNumber: '1',
-      blockHash: 'hash', calendars: [], usdcBalance: '0' }),
+    json: async () => ({
+      ready: true,
+      today: 20722,
+      blockNumber: '1',
+      blockHash: 'hash',
+      calendars: [],
+      usdcBalance: '0',
+    }),
   }));
   vi.stubGlobal('fetch', fetcher);
   try {
     await store.connectWallet({ legacy: true });
     await store.disconnectWallet();
-    expect(fetcher.mock.calls.at(-1)).toEqual(['/api/day/state', expect.any(Object)]);
+    expect(fetcher.mock.calls.at(-1)).toEqual([
+      '/api/day/state',
+      expect.any(Object),
+    ]);
     await expect(store.dispatch('list', {})).resolves.toMatchObject({
-      ok: false, error: 'Connect your wallet first',
+      ok: false,
+      error: 'Connect your wallet first',
     });
-    expect(request.mock.calls.some(([call]) => call.method === 'eth_sendTransaction')).toBe(false);
+    expect(
+      request.mock.calls.some(
+        ([call]) => call.method === 'eth_sendTransaction',
+      ),
+    ).toBe(false);
   } finally {
     vi.unstubAllGlobals();
   }

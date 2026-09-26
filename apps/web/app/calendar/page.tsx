@@ -477,16 +477,9 @@ function TradeBody({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onAct('authorize-reporter', {})}
-          >
-            Authorize mock booking reporter
-          </button>
-          <button
-            type="button"
-            disabled={busy}
             onClick={() => onAct(booked ? 'unbook' : 'book', { day: d.date })}
           >
-            {booked ? 'Undo mock booking' : 'Report mock booking'}
+            {booked ? 'Undo booking' : 'Report booking'}
           </button>
         </div>
       ) : null}

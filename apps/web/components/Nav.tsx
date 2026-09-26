@@ -133,8 +133,8 @@ export function Nav() {
             </button>
           </div>
           <div className="note">
-            External bookings use a mock reporter. Booking revenue is unfunded;
-            these amounts are not payouts.
+            Hosts report external bookings with their wallet. Booking revenue is
+            unfunded; these amounts are not payouts.
           </div>
           {progress ? <div role="status">{progress}</div> : null}
           {message || error ? (
