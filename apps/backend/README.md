@@ -63,7 +63,11 @@ The web app always reads the chain through this handler.
 
 No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
 state, curves, receipts, or unsigned transaction preparation. Configuration and
-contract identity are validated before serving requests; setup errors return 503.
+public metadata are validated without RPC for `/config`. Live operations still
+verify contract identity. RPC calls have a five-second limit without hidden
+retries; API work has an eight-second response deadline. Slow reads return JSON 503. State polls share their in-flight work, including completed results
+for up to 30 seconds. At most 32 read jobs are retained per process. Setup errors
+remain explicit failures, not empty calendars.
 Each process shares one in-memory canonical index. Requests advance it in bounded
 batches. A cold state request waits at most one second for its indexing batch,
 then returns explicit indexing status while that shared batch continues. Later

@@ -9,6 +9,7 @@ import {
   exactDay,
   parseUSDC,
   usdText,
+  type ChainCalendar,
   type ChainSnapshot,
 } from './model';
 import {
@@ -78,9 +79,74 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     );
   return value;
 }
+type EnsAssetPayload = {
+  assets: {
+    label: string;
+    name: string;
+    rentalAsset: string;
+    host: string;
+    title: string;
+    kind: string;
+    location: string;
+    startDay: number;
+    endDayExclusive: number;
+    days: {
+      day: number;
+      date: string;
+      token: string;
+      owner: string;
+      deployed: boolean;
+      listed: boolean;
+      booked: boolean;
+      listedPrice: string;
+      sellingPrice: string;
+    }[];
+  }[];
+};
+
+async function loadEnsAssets() {
+  const response = await fetch('/api/ens/assets', { cache: 'no-store' });
+  const value = (await response.json()) as EnsAssetPayload & { error?: string };
+  if (!response.ok)
+    throw new Error(value.error ?? `ENS list failed (${response.status})`);
+  return (value.assets ?? []).filter((a) => !a.label.startsWith('testasset'));
+}
+
+function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
+  return assets.map((a) => ({
+    address: a.rentalAsset,
+    host: a.host,
+    startDay: a.startDay,
+    endDayExclusive: a.endDayExclusive,
+    metadataURI: JSON.stringify({
+      title: a.title,
+      type: a.kind,
+      location: a.location,
+    }),
+    discounts: [],
+    discountVersion: '0',
+    ensLabel: a.label,
+    ensName: a.name,
+    days: a.days.map((d) => ({
+      day: d.day,
+      token: d.token,
+      owner: d.owner,
+      deployed: d.deployed,
+      listed: d.listed,
+      saleNonce: '0',
+      booked: d.booked,
+      listedPrice: d.listedPrice,
+      sellingPrice: d.sellingPrice,
+    })),
+  }));
+}
+
 export async function refreshChain(): Promise<void> {
   const revision = ++generation;
   try {
+    const ens = await loadEnsAssets().catch(
+      () => [] as EnsAssetPayload['assets'],
+    );
     const result = await api<ChainSnapshot>(
       `state${snapshot.wallet ? `?account=${snapshot.wallet}` : ''}`,
     );
@@ -92,9 +158,25 @@ export async function refreshChain(): Promise<void> {
       });
       return;
     }
+    const fromEns = ensCalendars(ens);
+    const byAddr = new Map(fromEns.map((c) => [c.address.toLowerCase(), c]));
+    const calendars = result.calendars.map((c) => {
+      const extra = byAddr.get(c.address.toLowerCase());
+      if (!extra) return c;
+      return {
+        ...c,
+        ensLabel: extra.ensLabel,
+        ensName: extra.ensName,
+        metadataURI: extra.metadataURI || c.metadataURI,
+      };
+    });
+    const known = new Set(calendars.map((c) => c.address.toLowerCase()));
+    for (const c of fromEns) {
+      if (!known.has(c.address.toLowerCase())) calendars.push(c);
+    }
     emit({
       ready: true,
-      state: chainState(result, snapshot.wallet),
+      state: chainState({ ...result, calendars }, snapshot.wallet),
       today: dayDate(result.today),
       error: '',
     });

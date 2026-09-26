@@ -17,6 +17,7 @@ import {
 import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
 import { LimitBuy } from '@/components/calendar/LimitBuy';
+import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { discountsFor } from '@/lib/demo/actions';
@@ -354,8 +355,12 @@ function TradeBody({
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
   const { state } = useChainStore();
-  const host =
-    state?.assets.find((a) => a.id === assetId)?.provider === account;
+  const asset = state?.assets.find((a) => a.id === assetId);
+  const host = asset?.provider === account;
+  const dayEns =
+    asset?.ensLabel && d.date
+      ? `${d.date}.${asset.ensLabel}.projecttokyo.eth`
+      : undefined;
   const title = weekdayDate(d.date, d.weekday);
   const mine = d.owner === account;
   const booked = d.status === 'booked';
@@ -462,6 +467,11 @@ function TradeBody({
   return (
     <>
       <h2>Trading · {title}</h2>
+      {dayEns ? (
+        <div className="muted">
+          <EnsName name={dayEns} address={d.token} />
+        </div>
+      ) : null}
       <div className="kv">{rows}</div>
       <Link
         className="curvelink"
@@ -744,6 +754,12 @@ function AssetGrid({
             </h1>
             <div className="sub">
               Provided by {metaName} · {asset.location}
+              {asset.ensName ? (
+                <>
+                  {' · '}
+                  <EnsName name={asset.ensName} address={asset.id} />
+                </>
+              ) : null}
             </div>
           </div>
         </div>

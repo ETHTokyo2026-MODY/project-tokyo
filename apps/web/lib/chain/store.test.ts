@@ -194,23 +194,27 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
       removeListener: () => {},
     },
   });
-  const fetcher = vi
-    .fn()
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        ready: true,
-        today: 20722,
-        blockNumber: '1',
-        blockHash: 'hash',
-        calendars: [],
-        usdcBalance: '0',
-      }),
-    })
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ ready: false, indexing: true }),
-    });
+  let dayCalls = 0;
+  const fetcher = vi.fn(async (url: string) => {
+    if (String(url).includes('/api/ens/')) {
+      return { ok: true, json: async () => ({ assets: [] }) };
+    }
+    dayCalls += 1;
+    if (dayCalls === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          ready: true,
+          today: 20722,
+          blockNumber: '1',
+          blockHash: 'hash',
+          calendars: [],
+          usdcBalance: '0',
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ ready: false, indexing: true }) };
+  });
   vi.stubGlobal('window', target);
   vi.stubGlobal('fetch', fetcher);
   try {
@@ -222,7 +226,7 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
       ok: false,
       error: 'Wait for a current chain snapshot before acting',
     });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(dayCalls).toBe(2);
     expect(
       target.ethereum.request.mock.calls.every(
         ([request]) => request.method !== 'eth_sendTransaction',
@@ -306,7 +310,8 @@ it('confirms funding approvals before native typed consent and simulates before 
     'fetch',
     vi.fn(async (path: string, options?: { body?: string }) => {
       let value;
-      if (path.endsWith('config'))
+      if (String(path).includes('/api/ens/')) value = { assets: [] };
+      else if (path.endsWith('config'))
         value = {
           chainId: 11155111,
           factory: account,

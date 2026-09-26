@@ -34,12 +34,14 @@ const DEFAULTS = {
 type Kind = keyof typeof DEFAULTS;
 
 export function AddAssetForm({ account }: { account: string }) {
-  const { dispatch, busy: walletBusy } = useChainStore();
+  const { busy: walletBusy } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
   const [title, setTitle] = useState('');
+  const [label, setLabel] = useState('');
   const [location, setLocation] = useState('');
+  const [progress, setProgress] = useState('');
   const [monWed, setMonWed] = useState(String(DEFAULTS.car.monWed));
   const [thuSat, setThuSat] = useState(String(DEFAULTS.car.thuSat));
   const [sun, setSun] = useState(String(DEFAULTS.car.sun));
@@ -83,34 +85,41 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
-              const out = await dispatch('create-asset', {
-                account,
-                type,
-                title,
-                location,
-                prices: {
-                  monWed,
-                  thuSat,
-                  sun,
-                },
-                min: min === '' ? null : min,
-                sellingPrice,
+              const ensLabel =
+                label.trim().toLowerCase() ||
+                title
+                  .trim()
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '-')
+                  .replace(/^-|-$/g, '')
+                  .slice(0, 32);
+              if (!ensLabel) {
+                setErr('Enter an ENS label');
+                return;
+              }
+              setProgress('creating days…');
+              const res = await fetch('/api/ens/create', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  label: ensLabel,
+                  title,
+                  kind: type,
+                  location,
+                }),
               });
-              if (!out.ok) {
-                setErr(out.error);
-                setBusy(false);
+              const value = await res.json();
+              if (!res.ok || !value.asset) {
+                setErr(value.error ?? 'ENS create failed');
                 return;
               }
-              if (!out.asset) {
-                setErr('Asset confirmed; refresh the calendar to find it.');
-                return;
-              }
-              const id = String(out.asset);
+              setProgress('');
               router.push(
-                `/calendar?asset=${encodeURIComponent(id)}&account=${encodeURIComponent(account)}`,
+                `/calendar?asset=${encodeURIComponent(String(value.asset))}&account=${encodeURIComponent(account)}`,
               );
             } finally {
               setBusy(false);
+              setProgress('');
             }
           }}
         >
@@ -145,6 +154,20 @@ export function AddAssetForm({ account }: { account: string }) {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
+            </label>
+            <label htmlFor="add-label">
+              ENS label
+              <input
+                id="add-label"
+                name="label"
+                maxLength={32}
+                placeholder="demo-room"
+                value={label}
+                onChange={(e) => setLabel(e.target.value.toLowerCase())}
+              />
+              <span className="note">
+                Becomes {label || 'label'}.projecttokyo.eth
+              </span>
             </label>
             <label htmlFor="add-location">
               Location
@@ -257,7 +280,7 @@ export function AddAssetForm({ account }: { account: string }) {
             <span className="muted">{note}</span>
           </div>
           <div id="addErr" role="alert">
-            {err}
+            {progress || err}
           </div>
         </form>
       ) : null}

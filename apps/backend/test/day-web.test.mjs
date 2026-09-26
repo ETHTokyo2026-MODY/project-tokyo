@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDayHandler } from '../src/day-server.mjs';
-import { lazyDayWeb, boundedIndexSync } from '../src/day-web.mjs';
+import {
+  lazyDayWeb,
+  boundedIndexSync,
+  createDayWebHandler,
+} from '../src/day-web.mjs';
 
 test('Fetch transport serves config and indexing state without a listener', async () => {
   const handle = createDayHandler({
@@ -83,5 +87,27 @@ test('a slow completed batch is consumed before another sync begins', async () =
   finish();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(await sync(), true);
+  assert.equal(calls, 1);
+});
+
+test('public config needs no RPC and timed-out reads finish once across retries', async () => {
+  let finish,
+    calls = 0;
+  const work = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const handle = createDayWebHandler(() => {
+    calls++;
+    return work;
+  }, 1);
+  assert.equal((await handle(new Request('https://local/config'))).status, 200);
+  assert.equal(calls, 0);
+  const request = () => new Request('https://local/state');
+  assert.equal((await handle(request())).status, 503);
+  assert.equal((await handle(request())).status, 503);
+  assert.equal(calls, 1);
+  finish(Response.json({ ready: true }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await (await handle(request())).json(), { ready: true });
   assert.equal(calls, 1);
 });

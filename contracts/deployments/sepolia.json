@@ -25,5 +25,28 @@
       "blockNumber": 11788442,
       "blockHash": "0x5e85c9a101397926772b7aaa1b49b4e82f8c3a39145b2b42568c36ca70c4314f"
     }
+  },
+  "ens": {
+    "names": "0xCdA3f99339E979384a1Da958B02041E76F23510c",
+    "assetRegistry": "0x00C55E0DB52B53125F9150C11DDb9532Fe65E42F",
+    "parent": "projecttokyo.eth",
+    "demoLabel": "demo-room",
+    "demoAsset": "0x5C0838E82E9551A5b0566e8a4BFbec784A8c7120",
+    "demoDayStart": 20723,
+    "demoDaysRegistered": 219,
+    "demoDaysHorizon": 365,
+    "note": "219/365 day names registered; remaining chunks need more Sepolia ETH",
+    "transactions": {
+      "names": "0xf983c921e368357f104a6a53642d6c488ce08c64dee45ab1cae4775fb0dfe6b9",
+      "setSubregistry": "0x10a44cd52b2a9ffd04f53f7a7ba6d59a41671031923580e0a6ef9c4a2ffdbfc9",
+      "createAsset": "0xd9b9f27b18305a2379e1ead9f5aabd710cc7b887fac4c8fc57fc4b4beb265b91",
+      "registerAsset": "0x8001b6b64f7e5150cb5a0430536727e0f1935666f8e67b9ba37c09662159da1f",
+      "setAssetTexts": "0x08c05d28cf90bf39e08047ca27fdfc14a089373f442a8281527fca671347d41e",
+      "registerDays": [
+        "0xb3f8860bef3b4a06c8fed4ddc449f215b4d978800d87d28ca46254f47e25e585",
+        "0xcdb87fc1c1762bd8abddcd1f9d7f67a2a95e55a637d677411f61d190cf43e4c1",
+        "0xb3380123d0d009ece551e569b5359e0316a82b0d2942833ee47eed2932db8c6c"
+      ]
+    }
   }
 }
