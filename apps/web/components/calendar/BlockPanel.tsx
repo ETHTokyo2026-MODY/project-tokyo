@@ -1,8 +1,10 @@
 'use client';
 
 import { useRef, type ReactNode } from 'react';
+import { usdText } from '@/lib/chain/model';
+import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { money, shortDate, signed } from '@/lib/demo/format';
-import type { Quote } from '@/lib/demo/quote';
+import { discountLine, type Quote } from '@/lib/demo/quote';
 import type { Day } from '@/lib/demo/types';
 
 function KeepInput({
@@ -12,7 +14,7 @@ function KeepInput({
 }: {
   id: string;
   dataKey: string;
-  value: number;
+  value: number | string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -22,17 +24,15 @@ function KeepInput({
       ref={ref}
       data-key={dataKey}
       type="number"
-      min={1}
+      min={0}
+      step="0.000001"
       defaultValue={value}
     />
   );
 }
 
-function pred(d: Day): number {
-  return d.status === 'booked' ? d.price : (d.predicted ?? 0);
-}
-
 export function BlockPanel({
+  assetId,
   days,
   account,
   today,
@@ -41,6 +41,7 @@ export function BlockPanel({
   busy,
   onAct,
 }: {
+  assetId: string;
   days: Day[];
   account: string;
   today: string;
@@ -68,7 +69,7 @@ export function BlockPanel({
               <div>{n}</div>
               <div>Sum of sale prices</div>
               <div>{money(q.subtotal)}</div>
-              <div>Your length discount</div>
+              <div>Asset length discount</div>
               <div>{q.pct}%</div>
               <div>Block total (buyer pays)</div>
               <div>{money(q.total)}</div>
@@ -81,7 +82,7 @@ export function BlockPanel({
         <div className="kv" style={{ marginTop: 6 }}>
           <div>Status</div>
           <div>All owned by you</div>
-          <div>For sale</div>
+          <div>Listed for sale</div>
           <div>
             {listed} of {n}
           </div>
@@ -96,7 +97,15 @@ export function BlockPanel({
           </div>
         ) : (
           <div className="row">
-            <KeepInput id="bulkPrice" dataKey={key} value={days[0].price} />
+            <KeepInput
+              id="bulkPrice"
+              dataKey={key}
+              value={
+                days[0].listedPriceRaw
+                  ? usdText(days[0].listedPriceRaw)
+                  : days[0].price
+              }
+            />
             <button
               className="primary"
               type="button"
@@ -105,10 +114,9 @@ export function BlockPanel({
                 onAct('set-price', {
                   date: from,
                   to,
-                  price: Number(
-                    (document.getElementById('bulkPrice') as HTMLInputElement)
-                      ?.value,
-                  ),
+                  price: (
+                    document.getElementById('bulkPrice') as HTMLInputElement
+                  )?.value,
                 })
               }
             >
@@ -121,9 +129,9 @@ export function BlockPanel({
             id="bulkSale"
             dataKey={key}
             value={
-              days[0].listed
-                ? days[0].salePrice!
-                : Math.round(pred(days[0]) * 0.85)
+              days[0].sellingPriceRaw
+                ? usdText(days[0].sellingPriceRaw)
+                : (days[0].salePrice ?? days[0].price)
             }
           />
           <button
@@ -133,10 +141,8 @@ export function BlockPanel({
               onAct('list', {
                 date: from,
                 to,
-                price: Number(
-                  (document.getElementById('bulkSale') as HTMLInputElement)
-                    ?.value,
-                ),
+                price: (document.getElementById('bulkSale') as HTMLInputElement)
+                  ?.value,
               })
             }
           >
@@ -161,7 +167,6 @@ export function BlockPanel({
   } else {
     const { subtotal, total } = quote;
     const publicSum = days.reduce((s, d) => s + d.price, 0);
-    const short = cash < total;
     body = (
       <>
         <div className="kv">
@@ -175,41 +180,44 @@ export function BlockPanel({
               <div>{quote.sellers}</div>
             </>
           ) : null}
-          <div>Length discount</div>
-          <div>{quote.pctText}</div>
           <div>Block total</div>
           <div>{money(total)}</div>
           <div>Sum of public prices</div>
           <div>{money(publicSum)}</div>
-          <div>Potential gain</div>
+          <div>Public minus sale price</div>
           <div className={publicSum - total >= 0 ? 'pos' : 'neg'}>
             {signed(publicSum - total)}
           </div>
         </div>
-        <button
-          className="buy"
-          type="button"
-          disabled={quote.mixed || short || busy}
-          onClick={() =>
-            onAct(
-              'buy-block',
-              { from, to },
-              `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
-            )
-          }
-        >
-          {!quote.mixed && short
-            ? `Not enough cash · need ${money(total)}`
-            : `Buy ${n} days for ${money(total)}`}
-        </button>
         {quote.mixed ? (
-          <div className="note">Block includes your own days.</div>
-        ) : short ? (
-          <div className="warn">
-            You have {money(cash)}. List some of your days for sale to raise
-            cash.
-          </div>
-        ) : null}
+          <>
+            <div className="note">Block includes your own days.</div>
+            <div className="note">{discountLine(n, quote)}</div>
+          </>
+        ) : (
+          <LimitBuy
+            ask={total}
+            askRaw={quote.rawTotal}
+            resetKey={key}
+            cash={cash}
+            busy={busy}
+            assetId={assetId}
+            from={from}
+            to={to}
+            account={account}
+            onAct={onAct}
+            discount={discountLine(n, quote)}
+            onSubmit={(limit) =>
+              onAct(
+                'buy-block',
+                { from, to, limit },
+                Number(limit) < total
+                  ? `Open buy for ${money(Number(limit))}`
+                  : `Bought ${n} days (${shortDate(from)} – ${shortDate(to)})`,
+              )
+            }
+          />
+        )}
       </>
     );
   }

@@ -22,13 +22,15 @@ export function DiscountsEditor({
   onAct: (
     name: string,
     body: Record<string, unknown>,
-  ) => { ok: boolean; error?: string };
+  ) =>
+    Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
 }) {
   const [rows, setRows] = useState(() =>
     rowsFromDiscounts(discountsFor(asset, account)),
   );
   const [rowErrs, setRowErrs] = useState<(string | null)[]>([]);
   const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
   const [ok, setOk] = useState(true);
   const touch = (next: typeof rows) => {
     setRows(next);
@@ -36,12 +38,14 @@ export function DiscountsEditor({
     setMsg('');
   };
 
+  const disabled =
+    busy || saving || Boolean(asset.chain && asset.provider !== account);
   return (
     <>
       <h2>Length discounts</h2>
       <div className="note">
-        Your discount on this asset when someone buys a block of your listed
-        days. 1-night blocks have no discount.
+        The host sets one ladder for this asset. It applies to the whole
+        consecutive block, across owners. Single days have no discount.
       </div>
       <div className="disc">
         {rows.map((r, i) => (
@@ -49,6 +53,8 @@ export function DiscountsEditor({
             <input
               type="number"
               min={2}
+              max={asset.chain ? 365 : undefined}
+              disabled={disabled}
               step={1}
               aria-label="Minimum nights"
               value={r.nights}
@@ -64,8 +70,9 @@ export function DiscountsEditor({
             <input
               type="number"
               min={0}
-              max={90}
-              step={1}
+              max={asset.chain ? 100 : 90}
+              step={asset.chain ? 0.01 : 1}
+              disabled={disabled}
               aria-label="Percent off"
               value={r.pct}
               onChange={(e) =>
@@ -79,7 +86,7 @@ export function DiscountsEditor({
             <div>%</div>
             <button
               type="button"
-              disabled={busy}
+              disabled={disabled}
               onClick={() => touch(rows.filter((_, j) => j !== i))}
             >
               Remove
@@ -92,33 +99,46 @@ export function DiscountsEditor({
         <button
           className="primary"
           type="button"
-          disabled={busy}
-          onClick={() => {
-            const parsed = checkTiers(rows);
+          disabled={disabled}
+          onClick={async () => {
+            const parsed = checkTiers(rows, Boolean(asset.chain));
             setRowErrs(parsed.rowErrs);
             if (!parsed.next) {
               setOk(false);
               setMsg(parsed.error || 'Fix the highlighted tiers');
               return;
             }
-            const out = onAct('discounts', { tiers: parsed.next });
-            setOk(out.ok);
-            setMsg(out.ok ? 'Saved' : out.error || 'Save failed');
-            if (out.ok) setRows(rowsFromDiscounts(parsed.next));
+            setSaving(true);
+            try {
+              const out = await onAct('discounts', { tiers: parsed.next });
+              setOk(out.ok);
+              setMsg(
+                out.ok
+                  ? asset.chain
+                    ? 'Saved. Sellers must republish their listings to authorize the new ladder.'
+                    : 'Saved'
+                  : out.error || 'Save failed',
+              );
+              if (out.ok) setRows(rowsFromDiscounts(parsed.next));
+            } finally {
+              setSaving(false);
+            }
           }}
         >
           Save
         </button>
         <button
           type="button"
-          disabled={busy || rows.length >= MAX_DISCOUNT_TIERS}
+          disabled={
+            disabled || (!asset.chain && rows.length >= MAX_DISCOUNT_TIERS)
+          }
           onClick={() => touch([...rows, { nights: '', pct: '' }])}
         >
           Add tier
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={disabled}
           onClick={() => touch(rowsFromDiscounts(DEFAULT_DISCOUNTS))}
         >
           Reset to defaults

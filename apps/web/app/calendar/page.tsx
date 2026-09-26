@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import {
   memo,
   Suspense,
@@ -14,7 +16,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
-import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
+import { LimitBuy } from '@/components/calendar/LimitBuy';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { discountsFor } from '@/lib/demo/actions';
@@ -27,19 +29,20 @@ import {
   signed,
   weekdayDate,
 } from '@/lib/demo/format';
+import { normalizeAssetId, usdText, rangeQuote } from '@/lib/chain/model';
 import { quoteBlock } from '@/lib/demo/quote';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
 
-const TITLE = 'Calendar · Project Tokyo (demo)';
+const TITLE = 'Calendar · ProjectTokyo';
 const DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
 function Loading() {
   return (
     <main className="page">
       <h1>Calendar</h1>
-      <div className="muted">Loading demo…</div>
+      <div className="muted">Loading…</div>
     </main>
   );
 }
@@ -153,7 +156,7 @@ function KeepInput({
 }: {
   id: string;
   dataKey: string;
-  value: number;
+  value: number | string;
   disabled?: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
 }) {
@@ -169,7 +172,8 @@ function KeepInput({
       ref={inputRef}
       data-key={dataKey}
       type="number"
-      min={1}
+      min={0}
+      step="0.000001"
       defaultValue={value}
       disabled={disabled}
     />
@@ -189,14 +193,45 @@ function History({ day, account }: { day: Day; account: string }) {
   return (
     <>
       <h2 style={{ marginTop: 8 }}>Trade history</h2>
-      {day.history.length ? (
+      {day.settlements ? (
+        day.settlements.length ? (
+          <ol className="hist">
+            {day.settlements.map((trade, i) => (
+              <li key={`${trade.transactionHash}:${i}`}>
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${trade.transactionHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  ${usdText(trade.priceRaw)} USDC
+                </a>
+                {' · '}
+                {trade.seller === account
+                  ? 'You sold'
+                  : trade.buyer === account
+                    ? 'You bought'
+                    : 'Settled trade'}
+                {' · '}
+                {new Date(trade.at).toLocaleString('en-GB', {
+                  timeZone: 'Asia/Tokyo',
+                })}{' '}
+                JST{trade.seller === null ? ' · seller unavailable' : ''}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="note">No indexed trades.</div>
+        )
+      ) : day.history.length ? (
         <ol className="hist">
           {day.history.map((h, i) => (
             <li key={`${h.type}-${h.at}-${i}`}>{historyLine(h, account)}</li>
           ))}
         </ol>
       ) : (
-        <div className="note">Never sold.</div>
+        <div className="note">
+          {day.token ? 'Trade history is not indexed.' : 'Never sold.'}
+        </div>
       )}
     </>
   );
@@ -215,19 +250,21 @@ function OwnerControls({
 }) {
   const priceRef = useRef<HTMLInputElement>(null);
   const saleRef = useRef<HTMLInputElement>(null);
-  const sale = d.listed ? d.salePrice! : Math.round(pred(d) * 0.85);
+  const sale = d.sellingPriceRaw
+    ? usdText(d.sellingPriceRaw)
+    : (d.salePrice ?? d.price);
   return (
     <>
       <div className="note">
         {booked
-          ? 'Booked: the price is locked. Whoever owns the day when it arrives gets paid.'
-          : 'You set the price renters see and keep the booking result.'}
+          ? 'Booked: the public price is locked. Resale remains available.'
+          : 'You control the public price and the separate sale price.'}
       </div>
       <div className="row">
         <KeepInput
           id="price"
           dataKey={d.date}
-          value={d.price}
+          value={d.listedPriceRaw ? usdText(d.listedPriceRaw) : d.price}
           disabled={booked}
           inputRef={priceRef}
         />
@@ -238,7 +275,7 @@ function OwnerControls({
           onClick={() =>
             onAct('set-price', {
               date: d.date,
-              price: Number(priceRef.current?.value),
+              price: priceRef.current?.value,
             })
           }
         >
@@ -259,7 +296,7 @@ function OwnerControls({
           onClick={() =>
             onAct('list', {
               date: d.date,
-              price: Number(saleRef.current?.value),
+              price: saleRef.current?.value,
             })
           }
         >
@@ -275,25 +312,26 @@ function OwnerControls({
           </button>
         ) : null}
       </div>
-      {booked ? (
-        <button
-          className="markbooked on"
-          type="button"
-          disabled={busy}
-          onClick={() => onAct('unbook', { day: d.date })}
-        >
-          ✓ Booked · Undo
-        </button>
-      ) : (
-        <button
-          className="markbooked"
-          type="button"
-          disabled={busy}
-          onClick={() => onAct('book', { date: d.date })}
-        >
-          Mark as Booked
-        </button>
-      )}
+      {!d.token &&
+        (booked ? (
+          <button
+            className="markbooked on"
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('unbook', { day: d.date })}
+          >
+            ✓ Booked · Undo
+          </button>
+        ) : (
+          <button
+            className="markbooked"
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('book', { date: d.date })}
+          >
+            Mark as Booked
+          </button>
+        ))}
     </>
   );
 }
@@ -315,6 +353,9 @@ function TradeBody({
   busy: boolean;
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
+  const { state } = useDemo();
+  const host =
+    state?.assets.find((a) => a.id === assetId)?.provider === account;
   const title = weekdayDate(d.date, d.weekday);
   const mine = d.owner === account;
   const booked = d.status === 'booked';
@@ -349,8 +390,8 @@ function TradeBody({
             <div>{money(d.salePrice!)}</div>
           </>
         ) : null}
-        <div>{booked ? 'Paid to owner on' : 'Predicted if booked'}</div>
-        <div>{booked ? title : money(pred(d))}</div>
+        <div>Service day</div>
+        <div>{title}</div>
       </>
     );
     controls = (
@@ -358,53 +399,50 @@ function TradeBody({
     );
   } else if (d.listed) {
     const gain = d.price - d.salePrice!;
-    const short = cash < d.salePrice!;
     rows = (
       <>
         <div>Status</div>
         <div>
           {booked ? 'Booked · ' : ''}
-          For sale
+          Listed for sale
         </div>
         <div>{booked ? 'Booked price' : 'Public price'}</div>
         <div>{money(d.price)}</div>
         <div>Sale price</div>
         <div>{money(d.salePrice!)}</div>
-        {booked ? null : (
+        {booked || d.token ? null : (
           <>
             <div>Predicted if booked</div>
             <div>{money(pred(d))}</div>
           </>
         )}
-        <div>Potential gain</div>
+        <div>Public minus sale price</div>
         <div className={gain >= 0 ? 'pos' : 'neg'}>{signed(gain)}</div>
       </>
     );
     controls = (
-      <>
-        <button
-          className="buy"
-          type="button"
-          disabled={short || busy}
-          onClick={() =>
-            onAct(
-              'buy',
-              { date: d.date },
-              `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
-            )
-          }
-        >
-          {short
-            ? `Not enough cash · need ${money(d.salePrice!)}`
-            : `Buy for ${money(d.salePrice!)}`}
-        </button>
-        {short ? (
-          <div className="warn">
-            You have {money(cash)}. List some of your days for sale to raise
-            cash.
-          </div>
-        ) : null}
-      </>
+      <LimitBuy
+        ask={d.salePrice!}
+        askRaw={d.sellingPriceRaw}
+        resetKey={d.date}
+        cash={cash}
+        busy={busy}
+        assetId={assetId}
+        from={d.date}
+        to={d.date}
+        account={account}
+        onAct={onAct}
+        discount="No length discount"
+        onSubmit={(limit) =>
+          onAct(
+            'buy',
+            { date: d.date, limit },
+            Number(limit) < d.salePrice!
+              ? `Open buy for ${money(Number(limit))}`
+              : `Bought ${shortDate(d.date)} for ${money(d.salePrice!)}`,
+          )
+        }
+      />
     );
   } else {
     rows = (
@@ -425,15 +463,33 @@ function TradeBody({
     <>
       <h2>Trading · {title}</h2>
       <div className="kv">{rows}</div>
-      <a
+      <Link
         className="curvelink"
         href={linkTo('/curve', { asset: assetId, day: d.date }, account)}
         target="_blank"
         rel="noreferrer"
       >
         Price curve →
-      </a>
+      </Link>
       {controls}
+      {d.token && host && d.date >= today ? (
+        <div className="row">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('authorize-reporter', {})}
+          >
+            Authorize mock booking reporter
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct(booked ? 'unbook' : 'book', { day: d.date })}
+          >
+            {booked ? 'Undo mock booking' : 'Report mock booking'}
+          </button>
+        </div>
+      ) : null}
       <History day={d} account={account} />
     </>
   );
@@ -443,7 +499,7 @@ function CalendarInner() {
   const { ready, state, today } = useDemo();
   const account = useAccount();
   const params = useSearchParams();
-  const assetId = params.get('asset');
+  const assetId = normalizeAssetId(params.get('asset') ?? '');
   const list = useMemo(
     () => (state ? summaries(state, today) : []),
     [state, today],
@@ -471,7 +527,7 @@ function CalendarInner() {
         <h2>Assets</h2>
         <div className="cards">
           {list.map((a) => (
-            <a
+            <Link
               key={a.id}
               className="card"
               href={linkTo('/calendar', { asset: a.id }, account)}
@@ -483,7 +539,7 @@ function CalendarInner() {
                 {a.providerName} · {a.location}
               </div>
               <div className="kv">
-                <div>Days for sale</div>
+                <div>Listed days</div>
                 <div>{a.forSale}</div>
                 <div>Next open day</div>
                 <div>
@@ -492,7 +548,7 @@ function CalendarInner() {
                     : '—'}
                 </div>
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       </main>
@@ -523,12 +579,13 @@ function AssetGrid({
   acct: Account;
   today: string;
 }) {
-  const { dispatch, reset } = useDemo();
+  const { dispatch, reset, busy: walletBusy } = useDemo();
   const [anchor, setAnchor] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [localBusy, setBusy] = useState(false);
+  const busy = localBusy || walletBusy;
   const [flash, setFlash] = useState({ text: '', token: 0 });
   const pending = useRef(false);
   const calRef = useRef<HTMLDivElement>(null);
@@ -552,12 +609,19 @@ function AssetGrid({
     lo && hi ? asset.days.filter((d) => d.date >= lo && d.date <= hi) : [];
   const quote =
     selDays.length > 1
-      ? quoteBlock(
-          selDays,
-          account,
-          (owner) => discountsFor(asset, owner),
-          today,
-        )
+      ? asset.chain
+        ? rangeQuote(
+            asset,
+            selDays.map((d) => d.date),
+            account,
+            today,
+          )
+        : quoteBlock(
+            selDays,
+            account,
+            (owner) => discountsFor(asset, owner),
+            today,
+          )
       : null;
   const blockPrice =
     quote && !('reason' in quote)
@@ -568,7 +632,7 @@ function AssetGrid({
   const tabStop = kbd || focus || today;
 
   useEffect(() => {
-    document.title = `${asset.title} · Calendar · Project Tokyo (demo)`;
+    document.title = `${asset.title} · Calendar · ProjectTokyo`;
   }, [asset.title]);
   useEffect(() => {
     if (scrolled.current) return;
@@ -584,8 +648,10 @@ function AssetGrid({
         const [a, b] = [anchor, date].sort();
         const range = asset.days.filter((d) => d.date >= a && d.date <= b);
         if (
-          range.length > 1 &&
-          range.some((d) => d.date < today || !d.listed)
+          (range.length > 1 && range.some((d) => d.date < today)) ||
+          (range.length > 1 &&
+            range.some((d) => !d.listed) &&
+            !range.every((d) => d.owner === account))
         ) {
           setFocus(anchor);
           setFlash((f) => ({
@@ -600,7 +666,7 @@ function AssetGrid({
       setKbd(date);
       setError('');
     },
-    [anchor, asset.days, today],
+    [anchor, asset.days, today, account],
   );
 
   useEffect(() => {
@@ -612,20 +678,27 @@ function AssetGrid({
   }, [kbd]);
 
   const onAct = useCallback(
-    (name: string, body: Record<string, unknown>, done?: string) => {
+    async (name: string, body: Record<string, unknown>, done?: string) => {
       if (pending.current) return { ok: false as const, error: 'Busy' };
       pending.current = true;
       setBusy(true);
       setError('');
-      const out = dispatch(name, { asset: asset.id, account, ...body });
-      pending.current = false;
-      setBusy(false);
-      if (!out.ok) {
-        setError(out.error);
+      try {
+        const out = await dispatch(name, { asset: asset.id, account, ...body });
+        if (!out.ok) {
+          setError(out.error);
+          return out;
+        }
+        const message =
+          'message' in out && typeof out.message === 'string'
+            ? out.message
+            : done;
+        if (message) setFlash((f) => ({ text: message, token: f.token + 1 }));
         return out;
+      } finally {
+        pending.current = false;
+        setBusy(false);
       }
-      if (done) setFlash((f) => ({ text: done, token: f.token + 1 }));
-      return out;
     },
     [account, asset.id, dispatch],
   );
@@ -676,21 +749,32 @@ function AssetGrid({
       >
         <div className="stickyhead">
           <div className="crumbs">
-            <a href={linkTo('/calendar', {}, account)}>Calendar</a> ›
+            <Link href={linkTo('/calendar', {}, account)}>Calendar</Link> ›
           </div>
           <div className="ahead">
             <h1>
-              {asset.title} <TypeBadge type={asset.type} />
+              <Link href={linkTo('/asset', { asset: asset.id }, account)}>
+                {asset.title}
+              </Link>{' '}
+              <TypeBadge type={asset.type} />
             </h1>
             <div className="sub">
               Provided by {metaName} · {asset.location}
             </div>
           </div>
         </div>
+        {asset.chain ? (
+          <div className="note">
+            Listing authorization required: a listed price alone cannot execute.
+            Publish each range through the wallet, and republish after the host
+            changes discounts.
+          </div>
+        ) : null}
         <div className="legend">
           <span>
             <span className="sw" style={{ border: '2px solid #f59e0b' }} />
-            For sale: public price; small: sale price and gain (public − sale)
+            Listed for sale: public price; small: sale price and difference
+            (public − sale)
           </span>
           <span>
             <span
@@ -704,8 +788,8 @@ function AssetGrid({
             Owned by you
           </span>
           <span>
-            <span className="badge booked">BOOKED</span> price locked, paid to
-            the owner on the day
+            <span className="badge booked">BOOKED</span> public price locked;
+            resale allowed
           </span>
         </div>
         <div
@@ -755,13 +839,13 @@ function AssetGrid({
         <section>
           <h2>{acct.name}</h2>
           <div className="kv">
-            <div>Cash</div>
+            <div>Wallet USDC</div>
             <div>{money(acct.cash)}</div>
             <div>Profit / loss</div>
             <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
-              {signed(pl)}
+              {asset.chain ? 'Not indexed' : signed(pl)}
             </div>
-            <div>Locked-in bookings</div>
+            <div>Booked public prices (unfunded)</div>
             <div>{money(lockedIn)}</div>
           </div>
           {Number.isFinite(cheapest) && acct.cash < cheapest ? (
@@ -775,6 +859,7 @@ function AssetGrid({
           <div className="hint">Shift-click to select a block of days</div>
           {selDays.length > 1 && quote ? (
             <BlockPanel
+              assetId={asset.id}
               days={selDays}
               account={account}
               today={today}
@@ -801,18 +886,11 @@ function AssetGrid({
           )}
           <div className="err">{error}</div>
         </section>
-        <section>
-          <DiscountsEditor
-            key={`${asset.id}:${account}`}
-            asset={asset}
-            account={account}
-            busy={busy}
-            onAct={onAct}
-          />
-        </section>
-        <button className="reset" type="button" onClick={onReset}>
-          Master reset
-        </button>
+        {!asset.chain ? (
+          <button className="reset" type="button" onClick={onReset}>
+            Master reset
+          </button>
+        ) : null}
       </aside>
     </div>
   );

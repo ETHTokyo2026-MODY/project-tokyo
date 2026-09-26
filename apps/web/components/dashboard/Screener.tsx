@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { useDemo } from '@/lib/demo/store';
+
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TypeBadge } from '@/components/TypeBadge';
@@ -57,7 +60,7 @@ const METRICS: Metric[] = [
   },
   {
     key: 'forSale',
-    label: 'Days for sale',
+    label: 'Listed days',
     get: (a) => a.forSale,
     fmt: String,
     tip: 'Future days listed for sale (by anyone)',
@@ -160,6 +163,11 @@ export function Screener({
   assets: AssetSummary[];
   account: string;
 }) {
+  const { mode } = useDemo();
+  const chain = mode === 'chain';
+  const available = (m: Metric) =>
+    !chain ||
+    !['volCount', 'volUsd', 'avgMarginPct', 'avgProfit'].includes(m.key);
   const params = useSearchParams();
   const [S, setS] = useState(() => readState(params));
 
@@ -207,8 +215,13 @@ export function Screener({
         `${a.title} ${a.location} ${a.providerName} ${a.type}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
       if (!S.types.includes(a.type)) return false;
-      if (S.has && !a.volume.all.count) return false;
+      if (!chain && S.has && !a.volume.all.count) return false;
       for (const m of NUMERIC) {
+        if (
+          chain &&
+          ['volCount', 'volUsd', 'avgMarginPct', 'avgProfit'].includes(m.key)
+        )
+          continue;
         const v = m.get(a, S.period);
         if (S.min[m.key] != null && (v == null || (v as number) < S.min[m.key]))
           return false;
@@ -234,9 +247,10 @@ export function Screener({
       });
     }
     return list;
-  }, [S, assets]);
+  }, [S, assets, chain]);
 
   const cell = (m: Metric, a: AssetSummary) => {
+    if (!available(m)) return <span className="muted">Not indexed</span>;
     const v = m.get(a, S.period);
     if (v == null) return <span className="muted">—</span>;
     const cls = m.sign
@@ -281,6 +295,7 @@ export function Screener({
         <label>
           Period{' '}
           <select
+            disabled={chain}
             value={S.period}
             onChange={(e) => update({ period: e.target.value as Period })}
           >
@@ -357,14 +372,15 @@ export function Screener({
             <label title="Only assets with at least one trade (all time)">
               <input
                 type="checkbox"
-                checked={S.has}
+                disabled={chain}
+                checked={!chain && S.has}
                 onChange={(e) => update({ has: e.target.checked })}
               />{' '}
               has trades
             </label>
           </div>
           <div className="scr-grid">
-            {NUMERIC.map((m) => (
+            {NUMERIC.filter(available).map((m) => (
               <label key={m.key} title={m.tip}>
                 <span>
                   {m.label}
@@ -471,12 +487,12 @@ export function Screener({
                   }}
                 >
                   <td>
-                    <a
+                    <Link
                       className="rowlink"
                       href={linkTo('/calendar', { asset: a.id }, account)}
                     >
                       <b>{a.title}</b>
-                    </a>
+                    </Link>
                     {a.provider === account ? (
                       <span className="mine-tag"> yours</span>
                     ) : null}
@@ -497,7 +513,7 @@ export function Screener({
       ) : (
         <div className="cards">
           {rows.map((a) => (
-            <a
+            <Link
               key={a.id}
               className="card"
               href={linkTo('/calendar', { asset: a.id }, account)}
@@ -521,7 +537,7 @@ export function Screener({
                   </div>
                 ))}
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       )}

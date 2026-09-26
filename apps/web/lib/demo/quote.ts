@@ -1,6 +1,7 @@
 import type { Day, Discounts } from './types';
 
 export type QuoteOk = {
+  rawTotal?: string;
   pct: number;
   pctText: string;
   sellers: number;
@@ -78,4 +79,10 @@ export function quoteBlock(
     own: ownCount === n,
     mixed: ownCount > 0 && ownCount < n,
   };
+}
+
+export function discountLine(days: number, quote: QuoteOk): string {
+  return days < 2
+    ? 'No length discount'
+    : `${quote.pctText} length discount for ${days} consecutive days`;
 }

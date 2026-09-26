@@ -1,87 +1,196 @@
 'use client';
 
-import type { ChangeEvent } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { ACCOUNT_KEY, linkTo, useAccount } from '@/lib/demo/account';
 import { useDemo } from '@/lib/demo/store';
+import {
+  connectWallet,
+  disconnectWallet,
+  refreshChain,
+  switchNetwork,
+  walletChoices,
+} from '@/lib/chain/store';
+import { money } from '@/lib/demo/format';
 
-const TABS: { href: string; label: string }[] = [
+const TABS = [
   { href: '/', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/profile', label: 'Profile' },
   { href: '/stats', label: 'Stats' },
 ];
-
-const FALLBACK_ACCOUNTS: [string, string][] = [
-  ['host', 'Turo Host'],
-  ['traderA', 'Trader A'],
-  ['traderB', 'Trader B'],
-  ['kenji', 'Kenji Drives'],
-  ['sakura', 'Sakura Stays'],
-  ['machiya', 'Gion Machiya Co.'],
-  ['shinjukuGate', 'Hotel Shinjuku Gate'],
-];
-
-function accountEntries(
-  accounts?: Record<string, { name: string }>,
-): [string, string][] {
-  if (!accounts) return FALLBACK_ACCOUNTS;
-  return Object.entries(accounts).map(([id, a]) => [id, a.name]);
-}
-
 export function Nav() {
   const account = useAccount();
-  const { ready, state } = useDemo();
+  const demo = useDemo();
+  const { state, mode, busy, error, progress, hashes } = demo;
+  const hasWalletSession = 'hasWalletSession' in demo && demo.hasWalletSession;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-
-  if (pathname === '/curve') return null;
-  const tabs = TABS;
-  const entries = accountEntries(ready && state ? state.accounts : undefined);
-  const options = entries.some(([id]) => id === account)
-    ? entries
-    : ([[account, account], ...entries] as [string, string][]);
-
-  function onAccountChange(event: ChangeEvent<HTMLSelectElement>) {
-    const next = event.target.value;
+  const [providers, setProviders] = useState<ReturnType<typeof walletChoices>>(
+    [],
+  );
+  const [choice, setChoice] = useState('');
+  const [waiting, setWaiting] = useState(false);
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    if (mode !== 'chain') return;
+    const update = () => setProviders(walletChoices());
+    update();
+    const timer = setInterval(update, 2000);
+    return () => clearInterval(timer);
+  }, [mode]);
+  async function act(fn: () => Promise<void>) {
+    setWaiting(true);
+    setMessage('');
     try {
-      localStorage.setItem(ACCOUNT_KEY, next);
-    } catch {
-      // ignore quota / private mode
+      await fn();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Wallet request failed');
+    } finally {
+      setWaiting(false);
     }
-    const q = new URLSearchParams(searchParams.toString());
-    q.set('account', next);
-    window.location.search = q.toString();
   }
-
+  const selected = choice || providers[0]?.uuid || '';
   return (
-    <nav id="nav" aria-label="Main">
-      <span className="brand">
-        Project Tokyo<small>demo · sample data</small>
-      </span>
-      {tabs.map((tab) => {
-        const on = pathname === tab.href;
-        return (
-          <a
+    <>
+      <nav id="nav" aria-label="Main">
+        <span className="brand">
+          ProjectTokyo
+          <small>
+            {mode === 'chain' ? 'Sepolia · test USDC' : 'sample data'}
+          </small>
+        </span>
+        {TABS.map((tab) => (
+          <Link
             key={tab.href}
-            className={on ? 'tab on' : 'tab'}
+            className={pathname === tab.href ? 'tab on' : 'tab'}
             href={linkTo(tab.href, {}, account)}
-            aria-current={on ? 'page' : undefined}
+            aria-current={pathname === tab.href ? 'page' : undefined}
           >
             {tab.label}
-          </a>
-        );
-      })}
-      <label className="who" htmlFor="account">
-        Viewing as{' '}
-        <select id="account" value={account} onChange={onAccountChange}>
-          {options.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-    </nav>
+          </Link>
+        ))}
+        {mode === 'sample' ? (
+          <label className="who">
+            Viewing as{' '}
+            <select
+              value={account}
+              onChange={(e) => {
+                localStorage.setItem(ACCOUNT_KEY, e.target.value);
+                const q = new URLSearchParams(searchParams.toString());
+                q.set('account', e.target.value);
+                window.location.search = q.toString();
+              }}
+            >
+              {Object.entries(state?.accounts ?? {}).map(([id, a]) => (
+                <option key={id} value={id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="who row">
+            <label>
+              Wallet{' '}
+              <select
+                aria-label="Wallet provider"
+                value={selected}
+                disabled={waiting || busy}
+                onChange={(e) => setChoice(e.target.value)}
+              >
+                <option value="" disabled>
+                  Select extension
+                </option>
+                {providers.map((p) => (
+                  <option key={p.uuid} value={p.uuid}>
+                    {p.name} ({p.rdns})
+                  </option>
+                ))}
+                <option value="legacy">Injected wallet (legacy)</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={!selected || waiting || busy}
+              onClick={() =>
+                void act(() =>
+                  connectWallet(
+                    selected === 'legacy'
+                      ? { legacy: true }
+                      : { uuid: selected },
+                  ),
+                )
+              }
+            >
+              {account ? 'Reconnect' : 'Connect wallet'}
+            </button>
+            {hasWalletSession ? (
+              <>
+                <button
+                  type="button"
+                  disabled={waiting || busy}
+                  onClick={() => void act(switchNetwork)}
+                >
+                  Switch to Sepolia
+                </button>
+                <button
+                  type="button"
+                  disabled={waiting || busy}
+                  onClick={() => void act(disconnectWallet)}
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
+      </nav>
+      {mode === 'chain' ? (
+        <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
+          <div className="row">
+            <span>
+              {account
+                ? `${account} · ${money(state?.accounts[account]?.cash ?? 0)} USDC`
+                : 'Connect a wallet to create assets or publish orders.'}
+            </span>
+            <button
+              type="button"
+              disabled={busy || waiting}
+              onClick={() => void act(refreshChain)}
+            >
+              Refresh chain state
+            </button>
+          </div>
+          <div className="note">
+            External bookings use a mock reporter. Booking revenue is unfunded;
+            these amounts are not payouts.
+          </div>
+          {progress ? <div role="status">{progress}</div> : null}
+          {message || error ? (
+            <div className="err" role="alert">
+              {message || error}
+            </div>
+          ) : null}
+          {hashes.length ? (
+            <details open>
+              <summary>Submitted transactions ({hashes.length})</summary>
+              {hashes.map((hash, i) => (
+                <div key={`${hash}:${i}`}>
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {hash}
+                  </a>
+                </div>
+              ))}
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   );
 }

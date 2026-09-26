@@ -36,7 +36,21 @@ export type HistoryEntry =
 
 export type DayStatus = 'open' | 'booked' | 'unbooked';
 
+export type Settlement = {
+  buyer: string;
+  seller: string | null;
+  priceRaw: string;
+  price: number;
+  at: string;
+  transactionHash: string;
+  rangeLength: number;
+};
+
 export type Day = {
+  settlements?: Settlement[];
+  listedPriceRaw?: string;
+  sellingPriceRaw?: string;
+  token?: string;
   date: string;
   weekday: number;
   base: number;
@@ -60,6 +74,8 @@ export type CustomAssetSpec = {
 };
 
 export type Asset = {
+  chain?: boolean;
+  discountLadder?: { minDays: number; discountBps: number }[];
   id: string;
   type: AssetType;
   title: string;
@@ -71,6 +87,18 @@ export type Asset = {
 };
 
 export type DemoState = {
+  historyReady?: boolean;
+  chain?: boolean;
+  bids?: {
+    id: string;
+    asset: string;
+    buyer: string;
+    from: string;
+    to: string;
+    limit: number;
+    maxTotal?: string;
+    nonce?: string;
+  }[];
   seededOn: string;
   curveDay: string;
   version: number;

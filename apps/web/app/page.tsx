@@ -1,21 +1,24 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useEffect, useMemo } from 'react';
 import { AddAssetForm } from '@/components/dashboard/AddAssetForm';
 import { Screener } from '@/components/dashboard/Screener';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
-import { money, signed } from '@/lib/demo/format';
+import { usdText } from '@/lib/chain/model';
+import { money, shortDate, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import './dash.css';
 import './screener.css';
 import './add.css';
 
-const TITLE = 'Dashboard · Project Tokyo (demo)';
+const TITLE = 'Dashboard · ProjectTokyo';
 
 export default function DashboardPage() {
-  const { ready, state, today, dispatch } = useDemo();
+  const { ready, state, today, dispatch, busy } = useDemo();
   const accountId = useAccount();
 
   useEffect(() => {
@@ -31,7 +34,7 @@ export default function DashboardPage() {
     return (
       <main className="page">
         <h1>Dashboard</h1>
-        <div className="muted">Loading demo…</div>
+        <div className="muted">Loading…</div>
       </main>
     );
   }
@@ -60,7 +63,9 @@ export default function DashboardPage() {
       <h1>Dashboard</h1>
       <div className="muted">
         {acct.name} · {acct.role} · cash {money(acct.cash)} · P/L{' '}
-        <span className={pl >= 0 ? 'pos' : 'neg'}>{signed(pl)}</span>
+        <span className={pl >= 0 ? 'pos' : 'neg'}>
+          {state?.chain ? 'Not indexed' : signed(pl)}
+        </span>
       </div>
       <AddAssetForm account={accountId} today={today} />
       <div className="scroll-x">
@@ -77,9 +82,9 @@ export default function DashboardPage() {
                 <th>Asset you provide</th>
                 <th>Location</th>
                 <th className="n">Days still yours</th>
-                <th className="n">For sale</th>
+                <th className="n">Listed for sale</th>
                 <th className="n">Booked</th>
-                <th className="n">Days sold</th>
+                <th className="n">Owned by others</th>
                 <th className="n">Received</th>
                 <th />
               </tr>
@@ -98,9 +103,12 @@ export default function DashboardPage() {
                     }}
                   >
                     <td>
-                      <a className="rowlink" href={href}>
+                      <Link
+                        className="rowlink"
+                        href={linkTo('/asset', { asset: a.id }, accountId)}
+                      >
                         <b>{a.title}</b>
-                      </a>{' '}
+                      </Link>{' '}
                       <TypeBadge type={a.type} />
                     </td>
                     <td>{a.location}</td>
@@ -110,7 +118,9 @@ export default function DashboardPage() {
                     <td className="n">{p.listed}</td>
                     <td className="n">{p.booked}</td>
                     <td className="n">{a.futureDays - p.owned}</td>
-                    <td className="n">{money(p.received)}</td>
+                    <td className="n">
+                      {state?.chain ? 'Not indexed' : money(p.received)}
+                    </td>
                     <td className="n">
                       {a.custom && a.provider === accountId ? (
                         <button
@@ -122,7 +132,7 @@ export default function DashboardPage() {
                               ? `Other accounts own ${a.othersOwn} day(s) of this asset`
                               : 'Delete this asset (nobody else owns its days)'
                           }
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
                             if (
                               !confirm(
@@ -130,7 +140,7 @@ export default function DashboardPage() {
                               )
                             )
                               return;
-                            const out = dispatch('delete-asset', {
+                            const out = await dispatch('delete-asset', {
                               account: accountId,
                               asset: a.id,
                             });
@@ -154,7 +164,7 @@ export default function DashboardPage() {
                 <th>Asset where you own days</th>
                 <th>Provider</th>
                 <th className="n">Days owned</th>
-                <th className="n">For sale</th>
+                <th className="n">Listed for sale</th>
                 <th className="n">Booked</th>
                 <th className="n">Value (public prices)</th>
                 <th className="n">Paid</th>
@@ -177,9 +187,12 @@ export default function DashboardPage() {
                     }}
                   >
                     <td>
-                      <a className="rowlink" href={href}>
+                      <Link
+                        className="rowlink"
+                        href={linkTo('/asset', { asset: a.id }, accountId)}
+                      >
                         <b>{a.title}</b>
-                      </a>{' '}
+                      </Link>{' '}
                       <TypeBadge type={a.type} />
                     </td>
                     <td>{a.providerName}</td>
@@ -187,10 +200,14 @@ export default function DashboardPage() {
                     <td className="n">{p.listed}</td>
                     <td className="n">{p.booked}</td>
                     <td className="n">{money(p.value)}</td>
-                    <td className="n">{money(p.paid)}</td>
-                    <td className="n">{money(p.received)}</td>
+                    <td className="n">
+                      {state?.chain ? 'Not indexed' : money(p.paid)}
+                    </td>
+                    <td className="n">
+                      {state?.chain ? 'Not indexed' : money(p.received)}
+                    </td>
                     <td className={`n ${rpl >= 0 ? 'pos' : 'neg'}`}>
-                      {signed(rpl)}
+                      {state?.chain ? 'Not indexed' : signed(rpl)}
                     </td>
                   </tr>
                 );
@@ -199,6 +216,40 @@ export default function DashboardPage() {
           </table>
         ) : null}
       </div>
+      {state?.chain ? (
+        <section>
+          <h2>Open buy orders</h2>
+          <div className="note">
+            Orders share wallet USDC. An open order is conditional on available
+            days and funds at fill.
+          </div>
+          {state.bids?.length ? (
+            state.bids.map((bid) => (
+              <div className="row" key={bid.id}>
+                <Link
+                  href={linkTo('/calendar', { asset: bid.asset }, accountId)}
+                >
+                  {state.assets.find((a) => a.id === bid.asset)?.title ??
+                    bid.asset}{' '}
+                  · {shortDate(bid.from)}–{shortDate(bid.to)}
+                </Link>
+                <span>Maximum ${usdText(bid.maxTotal!)}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    await dispatch('cancel-bid', { id: bid.id });
+                  }}
+                >
+                  Cancel order
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="empty">No open buy orders for this wallet.</div>
+          )}
+        </section>
+      ) : null}
       <h2>All assets</h2>
       <Screener assets={list} account={accountId} />
     </main>

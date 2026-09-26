@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useDemo } from './store';
 
 export const ACCOUNT_KEY = 'project-tokyo:account';
-export const ACCOUNT_RE = /^[A-Za-z0-9_-]{1,40}$/;
+export const ACCOUNT_RE = /^(?:0x[0-9a-fA-F]{40}|[A-Za-z0-9_-]{1,40})$/;
 
 function storedAccount(): string | null {
   if (typeof localStorage === 'undefined') return null;
@@ -56,7 +56,7 @@ function subscribeStoredAccount(onStoreChange: () => void) {
 
 export function useAccount(): string {
   const params = useSearchParams();
-  const { state, ready } = useDemo();
+  const { state, ready, wallet, mode } = useDemo();
   const stored = useSyncExternalStore(
     subscribeStoredAccount,
     storedAccount,
@@ -69,8 +69,8 @@ export function useAccount(): string {
   );
 
   useEffect(() => {
-    remember(account);
-  }, [account]);
+    if (mode === 'sample') remember(account);
+  }, [account, mode]);
 
-  return account;
+  return mode === 'chain' ? wallet : account;
 }

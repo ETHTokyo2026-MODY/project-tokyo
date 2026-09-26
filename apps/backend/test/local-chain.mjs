@@ -14,7 +14,7 @@ export const artifact = (name, file = name) =>
       ),
     ),
   );
-export async function localChain(t) {
+export async function localChain(t, { hardfork } = {}) {
   const port = await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', reject);
@@ -25,7 +25,14 @@ export async function localChain(t) {
   });
   const anvil = spawn(
     'anvil',
-    ['--host', '127.0.0.1', '--port', String(port), '--silent'],
+    [
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+      '--silent',
+      ...(hardfork ? ['--hardfork', hardfork] : []),
+    ],
     { stdio: 'ignore' },
   );
   let spawnError;

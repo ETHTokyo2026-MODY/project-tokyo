@@ -1,7 +1,11 @@
 'use client';
 
+import Link from 'next/link';
+
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { normalizeAssetId } from '@/lib/chain/model';
+import { loadCurve } from '@/lib/chain/store';
 import { CurveChart } from '@/components/curve/CurveChart';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { curveValue } from '@/lib/demo/curve';
@@ -10,7 +14,7 @@ import { useDemo } from '@/lib/demo/store';
 import type { Curve } from '@/lib/demo/types';
 import './curve.css';
 
-const TITLE = 'Price curve · Project Tokyo (demo)';
+const TITLE = 'Price curve · ProjectTokyo';
 const MON = MONTHS.map((m) => m.slice(0, 3));
 
 function label(s: string) {
@@ -21,7 +25,7 @@ function Loading() {
   return (
     <div className="curve-root">
       <header>
-        <a href="/calendar">← Calendar</a>
+        <Link href="/calendar">← Calendar</Link>
         <h1>Price curve</h1>
       </header>
     </div>
@@ -29,10 +33,10 @@ function Loading() {
 }
 
 function CurveInner() {
-  const { ready, state, today, dispatch } = useDemo();
+  const { ready, state, today, dispatch, busy } = useDemo();
   const account = useAccount();
   const params = useSearchParams();
-  const assetId = params.get('asset') || '';
+  const assetId = normalizeAssetId(params.get('asset') ?? '');
   const dayDate = params.get('day') || '';
   const asset = state?.assets.find((a) => a.id === assetId) ?? state?.assets[0];
   const day = asset?.days.find((d) => d.date === dayDate);
@@ -43,6 +47,8 @@ function CurveInner() {
   );
   const [frozen, setFrozen] = useState<[number, number] | null>(null);
   const [err, setErr] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
   const [edPrice, setEdPrice] = useState('');
   const dragging = useRef(false);
   const curveRef = useRef<Curve | null>(null);
@@ -53,31 +59,66 @@ function CurveInner() {
   }, []);
 
   useEffect(() => {
-    if (!day || dragging.current) return;
-    const next = day.curve
-      ? structuredClone(day.curve)
-      : { min: 1, points: [{ date: dayDate, price: day.price }] };
-    setCurve(next);
-    setSelDate((s) => (next.points.some((p) => p.date === s) ? s : null));
-  }, [day, dayDate, state?.version]);
+    if (!day || dragging.current || dirtyRef.current) return;
+    let active = true;
+    if (asset?.chain) {
+      void loadCurve(asset.id, dayDate)
+        .then((next) => {
+          if (!active || dirtyRef.current) return;
+          setCurve(next);
+        })
+        .catch((e) => {
+          if (active) setErr(e.message);
+        });
+    } else {
+      const next = day.curve
+        ? structuredClone(day.curve)
+        : { min: 1, points: [{ date: dayDate, price: day.price }] };
+      queueMicrotask(() => {
+        if (active) {
+          setCurve(next);
+          setSelDate((s) => (next.points.some((p) => p.date === s) ? s : null));
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [day, dayDate, state?.version, asset?.chain, asset?.id, today]);
 
   const past = dayDate < today;
   const booked = day?.status === 'booked';
-  const editable = Boolean(day && !past && !booked && day.owner === account);
+  const editable = Boolean(
+    day && !past && !booked && !busy && day.owner === account,
+  );
 
-  const save = (next: Curve) => {
+  const commit = async (next: Curve) => {
     setErr('');
-    const out = dispatch('curve', {
+    const out = await dispatch('curve', {
       asset: asset?.id,
       account,
       day: dayDate,
       points: next.points,
       min: next.min,
     });
-    if (!out.ok) {
-      setErr(out.error);
-      if (day?.curve) setCurve(structuredClone(day.curve));
+    if (!out.ok) setErr(out.error);
+    else {
+      dirtyRef.current = false;
+      setDirty(false);
     }
+  };
+  const save = (next: Curve) => {
+    if (asset?.chain) {
+      setCurve({
+        ...next,
+        points: [
+          { date: today, price: Math.round(curveValue(next, today)) },
+          ...next.points.filter((p) => p.date > today),
+        ],
+      });
+      dirtyRef.current = true;
+      setDirty(true);
+    } else void commit(next);
   };
 
   useEffect(() => {
@@ -143,9 +184,9 @@ function CurveInner() {
   return (
     <div className="curve-root">
       <header>
-        <a href={linkTo('/calendar', { asset: asset?.id ?? '' }, account)}>
+        <Link href={linkTo('/calendar', { asset: asset?.id ?? '' }, account)}>
           ← Calendar
-        </a>
+        </Link>
         <h1>{title}</h1>
         <span className="muted">{info}</span>
         <label>
@@ -214,6 +255,15 @@ function CurveInner() {
             Remove
           </button>
         </span>
+        {asset?.chain ? (
+          <button
+            type="button"
+            disabled={!editable || !dirty || !curve}
+            onClick={() => curve && void commit(curve)}
+          >
+            Save curve on Sepolia
+          </button>
+        ) : null}
         <span id="note">{note}</span>
         <span id="err">{err}</span>
       </header>

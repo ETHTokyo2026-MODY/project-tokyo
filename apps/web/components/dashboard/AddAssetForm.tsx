@@ -8,9 +8,9 @@ import { useDemo } from '@/lib/demo/store';
 
 const DEFAULTS = {
   car: {
-    monWed: 60,
-    thuSat: 80,
-    sun: 65,
+    monWed: 100,
+    thuSat: 100,
+    sun: 100,
     min: 40,
     title: 'e.g. 2023 Nissan Note',
     location: 'e.g. Meguro, Tokyo',
@@ -42,7 +42,7 @@ export function AddAssetForm({
   account: string;
   today: string;
 }) {
-  const { dispatch } = useDemo();
+  const { dispatch, mode, busy: walletBusy } = useDemo();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
@@ -52,16 +52,19 @@ export function AddAssetForm({
   const [thuSat, setThuSat] = useState(String(DEFAULTS.car.thuSat));
   const [sun, setSun] = useState(String(DEFAULTS.car.sun));
   const [min, setMin] = useState('');
+  const [sellingPrice, setSellingPrice] = useState('60');
   const [edited, setEdited] = useState<Set<string>>(new Set());
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const d = DEFAULTS[type];
   const note = useMemo(() => {
+    if (mode === 'chain')
+      return 'Create 365 fixed JST days, starting today. Then select days in the calendar to publish sales.';
     const end = calendarEnd(today);
     const a = `${MONTHS[0].slice(0, 3)} ${today.slice(0, 4)}`;
     const b = `${MONTHS[Number(end.slice(5, 7)) - 1].slice(0, 3)} ${end.slice(0, 4)}`;
     return `You become the provider. A full calendar (${a} – ${b}) is seeded like the other assets (sample data); your future days are listed for sale.`;
-  }, [today]);
+  }, [today, mode]);
 
   function prefill(next: Kind) {
     const def = DEFAULTS[next];
@@ -89,31 +92,40 @@ export function AddAssetForm({
         <form
           id="addForm"
           autoComplete="off"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             setErr('');
             setBusy(true);
-            const out = dispatch('create-asset', {
-              account,
-              type,
-              title,
-              location,
-              prices: {
-                monWed: monWed === '' ? '' : Number(monWed),
-                thuSat: thuSat === '' ? '' : Number(thuSat),
-                sun: sun === '' ? '' : Number(sun),
-              },
-              min: min === '' ? null : Number(min),
-            });
-            if (!out.ok) {
-              setErr(out.error);
+            try {
+              const out = await dispatch('create-asset', {
+                account,
+                type,
+                title,
+                location,
+                prices: {
+                  monWed,
+                  thuSat,
+                  sun,
+                },
+                min: min === '' ? null : min,
+                sellingPrice,
+              });
+              if (!out.ok) {
+                setErr(out.error);
+                setBusy(false);
+                return;
+              }
+              if (!out.asset) {
+                setErr('Asset confirmed; refresh the calendar to find it.');
+                return;
+              }
+              const id = String(out.asset);
+              router.push(
+                `/calendar?asset=${encodeURIComponent(id)}&account=${encodeURIComponent(account)}`,
+              );
+            } finally {
               setBusy(false);
-              return;
             }
-            const id = String(out.asset);
-            router.push(
-              `/calendar?asset=${encodeURIComponent(id)}&account=${encodeURIComponent(account)}`,
-            );
           }}
         >
           <div className="grid">
@@ -167,7 +179,7 @@ export function AddAssetForm({
                 name="monWed"
                 type="number"
                 min={1}
-                max={10000}
+                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={monWed}
@@ -184,7 +196,7 @@ export function AddAssetForm({
                 name="thuSat"
                 type="number"
                 min={1}
-                max={10000}
+                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={thuSat}
@@ -201,7 +213,7 @@ export function AddAssetForm({
                 name="sun"
                 type="number"
                 min={1}
-                max={10000}
+                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 required
                 value={sun}
@@ -211,6 +223,25 @@ export function AddAssetForm({
                 }}
               />
             </label>
+            {mode === 'chain' ? (
+              <label htmlFor="add-sellingPrice">
+                Initial sale price (USDC/day)
+                <input
+                  id="add-sellingPrice"
+                  name="sellingPrice"
+                  type="number"
+                  min="0.000001"
+                  step="0.000001"
+                  required
+                  value={sellingPrice}
+                  onChange={(e) => setSellingPrice(e.target.value)}
+                />
+                <span className="note">
+                  The ownership sale price is separate from the guest price
+                  above. Edit individual sale days in the calendar.
+                </span>
+              </label>
+            ) : null}
             <label htmlFor="add-min">
               Min price (optional)
               <input
@@ -218,7 +249,7 @@ export function AddAssetForm({
                 name="min"
                 type="number"
                 min={1}
-                max={10000}
+                max={mode === 'sample' ? 10000 : undefined}
                 step={1}
                 placeholder={`auto (≈2/3 of lowest), e.g. ${d.min}`}
                 value={min}
@@ -227,7 +258,11 @@ export function AddAssetForm({
             </label>
           </div>
           <div className="row">
-            <button type="submit" className="primary" disabled={busy}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={busy || walletBusy || !account}
+            >
               Create asset
             </button>
             <button
