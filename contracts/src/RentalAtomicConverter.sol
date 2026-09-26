@@ -221,7 +221,7 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
         sourceToken.safeTransferFrom(intent.buyer, address(this), intent.maxInput);
         require(sourceToken.balanceOf(address(this)) == sourceBefore + intent.maxInput, InvalidFunding());
         sourceToken.forceApprove(address(swapRouter), intent.maxInput);
-        output = swapRouter.exactInputSingle(
+        uint256 reportedOutput = swapRouter.exactInputSingle(
             IExactInputSingle.ExactInputSingleParams({
                 tokenIn: address(sourceToken),
                 tokenOut: address(usdc),
@@ -233,10 +233,12 @@ contract RentalAtomicConverter is EIP712, ReentrancyGuard {
             })
         );
         sourceToken.forceApprove(address(swapRouter), 0);
+        uint256 buyerUsdcAfter = usdc.balanceOf(intent.buyer);
         require(
-            output >= minimum && sourceToken.balanceOf(address(this)) == sourceBefore
-                && usdc.balanceOf(intent.buyer) >= buyerUsdcBefore + minimum,
+            reportedOutput >= minimum && sourceToken.balanceOf(address(this)) == sourceBefore
+                && buyerUsdcAfter >= buyerUsdcBefore + reportedOutput,
             InvalidFunding()
         );
+        output = buyerUsdcAfter - buyerUsdcBefore;
     }
 }

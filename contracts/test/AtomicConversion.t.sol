@@ -22,6 +22,7 @@ contract TestSingleRouter is IExactInputSingle {
     TestUSDC public immutable outputToken;
     IERC20 public immutable inputToken;
     uint256 public amountOut;
+    uint256 public reportedOutput;
     bytes public callback;
     bool public callbackAttempted;
     bool public callbackSucceeded;
@@ -33,6 +34,11 @@ contract TestSingleRouter is IExactInputSingle {
 
     function setOutput(uint256 amount) external {
         amountOut = amount;
+        reportedOutput = amount;
+    }
+
+    function setReportedOutput(uint256 amount) external {
+        reportedOutput = amount;
     }
 
     function setCallback(bytes calldata data) external {
@@ -49,7 +55,7 @@ contract TestSingleRouter is IExactInputSingle {
         require(amountOut >= p.amountOutMinimum, "insufficient output");
         inputToken.transferFrom(msg.sender, address(this), p.amountIn);
         outputToken.mint(p.recipient, amountOut);
-        return amountOut;
+        return reportedOutput;
     }
 }
 
@@ -173,6 +179,19 @@ contract AtomicConversionTest is Fixture {
         RentalAtomicConverter.FundingIntent memory f = _intent(bid, ask, 8);
         _expectFailure(bytes("insufficient output"), f, bid, ask, p);
         _assertNoFill(f, bid, ask);
+    }
+
+    function testInflatedSwapReturnCannotOverstateBuyerUsdc() public {
+        swap.setOutput(1_010_000);
+        swap.setReportedOutput(2e6);
+        bytes memory p = fixedProgram(1e6);
+        (RentalSettlement.Order memory bid, RentalSettlement.Order memory ask) = _orders(day, day + 1, 50, p);
+        RentalAtomicConverter.FundingIntent memory f = _intent(bid, ask, 50);
+        _expectFailure(abi.encodeWithSelector(RentalAtomicConverter.InvalidFunding.selector), f, bid, ask, p);
+        assertFalse(converter.used(buyer, f.nonce));
+        assertEq(weth.balanceOf(buyer), 2 ether);
+        assertEq(usd.balanceOf(buyer), 0);
+        assertEq(inventory.balanceOf(buyer, inventory.tokenId(POOL, day, TERMS)), 0);
     }
 
     function testMovedInventoryAfterQuoteRollsBackSuccessfulSwap() public {
