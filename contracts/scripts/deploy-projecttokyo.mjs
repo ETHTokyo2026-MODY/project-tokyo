@@ -5,7 +5,16 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPublicClient, formatEther, formatGwei, http } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  formatEther,
+  formatGwei,
+  http,
+  keccak256,
+  parseAbi,
+  stringToBytes,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 
@@ -134,12 +143,54 @@ if (account.address.toLowerCase() !== ENS.owner.toLowerCase()) {
 }
 log('signer', account.address);
 
-const { setup, createAsset } = await import('../../apps/web/lib/ens/names.ts');
-const { createEnsClients } = await import('../../apps/web/lib/ens/client.ts');
-const { resolveDay, getAssetRecords } =
-  await import('../../apps/web/lib/ens/lookup.ts');
-const clients = createEnsClients(RPC, account);
+const wallet = createWalletClient({
+  chain: sepolia,
+  transport: http(RPC),
+  account,
+});
 const namesArt = artifact('ProjectTokyoNames');
+const namesAbi = parseAbi([
+  'constructor(address ensFactory_, address userRegistryImpl_, address permissionedResolverImpl_, address ethRegistry_, string parentLabel_, address rentalFactory_)',
+  'function assetRegistry() view returns (address)',
+  'function assetOf(string label) view returns (address)',
+  'function registerAsset(string label, address rentalAsset) returns (address, address)',
+  'function registerDays(string label, uint32 startDay, uint32 endDay)',
+  'function setAssetTexts(string label, string[] keys, string[] values)',
+  'function dateLabel(uint32 day) pure returns (string)',
+]);
+const factoryAbi = parseAbi([
+  'function createAsset(bytes32 hostSalt, string metadataURI, (uint128 minimum, uint128[7] listedPrices, uint128[7] sellingPrices) defaults, (uint16 minDays, uint16 discountBps)[] discounts) returns (address asset)',
+  'function assets(address host, bytes32 hostSalt) view returns (address)',
+]);
+const rentalAbi = parseAbi([
+  'function startDay() view returns (uint32)',
+  'function endDayExclusive() view returns (uint32)',
+]);
+const registryAbi = parseAbi([
+  'function setSubregistry(uint256 anyId, address registry)',
+  'function getSubregistry(string label) view returns (address)',
+]);
+const FACTORY = '0x45a2982217399379155078b0e42dE055A7f11993';
+const VF = '0x9e726Eb570beb6BCEb495AB8cdA7df517d4e841C';
+const USER_IMPL = '0xA80338aAA8D23831cEa25E858D1774534aBb0263';
+const RESOLVER_IMPL = '0x14F09Fd05d4585759e54844DC9B00147131Cf243';
+const ETH_REG = '0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E';
+const DAY_CHUNK = 73;
+
+async function send(address, abi, functionName, args) {
+  const { request } = await pub.simulateContract({
+    account,
+    address,
+    abi,
+    functionName,
+    args,
+  });
+  const hash = await wallet.writeContract(request);
+  const receipt = await pub.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') throw new Error(`${functionName} ${hash}`);
+  log(functionName, hash, 'gasUsed', receipt.gasUsed.toString());
+  return { hash, receipt };
+}
 
 async function afford(label, gasHint) {
   const left = await pub.getBalance({ address: account.address });
@@ -159,78 +210,150 @@ async function afford(label, gasHint) {
 }
 
 if (!(await afford('deploy names', 4_000_000n))) process.exit(2);
-const deployed = await setup(clients, { names: namesArt.bytecode.object });
-log('deployed names', deployed.names);
-log('assetRegistry', deployed.assetRegistry);
-log('deployBlock', deployed.deployBlock.toString());
+const deployHash = await wallet.deployContract({
+  abi: namesAbi,
+  bytecode: namesArt.bytecode.object,
+  args: [VF, USER_IMPL, RESOLVER_IMPL, ETH_REG, 'projecttokyo', FACTORY],
+  account,
+});
+const deployReceipt = await pub.waitForTransactionReceipt({ hash: deployHash });
+if (!deployReceipt.contractAddress) throw new Error('names deploy failed');
+const names = deployReceipt.contractAddress;
+log(
+  'deployed names',
+  names,
+  deployHash,
+  'gasUsed',
+  deployReceipt.gasUsed.toString(),
+);
+const assetRegistry = await pub.readContract({
+  address: names,
+  abi: namesAbi,
+  functionName: 'assetRegistry',
+});
+log('assetRegistry', assetRegistry);
+if (sub.toLowerCase() !== assetRegistry.toLowerCase()) {
+  await send(ETH_REG, registryAbi, 'setSubregistry', [
+    ENS.tokenId,
+    assetRegistry,
+  ]);
+}
+const deployBlock = await pub.getBlockNumber();
+const deployed = { names, assetRegistry, deployBlock };
 
 const demoLabel = process.env.PROJECTTOKYO_DEMO_LABEL ?? 'demo-room';
-const existing = await clients.public.readContract({
-  address: deployed.names,
-  abi: [
-    {
-      type: 'function',
-      name: 'assetOf',
-      stateMutability: 'view',
-      inputs: [{ type: 'string' }],
-      outputs: [{ type: 'address' }],
-    },
-  ],
+const existing = await pub.readContract({
+  address: names,
+  abi: namesAbi,
   functionName: 'assetOf',
   args: [demoLabel],
 });
-let created;
+const hashes = [deployHash];
+let created = { asset: existing, hashes, startDay: 0, endDay: 0 };
 if (existing !== '0x0000000000000000000000000000000000000000') {
   log('demo asset already registered', existing);
-  created = { asset: existing, hashes: [], startDay: 0, endDay: 0 };
-} else if (await afford('create demo-room + first register', 6_000_000n)) {
-  created = await createAsset(
-    clients,
-    deployed,
+} else if (await afford('create demo-room', 3_000_000n)) {
+  const salt = keccak256(stringToBytes(`${demoLabel}:${Date.now()}`));
+  const metadataURI = JSON.stringify({
+    title: 'Demo room',
+    type: 'airbnb',
+    location: 'Shibuya, Tokyo',
+  });
+  const listed = Array(7).fill(80_000000n);
+  const selling = Array(7).fill(60_000000n);
+  const createdTx = await send(FACTORY, factoryAbi, 'createAsset', [
+    salt,
+    metadataURI,
+    { minimum: 40_000000n, listedPrices: listed, sellingPrices: selling },
+    [],
+  ]);
+  hashes.push(createdTx.hash);
+  const asset = await pub.readContract({
+    address: FACTORY,
+    abi: factoryAbi,
+    functionName: 'assets',
+    args: [account.address, salt],
+  });
+  log('demo asset', asset);
+  const registered = await send(names, namesAbi, 'registerAsset', [
     demoLabel,
-    {
-      kind: 'airbnb',
-      title: 'Demo room',
-      location: 'Shibuya, Tokyo',
-      description: 'ProjectTokyo ENSv2 demo',
-    },
-    async ({ startDay, endDay, hash, gasUsed }) => {
-      log(
-        'day chunk',
-        startDay,
-        endDay,
-        'tx',
-        hash,
-        'gasUsed',
-        gasUsed?.toString(),
-      );
-      if (!(await afford('next day chunk', 8_000_000n))) return false;
-    },
-  );
-  log('demo asset', created.asset);
+    asset,
+  ]);
+  hashes.push(registered.hash);
+  const texts = await send(names, namesAbi, 'setAssetTexts', [
+    demoLabel,
+    ['title', 'kind', 'location', 'description'],
+    ['Demo room', 'airbnb', 'Shibuya, Tokyo', 'ProjectTokyo ENSv2 demo'],
+  ]);
+  hashes.push(texts.hash);
+  const startDay = await pub.readContract({
+    address: asset,
+    abi: rentalAbi,
+    functionName: 'startDay',
+  });
+  const endDay = await pub.readContract({
+    address: asset,
+    abi: rentalAbi,
+    functionName: 'endDayExclusive',
+  });
+  created = { asset, hashes, startDay, endDay };
+  for (let d = startDay; d < endDay; d += DAY_CHUNK) {
+    if (!(await afford('day chunk', 8_000_000n))) {
+      created.stoppedAt = d;
+      break;
+    }
+    const chunkEnd = d + DAY_CHUNK < endDay ? d + DAY_CHUNK : endDay;
+    try {
+      const chunk = await send(names, namesAbi, 'registerDays', [
+        demoLabel,
+        d,
+        chunkEnd,
+      ]);
+      hashes.push(chunk.hash);
+      log('day chunk', d, chunkEnd);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('registerDays failed', d, chunkEnd, msg.split('\n')[0]);
+      created.stoppedAt = d;
+      break;
+    }
+  }
   log(
     'days',
-    created.startDay,
-    created.endDay,
+    startDay,
+    endDay,
     'txs',
-    created.hashes.length,
+    hashes.length,
     created.stoppedAt ? `stoppedAt ${created.stoppedAt}` : 'complete',
   );
-} else {
-  created = { asset: '0x0000000000000000000000000000000000000000', hashes: [] };
 }
 
-const records = await getAssetRecords(clients, demoLabel).catch(() => null);
-if (records)
-  log('asset records', records.title, records.kind, records.location);
+const title = await pub
+  .getEnsText({
+    name: `${demoLabel}.projecttokyo.eth`,
+    key: 'title',
+  })
+  .catch(() => null);
+if (title) log('asset title', title);
+const assetAddr = await pub
+  .getEnsAddress({
+    name: `${demoLabel}.projecttokyo.eth`,
+  })
+  .catch(() => null);
+log('resolved', `${demoLabel}.projecttokyo.eth`, assetAddr);
 if (created.startDay) {
-  const { dateLabel } = await import('../../apps/web/lib/ens/dates.ts');
-  const dayName = `${dateLabel(created.startDay)}.${demoLabel}.projecttokyo.eth`;
-  const resolved = await resolveDay(clients, dayName);
-  log('resolved', dayName, resolved.addr, resolved.token);
-  const assetName = `${demoLabel}.projecttokyo.eth`;
-  const assetResolved = await resolveDay(clients, assetName);
-  log('resolved', assetName, assetResolved.addr);
+  const dateLabel = await pub.readContract({
+    address: names,
+    abi: namesAbi,
+    functionName: 'dateLabel',
+    args: [created.startDay],
+  });
+  const dayName = `${dateLabel}.${demoLabel}.projecttokyo.eth`;
+  const dayAddr = await pub.getEnsAddress({ name: dayName }).catch(() => null);
+  const token = await pub
+    .getEnsText({ name: dayName, key: 'token' })
+    .catch(() => null);
+  log('resolved', dayName, dayAddr, token);
 }
 
 const deploymentPath = join(ROOT, 'contracts/deployments/sepolia.json');

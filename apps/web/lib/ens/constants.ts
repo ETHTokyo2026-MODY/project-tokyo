@@ -30,6 +30,8 @@ export const ENS = {
   aqua: '0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a',
   usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
   dayTokenImplementation: '0x80532e9D46505399dD6E95B1b0eb30B9f6f2FB90',
+  names: '0xCdA3f99339E979384a1Da958B02041E76F23510c',
+  assetRegistry: '0x00C55E0DB52B53125F9150C11DDb9532Fe65E42F',
 } as const;
 
 export type Address = `0x${string}`;

@@ -34,7 +34,7 @@ The earlier ERC-1155 implementation remains in Git at `checkpoint/erc1155-aquava
 - `<YYYY-MM-DD>.<asset>.projecttokyo.eth` covers the asset's 365-day horizon. `addr` is the predicted `DayToken` (`RentalAsset.tokenAddress(day)`), `text token` is `eip155:11155111/erc20:<dayToken>`, and `text asset` is the RentalAsset address. Day names register in 73-day chunks.
 - Day ownership, listing, booking and Aqua settlement stay on `RentalAsset` / `DayToken` / `DaySwapVM`. Do not change those contracts for ENS.
 
-Addresses after a Sepolia deploy are recorded under `ens` in `deployments/sepolia.json`.
+Live Sepolia (`deployments/sepolia.json` `ens`): `ProjectTokyoNames` `0xCdA3f99339E979384a1Da958B02041E76F23510c`, asset registry `0x00C55E0DB52B53125F9150C11DDb9532Fe65E42F`, demo `demo-room.projecttokyo.eth` → RentalAsset `0x5C0838E82E9551A5b0566e8a4BFbec784A8c7120`. 219 of 365 day names are registered; remaining chunks need more Sepolia ETH.
 
 ### Tests
 
