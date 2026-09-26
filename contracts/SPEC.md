@@ -49,12 +49,12 @@ USDC and inventory addresses are immutable in the signed domain's router, so can
 
 The whitelist is exactly two instructions:
 
-1. Fork-local `0x9e` with 32 ABI bytes sets the total basket price; or `0x9f` with 128 ABI bytes sets `(high,low,start,end)` and computes a descending linear total basket price clamped to endpoints.
+1. One fork-local price opcode. Legacy `0x9e` with 32 ABI bytes sets the total basket price; `0x9f` with 128 ABI bytes sets `(high,low,start,end)` for a descending linear total basket price. Economic-terms `0xa0` takes `(unitPrice,feeBps,discountMinDays,discountBps)` (128 ABI bytes); `0xa1` takes `(highUnitPrice,lowUnitPrice,start,end,feeBps,discountMinDays,discountBps)` (224 ABI bytes). Dutch curves clamp to their endpoints.
 2. Upstream `LimitSwapFullAmount` (`0x54` at the pinned revision), one argument byte `0x80`, executes the full units-to-USDC price conversion.
 
-The quantity is the total number of unit-slots. Pricing applies to the entire signed basket; it is not a per-slot oracle or reserve-based AMM. No jumps, callbacks, external execution, or arbitrary opcodes are accepted. Prices cannot mutate state. `quote` returns gross seller price and the separate buyer-paid fee; quote success is not proof of inventory/funding availability. Quote can be invoked via eth_call/staticcall. Execution re-evaluates the price, so elapsed time may change it.
+The two-argument `quote(program,units)` remains for legacy whole-basket programs. Economic-terms programs require `quote(program,durationDays,quantity)`, where duration is `endDay-startDay`. Settlement calls the same calculation with the signed order's duration and quantity. No jumps, callbacks, external execution, or arbitrary opcodes are accepted. Prices cannot mutate state. Quotes return seller proceeds and the separate buyer-paid fee; quote success does not prove inventory or funding availability. Quotes can be invoked via eth_call/staticcall. Execution re-evaluates the price, so elapsed time may change it.
 
-Fee is floor(price / 100), paid by buyer to an immutable fee recipient. Seller receives the exact price. A fixed program may specify any positive price consistent with both signatures and caps. Dutch prices bound high to uint128 and duration to uint64. Parameters are signed and cannot be changed; updating a quote means canceling/replacing an order.
+Legacy programs use a 1% fee. Economic-terms price is `unitPrice * durationDays * quantity`, then, when duration meets `discountMinDays`, floor of that amount times `(10000-discountBps)/10000`. The fee is floor of the resulting price times `feeBps/10000`; it is paid by the buyer to the immutable fee recipient. The seller receives the price. Fee bps is at most 1000, discount bps at most 9000, and the discount threshold is 1–31 when the discount is nonzero (otherwise both fields are zero). Unit prices are positive and at most uint128; Dutch duration is at most uint64. Each side's signed `maxFee` and price limit still apply. The discount is all-or-nothing for the current basket: splitting a qualifying range into smaller sales loses the discount on each part that misses the threshold. Resales use the resale basket's duration, regardless of the original purchase price or discount. All parameters are inside the signed `programHash`; updating terms requires new orders.
 
 ## Atomic execution
 
@@ -71,8 +71,8 @@ Any revert unwinds the router, Aqua, ERC-20, and ERC-1155 state changes. ERC-115
 
 ## Scope boundaries
 
-Proof covers canonical Aqua integration, fixed and Dutch pricing, daily/weekly/31-day baskets, fungible room quantities, alternatives, independent orders, cancellations, revoked approvals, depleted wallet, moved inventory, authorization, budget refill, resale, rollback and malicious receivers. Invariants cover capacity/ownership, USDC conservation, and mandate cap over randomized sequences.
+Proof covers canonical Aqua integration, fixed and Dutch pricing with authenticated fees and duration discounts, daily/weekly/31-day baskets, fungible room quantities, alternatives, independent orders, cancellations, revoked approvals, depleted wallet, moved inventory, authorization, budget refill, resale, rollback and malicious receivers. Invariants cover capacity/ownership, USDC conservation, and mandate cap over randomized sequences.
 
 Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, reservation cancellation/refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment.
 
-No crowdsourcing threshold, pooled buyer commitment, or collective activation is implemented. The fee rate is fixed; only fixed-price and descending Dutch programs are accepted.
+No crowdsourcing threshold, pooled buyer commitment, or collective activation is implemented.

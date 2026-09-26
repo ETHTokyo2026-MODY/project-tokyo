@@ -227,6 +227,7 @@ test(
       nonce,
       endDay,
       maker = wallet.account.address,
+      programBytes = program,
     ) {
       const o = {
         maker,
@@ -243,7 +244,7 @@ test(
         nonce: BigInt(nonce),
         group: ZERO_HASH,
         mandate: buy ? hashMandate(mandate) : ZERO_HASH,
-        programHash: keccak256(program),
+        programHash: keccak256(programBytes),
       };
       const signature = await wallet.signTypedData({
         domain: orderDomain(config),
@@ -255,7 +256,12 @@ test(
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
-          json({ order: o, signature, program, ...(buy ? { mandate } : {}) }),
+          json({
+            order: o,
+            signature,
+            program: programBytes,
+            ...(buy ? { mandate } : {}),
+          }),
         ),
       });
       assert.equal(response.status, 201);
@@ -279,6 +285,34 @@ test(
       seller.account.address,
     ]);
     await order(seller, false, 3, day + 1, smartWallet.address);
+    const economicProgram = `0xa080${[100_000n, 250n, 7n, 1000n]
+      .map((value) => toHex(value, { size: 32 }).slice(2))
+      .join('')}540180`;
+    assert.deepEqual(
+      await client.readContract({
+        ...router,
+        functionName: 'quote',
+        args: [economicProgram, 7n, 1n],
+      }),
+      [630_000n, 15_750n],
+    );
+    const economicBid = await order(
+      buyer,
+      true,
+      4,
+      day + 7,
+      buyer.account.address,
+      economicProgram,
+    );
+    const economicAsk = await order(
+      seller,
+      false,
+      4,
+      day + 7,
+      seller.account.address,
+      economicProgram,
+    );
+    assert.equal(economicBid.order.programHash, economicAsk.order.programHash);
     const balance = () =>
       client.readContract({
         ...usd,
@@ -293,7 +327,56 @@ test(
     index = new ChainIndex(store, client, config);
     const matcher = new Matcher(store, book, client, relayer, config);
     assert.deepEqual(book.get(bid.hash), bid);
-    assert.equal((await matcher.candidates()).length, 2);
+    assert.equal((await matcher.candidates()).length, 3);
+    // Execute the persisted economic program through the production relay, then
+    // restore the fixture chain for the independent recovery scenario below.
+    const economicSnapshot = await client.request({ method: 'evm_snapshot' });
+    const economicStore = new Store(join(directory, 'economic.sqlite'));
+    try {
+      const economicMatcher = new Matcher(
+        economicStore,
+        book,
+        client,
+        relayer,
+        config,
+      );
+      const executed = await economicMatcher.submit(
+        economicBid.hash,
+        economicAsk.hash,
+      );
+      assert.equal(
+        (
+          await client.waitForTransactionReceipt({
+            hash: executed.transactionHash,
+          })
+        ).status,
+        'success',
+      );
+      assert.equal(await balance(), 9_354_250n);
+      assert.equal(
+        await client.readContract({
+          ...inventory,
+          functionName: 'balanceOf',
+          args: [
+            buyer.account.address,
+            await client.readContract({
+              ...inventory,
+              functionName: 'tokenId',
+              args: [pool, day, terms],
+            }),
+          ],
+        }),
+        1n,
+      );
+    } finally {
+      economicStore.close();
+      await client.request({
+        method: 'evm_revert',
+        params: [economicSnapshot],
+      });
+    }
+    assert.equal(await balance(), 10_000_000n);
+
     await send(buyer, usd, 'transfer', [seller.account.address, 10_000_000n]);
     await assert.rejects(matcher.submit(bid.hash, ask.hash));
     assert.equal(

@@ -80,10 +80,14 @@ function normalizeProgram(value) {
     fail('invalid program');
   const p = value.toLowerCase();
   const bytes = Buffer.from(p.slice(2), 'hex');
+  const lengths = new Map([
+    [0x9e, 37],
+    [0x9f, 133],
+    [0xa0, 133],
+    [0xa1, 229],
+  ]);
   if (
-    (bytes[0] === 0x9e && bytes.length !== 37) ||
-    (bytes[0] === 0x9f && bytes.length !== 133) ||
-    ![0x9e, 0x9f].includes(bytes[0]) ||
+    bytes.length !== lengths.get(bytes[0]) ||
     bytes[1] !== bytes.length - 5 ||
     bytes.at(-3) !== 0x54 ||
     bytes.at(-2) !== 1 ||
@@ -93,7 +97,23 @@ function normalizeProgram(value) {
   const word = (offset) =>
     BigInt(`0x${bytes.subarray(offset, offset + 32).toString('hex')}`);
   if (bytes[0] === 0x9e && word(2) === 0n) fail('invalid fixed program');
-  if (bytes[0] === 0x9f) {
+  if (bytes[0] === 0xa0 || bytes[0] === 0xa1) {
+    const feeOffset = bytes[0] === 0xa0 ? 34 : 130;
+    const feeBps = word(feeOffset);
+    const threshold = word(feeOffset + 32);
+    const discountBps = word(feeOffset + 64);
+    if (
+      feeBps > 1000n ||
+      discountBps > 9000n ||
+      (discountBps === 0n
+        ? threshold !== 0n
+        : threshold < 1n || threshold > 31n)
+    )
+      fail('invalid economic terms');
+    if (bytes[0] === 0xa0 && (word(2) === 0n || word(2) > UINT128_MAX))
+      fail('invalid fixed unit price');
+  }
+  if (bytes[0] === 0x9f || bytes[0] === 0xa1) {
     const [high, low, start, end] = [word(2), word(34), word(66), word(98)];
     if (
       high > UINT128_MAX ||

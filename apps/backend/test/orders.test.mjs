@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { toHex, verifyTypedData } from 'viem';
+import { keccak256, toHex, verifyTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { OrderBook } from '../src/orders.mjs';
 import {
@@ -24,10 +24,19 @@ const client = { verifyTypedData: (args) => verifyTypedData(args) };
 const day = Math.floor(Date.now() / 1000 / 86_400) + 2;
 const expiry = Math.floor(Date.now() / 1000) + 3600;
 const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
-const programHash = (await import('viem')).keccak256(program);
+const programHash = keccak256(program);
+const word = (value) => toHex(BigInt(value), { size: 32 }).slice(2);
+const fixedTerms = (unitPrice, feeBps, threshold, discountBps) =>
+  `0xa080${[unitPrice, feeBps, threshold, discountBps].map(word).join('')}540180`;
+const dutchTerms = (high, low, start, end, feeBps, threshold, discountBps) =>
+  `0xa1e0${[high, low, start, end, feeBps, threshold, discountBps].map(word).join('')}540180`;
 const filename = () => join(directory, `${Math.random()}.db`);
 
-async function envelope({ buy = true, overrides = {} } = {}) {
+async function envelope({
+  buy = true,
+  overrides = {},
+  programBytes = program,
+} = {}) {
   const mandate = {
     buyer: account.address,
     app: router,
@@ -51,7 +60,7 @@ async function envelope({ buy = true, overrides = {} } = {}) {
     nonce: '1',
     group: ZERO_HASH,
     mandate: buy ? hashMandate(mandate) : ZERO_HASH,
-    programHash,
+    programHash: keccak256(programBytes),
     ...overrides,
   };
   const signature = await account.signTypedData({
@@ -60,7 +69,12 @@ async function envelope({ buy = true, overrides = {} } = {}) {
     primaryType: 'Order',
     message: order,
   });
-  return { order, signature, program, ...(buy ? { mandate } : {}) };
+  return {
+    order,
+    signature,
+    program: programBytes,
+    ...(buy ? { mandate } : {}),
+  };
 }
 
 test('valid EOA order is canonical, idempotent, and survives restart', async () => {
@@ -159,5 +173,55 @@ test('ask has zero mandate and verification is delegated to the public client (m
   );
   valid = false;
   await assert.rejects(book.submit(input), /invalid signature/);
+  store.close();
+});
+
+test('accepts signed fixed and Dutch economic terms and rejects altered program bytes', async () => {
+  const store = new Store(filename());
+  const book = new OrderBook(store, client, config);
+  const fixed = fixedTerms(10_000_000, 250, 7, 1000);
+  const input = await envelope({ programBytes: fixed });
+  assert.equal((await book.submit(input)).program, fixed);
+  await assert.rejects(
+    book.submit({ ...input, program: fixedTerms(10_000_000, 250, 7, 999) }),
+    /program hash mismatch/,
+  );
+  const dutch = dutchTerms(
+    11_000_000,
+    7_000_000,
+    expiry,
+    expiry + 100,
+    1000,
+    3,
+    3333,
+  );
+  assert.equal(
+    (await book.submit(await envelope({ programBytes: dutch }))).program,
+    dutch,
+  );
+  store.close();
+});
+
+test('backend rejects the same fee, discount, curve, and shape bounds as the VM', async () => {
+  const store = new Store(filename());
+  const book = new OrderBook(store, client, config);
+  const invalid = [
+    fixedTerms(0, 0, 0, 0),
+    fixedTerms(1n << 128n, 0, 0, 0),
+    fixedTerms(1, 1001, 0, 0),
+    fixedTerms(1, 0, 0, 9001),
+    fixedTerms(1, 0, 7, 0),
+    fixedTerms(1, 0, 32, 1),
+    dutchTerms(1, 2, 1, 2, 0, 0, 0),
+    dutchTerms(2, 1, 2, 2, 0, 0, 0),
+    dutchTerms(1n << 128n, 1, 1, 2, 0, 0, 0),
+    fixedTerms(1, 0, 0, 0).slice(0, -2),
+  ];
+  for (const programBytes of invalid) {
+    await assert.rejects(
+      book.submit(await envelope({ programBytes })),
+      /invalid/,
+    );
+  }
   store.close();
 });
