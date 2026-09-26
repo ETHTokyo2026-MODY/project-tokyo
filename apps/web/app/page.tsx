@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { Screener } from '@/components/dashboard/Screener';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { money, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
 import { useDemo } from '@/lib/demo/store';
 import './dash.css';
+import './screener.css';
 
 const TITLE = 'Dashboard · Project Tokyo (demo)';
 
@@ -169,6 +171,7 @@ export default function DashboardPage() {
         ) : null}
       </div>
       <h2>All assets</h2>
+      <Screener assets={list} account={accountId} />
     </main>
   );
 }
