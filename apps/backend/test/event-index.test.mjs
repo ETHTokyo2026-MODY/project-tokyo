@@ -133,6 +133,9 @@ test('reorg through empty descendants removes orphan Shipped and replays replace
   chain.add();
   chain.add();
   await index.sync();
+  const genesis = index.block(0);
+  const original = index.block(1);
+  assert.equal(index.reorgVersion, 0);
   chain.replace(1, [[], [event(2n)], []]);
   assert.equal((await index.readiness()).canonical, false);
   await index.sync();
@@ -140,6 +143,14 @@ test('reorg through empty descendants removes orphan Shipped and replays replace
     index.events('Shipped').map((e) => e.args.amount),
     ['2'],
   );
+  assert.ok(index.reorgVersion > 0);
+  assert.deepEqual(index.block(0), genesis);
+  assert.notEqual(index.block(1).hash, original.hash);
+  const version = index.reorgVersion;
+  chain.add();
+  await index.sync();
+  assert.equal(index.reorgVersion, version);
+  assert.equal(index.block(999), null);
   assert.equal((await index.readiness()).ready, true);
 });
 

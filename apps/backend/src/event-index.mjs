@@ -43,6 +43,7 @@ function transaction(db, action) {
 /** Rebuildable chain data only. Empty blocks retain ancestry; confirmations are not finality. */
 export class EventIndex {
   #syncing;
+  #reorgVersion = 0;
   constructor(
     db,
     client,
@@ -132,6 +133,19 @@ export class EventIndex {
       )
       .get();
     return row ? { number: row.number, hash: row.hash } : null;
+  }
+
+  /** Retained ancestry at a pinned height; forward growth preserves this row. */
+  block(number) {
+    const row = this.db
+      .prepare('SELECT number, hash FROM event_index_blocks WHERE number = ?')
+      .get(integer(number, 'block number'));
+    return row ? { number: row.number, hash: row.hash } : null;
+  }
+
+  /** Detect a rewind even if the same branch is restored during a consumer read. */
+  get reorgVersion() {
+    return this.#reorgVersion;
   }
 
   async #target() {
@@ -268,14 +282,17 @@ export class EventIndex {
   }
 
   #removeFrom(number) {
+    let removed = false;
     transaction(this.db, () => {
       this.db
         .prepare('DELETE FROM event_index_logs WHERE block_number >= ?')
         .run(number);
-      this.db
-        .prepare('DELETE FROM event_index_blocks WHERE number >= ?')
-        .run(number);
+      removed =
+        this.db
+          .prepare('DELETE FROM event_index_blocks WHERE number >= ?')
+          .run(number).changes > 0;
     });
+    if (removed) this.#reorgVersion++;
   }
 
   /**
