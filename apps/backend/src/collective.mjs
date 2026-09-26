@@ -174,6 +174,8 @@ export class CollectiveBatch {
 
   // Check exact calldata, current receipt and every settlement/activation event.
   async confirm(receipt, request) {
+    if ((await this.client.getChainId()) !== this.chainId)
+      throw new Error('Wrong chain');
     if (
       receipt?.status !== 'success' ||
       getAddress(receipt.to) !== this.collective
@@ -251,6 +253,11 @@ export class CollectiveBatch {
       price + fee < guard.minSpend
     )
       throw new Error('Collective activation receipt mismatch');
+    const canonical = await this.client.getBlock({
+      blockNumber: current.blockNumber,
+    });
+    if (canonical?.hash?.toLowerCase() !== current.blockHash?.toLowerCase())
+      throw new Error('Collective receipt not canonical');
     return {
       transactionHash: receipt.transactionHash,
       campaign: guard.campaign,

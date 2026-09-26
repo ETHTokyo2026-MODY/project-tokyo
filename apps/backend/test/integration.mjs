@@ -772,6 +772,50 @@ test(
       }),
       /Collective transaction mismatch/,
     );
+    const orphanClient = new Proxy(client, {
+      get(target, name) {
+        if (name === 'getBlock')
+          return async ({ blockNumber }) => ({
+            ...(await target.getBlock({ blockNumber })),
+            hash: ZERO_HASH,
+          });
+        return target[name];
+      },
+    });
+    const orphanBatch = new CollectiveBatch(
+      book,
+      orphanClient,
+      relayer.account,
+      {
+        chainId: config.chainId,
+        router: router.address,
+        collective: collectiveAddress,
+      },
+    );
+    await assert.rejects(
+      orphanBatch.confirm(collectiveReceipt, request),
+      /Collective receipt not canonical/,
+    );
+    const wrongChainClient = new Proxy(client, {
+      get(target, name) {
+        if (name === 'getChainId') return async () => 1;
+        return target[name];
+      },
+    });
+    const wrongChainBatch = new CollectiveBatch(
+      book,
+      wrongChainClient,
+      relayer.account,
+      {
+        chainId: config.chainId,
+        router: router.address,
+        collective: collectiveAddress,
+      },
+    );
+    await assert.rejects(
+      wrongChainBatch.confirm(collectiveReceipt, request),
+      /Wrong chain/,
+    );
     assert.equal(
       await client.readContract({
         ...usd,
