@@ -261,7 +261,7 @@ function CurveInner() {
             disabled={!editable || !dirty || !curve}
             onClick={() => curve && void commit(curve)}
           >
-            Save curve on Sepolia
+            Save curve
           </button>
         ) : null}
         <span id="note">{note}</span>

@@ -74,9 +74,6 @@ export function BlockPanel({
               <div>Block total (buyer pays)</div>
               <div>{money(q.total)}</div>
             </div>
-            <div className="note">
-              A buyer of this whole block would pay this.
-            </div>
           </>
         ) : null}
         <div className="kv" style={{ marginTop: 6 }}>
