@@ -44,7 +44,10 @@ the exact EIP-191 message from `bookingMessage()`; the server verifies every
 field and the deployment before invoking the reporter. Retries preserve the event
 ID and exact body; a reversal uses a new event ID.
 
-The website proxy uses `DAY_BACKEND_URL` and, for the explicit demo adapter,
+The website proxy uses `DAY_BACKEND_URL` and an exact `DAY_APP_ORIGIN`
+(for example, `http://127.0.0.1:3000`) when its public origin differs from
+Next.js URL normalization. Forwarded headers do not override this origin.
+For the explicit demo adapter, configure
 `DAY_WEBHOOK_TOKEN`. The proxy is a trusted demo host platform, with host wallet authorization but no external booking verification. Keep it local for the isolated
 scenario. Default web mode reads this backend; `NEXT_PUBLIC_DATA_MODE=sample`
 selects the labeled sample mode.
