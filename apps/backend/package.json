@@ -10,7 +10,7 @@
     "test": "node --test test/*.test.mjs",
     "test:days": "npm run test:integration",
     "start": "node src/day-runtime.mjs",
-    "test:integration": "forge build --root ../../contracts && node --test test/day.integration.mjs"
+    "test:integration": "forge build --root ../../contracts && node --test test/day.integration.mjs test/day-booking.integration.mjs"
   },
   "dependencies": {
     "viem": "2.56.8"

@@ -39,12 +39,13 @@ through the process environment without saving them in the repository.
 For the mock booking adapter, additionally configure `DAY_BOOKING_PRIVATE_KEY`,
 a separate `DAY_BOOKING_DB`, and `DAY_WEBHOOK_TOKEN`. The host first authorizes
 the reporter shown in `/config`. A booking event has
-`{eventId,host,asset,day,booked,expectedListedPrice}`. Retries preserve the event
+`{eventId,host,asset,day,booked,expectedListedPrice,signature}`. The host signs
+the exact EIP-191 message from `bookingMessage()`; the server verifies every
+field and the deployment before invoking the reporter. Retries preserve the event
 ID and exact body; a reversal uses a new event ID.
 
 The website proxy uses `DAY_BACKEND_URL` and, for the explicit demo adapter,
-`DAY_WEBHOOK_TOKEN`. The proxy is a trusted demo host platform, with no production
-host login or external booking verification. Keep it local for the isolated
+`DAY_WEBHOOK_TOKEN`. The proxy is a trusted demo host platform, with host wallet authorization but no external booking verification. Keep it local for the isolated
 scenario. Default web mode reads this backend; `NEXT_PUBLIC_DATA_MODE=sample`
 selects the labeled sample mode.
 

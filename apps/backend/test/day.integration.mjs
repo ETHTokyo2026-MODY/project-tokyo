@@ -467,6 +467,7 @@ test(
 test('HTTP create, list, conditional bid and taker fill use canonical calendars', async (t) => {
   const { createDayServer } = await import('../src/day-server.mjs');
   const { DayBookingReporter } = await import('../src/day-booking.mjs');
+  const { bookingMessage } = await import('../src/day-booking-auth.mjs');
   const chain = await localChain(t);
   const {
     client,
@@ -612,6 +613,17 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
   const filled = await request(`/state?account=${trader.account.address}`);
   assert.equal(filled.bids.length, 0);
   assert.equal(filled.usdcBalance, '0');
+  assert.equal(filled.history.length, 1);
+  assert.equal(filled.history[0].payment, '100000000');
+  assert.equal(
+    filled.history[0].buyer.toLowerCase(),
+    trader.account.address.toLowerCase(),
+  );
+  assert.equal(
+    filled.history[0].seller.toLowerCase(),
+    host.account.address.toLowerCase(),
+  );
+  assert.equal(filled.history[0].day, day);
   assert.equal(
     filled.calendars[0].days.find((d) => d.day === day).owner.toLowerCase(),
     trader.account.address.toLowerCase(),
@@ -631,6 +643,13 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
     body: JSON.stringify(booking),
   });
   assert.equal(unauthorized.status, 401);
+  booking.signature = await host.signMessage({
+    message: bookingMessage({
+      ...booking,
+      chainId: config.chainId,
+      factory: config.factory,
+    }),
+  });
   const reported = await request('/webhook', booking);
   await receipt(reported.hash);
   assert.equal((await request('/webhook', booking)).hash, reported.hash);
@@ -642,4 +661,33 @@ test('HTTP create, list, conditional bid and taker fill use canonical calendars'
     booked.owner.toLowerCase(),
     trader.account.address.toLowerCase(),
   );
+  // A foreign, unfillable publication must not poison the calendar JSON or UI dates.
+  const malformed = {
+    buyer: trader.account.address,
+    chainId: 31337n,
+    app: router.address,
+    asset,
+    startDay: 4294967294,
+    endDayExclusive: 4294967295,
+    maxTotal: 0n,
+    nonce: 99n,
+    deadline: (1n << 40n) - 1n,
+    salt: zeroHash,
+  };
+  await receipt(
+    await trader.sendTransaction(
+      shipDayStrategy({
+        aqua: aqua.address,
+        kind: 'bid',
+        strategy: malformed,
+        token: usdc.address,
+      }),
+    ),
+  );
+  assert.equal((await request('/state')).bids.length, 0);
+  index.confirmations = 2;
+  const latestHash = (await client.getBlock()).transactions[0];
+  assert.equal((await request(`/receipt/${latestHash}`)).status, 'pending');
+  await client.request({ method: 'anvil_mine', params: ['0x2'] });
+  assert.equal((await request(`/receipt/${latestHash}`)).status, 'success');
 });

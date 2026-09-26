@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
-import { decodeEventLog, getAddress } from 'viem';
+import { decodeEventLog, getAddress, verifyMessage } from 'viem';
+import { bookingMessage } from './day-booking-auth.mjs';
 import { readDayAsset } from './day-catalog.mjs';
 import { prepareDayAction } from './day-commands.mjs';
 import {
@@ -16,6 +17,108 @@ import {
 const json = (value) =>
   JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
 const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
+
+/** Derive actual per-day payments from complete canonical settlement events. */
+export async function readDayTradeHistory({
+  client,
+  index,
+  config,
+  calendars,
+  asks,
+  blockNumber,
+}) {
+  const readEvents = (name) => {
+    const result = [];
+    let before;
+    while (true) {
+      const page = index.events(name, 1000, before);
+      result.push(
+        ...page.filter(
+          (event) =>
+            same(event.address, config.router) &&
+            BigInt(event.blockNumber) <= blockNumber,
+        ),
+      );
+      if (page.length < 1000) return result;
+      before = page.at(-1);
+    }
+  };
+  const tokens = new Map();
+  for (const calendar of calendars)
+    for (const day of calendar.days)
+      if (day.token)
+        tokens.set(day.token.toLowerCase(), {
+          asset: calendar.address,
+          day: day.day,
+        });
+  const key = (event) =>
+    `${event.transactionHash.toLowerCase()}:${event.args.bidHash.toLowerCase()}`;
+  const settlements = new Map(
+    readEvents('Settled').map((event) => [key(event), { event, days: [] }]),
+  );
+  for (const event of readEvents('DaySettled')) {
+    const settlement = settlements.get(key(event));
+    const position = tokens.get(event.args.token.toLowerCase());
+    if (
+      !settlement ||
+      !position ||
+      !same(position.asset, settlement.event.args.asset) ||
+      event.blockNumber !== settlement.event.blockNumber ||
+      !same(event.blockHash, settlement.event.blockHash) ||
+      event.logIndex >= settlement.event.logIndex
+    )
+      continue;
+    settlement.days.push({ event, position });
+  }
+  const history = [];
+  const blocks = new Map();
+  for (const { event: settled, days } of settlements.values()) {
+    if (
+      !days.length ||
+      new Set(days.map(({ position }) => position.day)).size !== days.length ||
+      days.reduce((sum, { event }) => sum + BigInt(event.args.payment), 0n) !==
+        BigInt(settled.args.total)
+    )
+      continue;
+    let block = blocks.get(settled.blockNumber);
+    if (!block) {
+      block = await client.getBlock({
+        blockNumber: BigInt(settled.blockNumber),
+      });
+      blocks.set(settled.blockNumber, block);
+    }
+    if (!same(block.hash, settled.blockHash))
+      throw new Error('Trade history changed during reorg');
+    for (const { event, position } of days) {
+      const ask = asks.get(event.args.askHash.toLowerCase());
+      const authenticated =
+        ask &&
+        same(ask.strategy.asset, position.asset) &&
+        Number(ask.strategy.day) === position.day &&
+        (ask.blockNumber < event.blockNumber ||
+          (ask.blockNumber === event.blockNumber &&
+            ask.logIndex < event.logIndex));
+      history.push({
+        asset: position.asset.toLowerCase(),
+        day: position.day,
+        token: event.args.token.toLowerCase(),
+        buyer: settled.args.buyer.toLowerCase(),
+        seller: authenticated ? ask.strategy.seller.toLowerCase() : null,
+        payment: BigInt(event.args.payment).toString(),
+        transactionHash: event.transactionHash,
+        blockNumber: event.blockNumber,
+        logIndex: event.logIndex,
+        timestamp: block.timestamp.toString(),
+        bidHash: event.args.bidHash,
+        askHash: event.args.askHash,
+        rangeLength: days.length,
+      });
+    }
+  }
+  return history.sort(
+    (a, b) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex,
+  );
+}
 
 /** The HTTP surface reads chain data and prepares unsigned calls. The optional mock booking adapter owns a separate reporter signer. */
 export function createDayServer({
@@ -112,7 +215,14 @@ export function createDayServer({
             })
           : null;
         const block = await client.getBlock({ blockNumber });
+        const calendarBounds = new Map(
+          calendars.map((calendar) => [
+            calendar.address.toLowerCase(),
+            calendar,
+          ]),
+        );
         const bids = [];
+        const asks = new Map();
         const seen = new Set();
         before = undefined;
         while (true) {
@@ -125,6 +235,15 @@ export function createDayServer({
             } catch {
               continue;
             }
+            if (publication.kind === 'ask') {
+              if (BigInt(event.blockNumber) <= blockNumber)
+                asks.set(publication.hash, {
+                  strategy: publication.strategy,
+                  blockNumber: event.blockNumber,
+                  logIndex: event.logIndex,
+                });
+              continue;
+            }
             if (publication.kind !== 'bid' || seen.has(publication.hash))
               continue;
             seen.add(publication.hash);
@@ -135,7 +254,13 @@ export function createDayServer({
               bid.startDay < tokyoDay(block.timestamp)
             )
               continue;
-            if (!assets.has(getAddress(bid.asset))) continue;
+            const calendar = calendarBounds.get(bid.asset.toLowerCase());
+            if (
+              !calendar ||
+              bid.startDay < calendar.startDay ||
+              bid.endDayExclusive > calendar.endDayExclusive
+            )
+              continue;
             const [used, balance] = await Promise.all([
               client.readContract({
                 address: config.router,
@@ -163,6 +288,14 @@ export function createDayServer({
           if (page.length < 1000) break;
           before = page.at(-1);
         }
+        const history = await readDayTradeHistory({
+          client,
+          index,
+          config,
+          calendars,
+          asks,
+          blockNumber,
+        });
         const after = await client.getBlock({ blockNumber });
         if (
           !same(after.hash, block.hash) ||
@@ -178,6 +311,7 @@ export function createDayServer({
           today: tokyoDay(block.timestamp),
           calendars,
           bids,
+          history,
           wallet,
           usdcBalance,
           revenue: 'External booking reports are not funded USDC payouts.',
@@ -200,6 +334,11 @@ export function createDayServer({
           blockNumber: receipt.blockNumber,
         });
         if (!same(block.hash, receipt.blockHash))
+          return reply(200, { status: 'pending' });
+        if (
+          (await client.getBlockNumber({ cacheTime: 0 })) <
+          receipt.blockNumber + BigInt(index.confirmations ?? 0)
+        )
           return reply(200, { status: 'pending' });
         let asset;
         for (const log of receipt.logs) {
@@ -236,6 +375,7 @@ export function createDayServer({
         }
         if (!req.headers['content-type']?.startsWith('application/json'))
           return reply(415, { error: 'JSON required' });
+        req.setEncoding('utf8');
         let body = '';
         for await (const chunk of req) {
           body += chunk;
@@ -248,8 +388,25 @@ export function createDayServer({
         } catch {
           return reply(400, { error: 'Invalid JSON' });
         }
-        if (url.pathname === '/webhook')
+        if (url.pathname === '/webhook') {
+          let authorized = false;
+          try {
+            authorized = await verifyMessage({
+              address: getAddress(input.host),
+              message: bookingMessage({
+                ...input,
+                chainId: config.chainId,
+                factory: config.factory,
+              }),
+              signature: input.signature,
+            });
+          } catch {
+            // Missing, malformed or mismatched signatures never reach the signer.
+          }
+          if (!authorized)
+            return reply(401, { error: 'Invalid host booking signature' });
           return reply(200, await bookingReporter.report(input));
+        }
         const result = await prepareDayAction(
           client,
           config,
