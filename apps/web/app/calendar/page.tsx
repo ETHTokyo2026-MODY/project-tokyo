@@ -14,7 +14,6 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BlockPanel } from '@/components/calendar/BlockPanel';
-import { DiscountsEditor } from '@/components/calendar/DiscountsEditor';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import { discountsFor } from '@/lib/demo/actions';
@@ -680,7 +679,10 @@ function AssetGrid({
           </div>
           <div className="ahead">
             <h1>
-              {asset.title} <TypeBadge type={asset.type} />
+              <a href={linkTo('/asset', { asset: asset.id }, account)}>
+                {asset.title}
+              </a>{' '}
+              <TypeBadge type={asset.type} />
             </h1>
             <div className="sub">
               Provided by {metaName} · {asset.location}
@@ -800,15 +802,6 @@ function AssetGrid({
             </>
           )}
           <div className="err">{error}</div>
-        </section>
-        <section>
-          <DiscountsEditor
-            key={`${asset.id}:${account}`}
-            asset={asset}
-            account={account}
-            busy={busy}
-            onAct={onAct}
-          />
         </section>
         <button className="reset" type="button" onClick={onReset}>
           Master reset
