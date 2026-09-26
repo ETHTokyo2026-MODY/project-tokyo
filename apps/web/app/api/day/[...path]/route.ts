@@ -24,7 +24,26 @@ async function forward(
   const headers: Record<string, string> = {};
   let body: string | undefined;
   if (request.method === 'POST') {
-    if (request.headers.get('origin') !== request.nextUrl.origin)
+    // Next normalizes loopback IPs to localhost. Keep the configured public
+    // origin exact; forwarded headers cannot authorize a different website.
+    const appOrigin = process.env.DAY_APP_ORIGIN ?? request.nextUrl.origin;
+    let validOrigin = false;
+    try {
+      const parsed = new URL(appOrigin);
+      validOrigin =
+        parsed.origin === appOrigin &&
+        ['http:', 'https:'].includes(parsed.protocol) &&
+        !parsed.username &&
+        !parsed.password;
+    } catch {
+      /* Invalid operator configuration fails closed. */
+    }
+    if (!validOrigin)
+      return Response.json(
+        { error: 'Invalid application origin configuration' },
+        { status: 503 },
+      );
+    if (request.headers.get('origin') !== appOrigin)
       return Response.json(
         { error: 'Same-origin request required' },
         { status: 403 },
