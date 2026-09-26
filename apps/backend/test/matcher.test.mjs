@@ -77,6 +77,25 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
   store.close();
 });
 
+test('saved but unbroadcast ordinary transaction blocks later conversion', async () => {
+  const store = new Store(filename());
+  const client = fakeClient();
+  client.sendRawTransaction = async () => { throw new Error('transport failed before acceptance'); };
+  const ordinary = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId, kind: 'ordinary',
+  });
+  const args = { bidHash: 'bid', askHash: 'ask', to: config.router, data: '0x1234', simulate: async () => {} };
+  await assert.rejects(ordinary.submit({ ...args, id: 'ordinary' }), /transport failed/);
+  assert.ok(ordinary.get('ordinary').raw);
+  const conversion = new StoredSubmission(store.db, client, localWallet(), {
+    chainId: config.chainId, kind: 'conversion',
+  });
+  await assert.rejects(conversion.submit({ ...args, id: 'conversion', payload: 'intent' }),
+    /not accepted by RPC/);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n, 1);
+  store.close();
+});
+
 async function pair() {
   const program = `0x9e20${toHex(1_000_000n, { size: 32 }).slice(2)}540180`;
   const mandate = {
@@ -141,7 +160,7 @@ function fakeClient() {
       return { result: [1_000_000n, 10_000n] };
     },
     async getTransactionCount() {
-      return 0;
+      return this.sent.length;
     },
     async getTransactionReceipt({ hash }) {
       if (this.receipts.has(hash)) return this.receipts.get(hash);

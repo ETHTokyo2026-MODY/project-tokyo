@@ -79,6 +79,11 @@ export class StoredSubmission {
           ).get(this.sender);
           if (unsignedPrior)
             throw new Error('Earlier relayer submission requires recovery');
+          const unacceptedPrior = this.db.prepare(
+            'SELECT id FROM submissions WHERE sender = ? AND nonce >= ? LIMIT 1',
+          ).get(this.sender, pending);
+          if (unacceptedPrior)
+            throw new Error('Earlier relayer transaction is not accepted by RPC');
           const last = this.db.prepare('SELECT MAX(nonce) AS n FROM submissions WHERE sender = ?').get(this.sender).n;
           const nonce = Math.max(pending, last === null ? 0 : last + 1);
           this.db.prepare(`INSERT INTO submissions(
