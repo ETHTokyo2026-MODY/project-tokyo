@@ -1,5 +1,6 @@
 import { priceFromCurve } from './curve';
-import { DEFAULT_DISCOUNTS, seedState } from './seed';
+import { quoteBlock } from './quote';
+import { DEFAULT_DISCOUNTS, seedState, TIERS } from './seed';
 import type { Asset, Day, DemoState, Discounts } from './types';
 
 export class UserError extends Error {}
@@ -109,6 +110,49 @@ const actions: Record<string, ActionFn> = {
     d.owner = account;
     d.listed = false;
   },
+  'buy-block'(state, asset, body, ctx) {
+    const account = checkAccount(state, body.account as string);
+    const days = range(asset, body.from as string, body.to as string);
+    if (days.some((d) => d.date < ctx.today || !d.listed)) {
+      fail('Blocks must be continuous listed days');
+    }
+    if (days.some((d) => d.owner === account)) {
+      fail('Block includes your own days');
+    }
+    const q = quoteBlock(
+      days,
+      account,
+      (owner) => discountsFor(asset, owner),
+      ctx.today,
+    );
+    if ('reason' in q) return fail('Blocks must be continuous listed days');
+    const buyer = state.accounts[account];
+    if (buyer.cash < q.total) {
+      fail(`Not enough cash (need $${q.total}, have $${buyer.cash})`);
+    }
+    buyer.cash -= q.total;
+    const groups = new Map<string, Day[]>();
+    for (const d of days) {
+      if (!groups.has(d.owner)) groups.set(d.owner, []);
+      groups.get(d.owner)!.push(d);
+    }
+    for (const [seller, ds] of groups) {
+      const tot = ds.reduce((s, d) => s + q.perDay[d.date], 0);
+      state.accounts[seller].cash += tot;
+      ds.forEach((d) => {
+        d.history.push({
+          type: 'trade',
+          from: seller,
+          to: account,
+          price: q.perDay[d.date],
+          block: days.length,
+          at: ctx.now,
+        });
+        d.owner = account;
+        d.listed = false;
+      });
+    }
+  },
   'set-price'(state, asset, body, ctx) {
     const p = checkPrice(body.price);
     const days = ownedRange(
@@ -180,6 +224,20 @@ const actions: Record<string, ActionFn> = {
     d.status = 'open';
     priceFromCurve(d, ctx.today);
     d.history.push({ type: 'unbook', price: d.price, at: ctx.now });
+  },
+  discounts(state, asset, body) {
+    const account = checkAccount(state, body.account as string);
+    const tiers = body.tiers as Record<string, unknown> | undefined;
+    const next: Discounts = { ...DEFAULT_DISCOUNTS };
+    for (const min of TIERS) {
+      const raw = tiers ? tiers[min] : undefined;
+      const v = Number(raw);
+      if (raw == null || raw === '' || !Number.isFinite(v) || v < 0 || v > 90) {
+        fail(`Discount for ${min}+ days must be 0-90%`);
+      }
+      next[min as keyof Discounts] = v;
+    }
+    asset.discounts[account] = next;
   },
   reset(state, _asset, _body, ctx) {
     Object.assign(state, seedState(ctx.today), { version: state.version });
