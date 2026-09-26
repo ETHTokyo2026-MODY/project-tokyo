@@ -14,7 +14,7 @@ import { useChainStore } from '@/lib/chain/store';
 import type { Curve } from '@/lib/demo/types';
 import './curve.css';
 
-const TITLE = 'Price curve · ProjectTokyo';
+const TITLE = 'Price curve · DayTrader';
 const MON = MONTHS.map((m) => m.slice(0, 3));
 
 function label(s: string) {

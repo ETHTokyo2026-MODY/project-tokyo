@@ -36,7 +36,7 @@ import { summaries } from '@/lib/demo/summaries';
 import { useChainStore } from '@/lib/chain/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
 
-const TITLE = 'Calendar · ProjectTokyo';
+const TITLE = 'Calendar · DayTrader';
 const DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
 function Loading() {
@@ -635,7 +635,7 @@ function AssetGrid({
   const tabStop = kbd || focus || today;
 
   useEffect(() => {
-    document.title = `${asset.title} · Calendar · ProjectTokyo`;
+    document.title = `${asset.title} · Calendar · DayTrader`;
   }, [asset.title]);
   useEffect(() => {
     if (scrolled.current) return;

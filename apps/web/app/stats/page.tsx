@@ -3,7 +3,7 @@
 import { Suspense, useEffect } from 'react';
 import { useChainStore } from '@/lib/chain/store';
 
-const TITLE = 'Stats · ProjectTokyo';
+const TITLE = 'Stats · DayTrader';
 
 function Loading() {
   return (
