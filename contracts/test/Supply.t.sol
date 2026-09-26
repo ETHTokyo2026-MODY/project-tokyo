@@ -31,4 +31,28 @@ contract SupplyTest is Test {
         vm.expectRevert();
         inventory.publishDay(pool, day, terms, 2);
     }
+
+    function testTargetsArePerTermsAndConsumptionNeverReopensThem() public {
+        RentalInventory inventory = new RentalInventory();
+        address supplier = address(1);
+        bytes32 pool = keccak256("terms pool");
+        bytes32 a = keccak256("A");
+        bytes32 b = keccak256("B");
+        uint32 day = uint32(block.timestamp / 1 days) + 2;
+        inventory.createPool(pool, supplier, day, day + 7, 3);
+        vm.startPrank(supplier);
+        inventory.issue(pool, day, day + 1, a, 1);
+        inventory.publishDay(pool, day, b, 2);
+        uint256 bId = inventory.tokenId(pool, day, b);
+        assertEq(inventory.balanceOf(supplier, bId), 2);
+        assertEq(inventory.issued(pool, day), 3);
+        inventory.reserve(supplier, pool, day, day + 1, b, 1, address(2));
+        inventory.publishDay(pool, day, b, 2);
+        assertEq(inventory.issuedByToken(bId), 2);
+        assertEq(inventory.consumedByToken(bId), 1);
+        assertEq(inventory.balanceOf(supplier, bId), 1);
+        vm.expectRevert();
+        inventory.publishDay(pool, day, keccak256("C"), 1);
+        vm.stopPrank();
+    }
 }
