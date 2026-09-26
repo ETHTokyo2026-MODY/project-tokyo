@@ -171,7 +171,10 @@ test(
     const plannedSupply = await supply.reconcile(publication.hash);
     assert.equal(plannedSupply.slots.length, 7);
     for (const slot of plannedSupply.slots) {
-      const hash = await seller.sendTransaction(slot.transaction);
+      const hash = await seller.sendTransaction({
+        ...slot.transaction,
+        account: seller.account,
+      });
       assert.equal(
         (await client.waitForTransactionReceipt({ hash })).status,
         'success',
@@ -179,7 +182,10 @@ test(
     }
     // Replaying the exact unsigned transaction does not mint a second entitlement.
     await client.waitForTransactionReceipt({
-      hash: await seller.sendTransaction(plannedSupply.slots[0].transaction),
+      hash: await seller.sendTransaction({
+        ...plannedSupply.slots[0].transaction,
+        account: seller.account,
+      }),
     });
     assert.ok(
       (await supply.reconcile(publication.hash)).slots.every(
