@@ -1,5 +1,7 @@
 # Rental settlement contracts
 
+The [native ERC-1155 Aqua extension](src/native/README.md) registers rental assets directly in a forked Aqua ledger and executes both sides through it. It is an independently tested candidate; the existing deployment and HTTP backend still use the original path.
+
 ERC-1155 daily allotments settle atomically against wallet-held USDC through Aqua. Capacity-one daily allotments can also back transferable booking-revenue claims. The specialized router uses upstream SwapVM execution with fixed or descending Dutch prices. Signed programs can set bounded fees and duration discounts. It is not the stock SwapVM router.
 
 ## Setup and test
