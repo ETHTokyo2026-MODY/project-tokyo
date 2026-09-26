@@ -439,19 +439,20 @@ test(
     );
     await write(buyer, router, 'cancel', [100n]);
     await client.request({ method: 'anvil_mine', params: ['0x80'] });
-    const waiting = await new DayTaker(
+    // Range synchronization now catches up in one tick, including a reorg.
+    const caughtUp = await new DayTaker(
       indexed.db,
       index,
       client,
       noSign,
       f.config,
     ).tick();
-    assert.equal(waiting.state, 'indexing');
+    assert.equal(caughtUp.state, 'ready');
+    assert.equal((await index.readiness()).ready, true);
     assert.equal(
       await client.getTransactionCount({ address: f.taker.account.address }),
       2,
     );
-    await syncToHead(index);
     assert.deepEqual(
       index.events('Cancelled').map((event) => event.args.nonce),
       ['100'],
