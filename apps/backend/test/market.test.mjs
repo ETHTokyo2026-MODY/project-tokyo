@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { ChainIndex } from '../src/chain.mjs';
 import { Market, MarketInputError } from '../src/market.mjs';
 import { Store } from '../src/store.mjs';
 
@@ -18,6 +19,7 @@ function order(n, buy, programHash = hash(9), overrides = {}) {
     hash: hash(n),
     order: {
       maker: MAKER,
+      recipient: MAKER,
       buy,
       pool: hash(1),
       startDay: '100',
@@ -115,6 +117,24 @@ test('keeps buyers and unlike rental baskets in distinct price groups', async ()
   assert.equal(Object.hasOwn(result, 'best'), false);
 });
 
+test('keeps signed guest recipients distinct within one buyer basket', async () => {
+  const guest = '0x4444444444444444444444444444444444444444';
+  const orders = [
+    order(1, true),
+    order(2, true, hash(9), { recipient: guest }),
+    order(3, false),
+  ];
+  const { instance } = market(orders, async () => ({
+    result: [1_000_000n, 10_000n],
+  }));
+  const result = await instance.quotes();
+  assert.equal(result.quotes.length, 2);
+  assert.deepEqual(
+    result.bestByBasket.map((quote) => [quote.bidHash, quote.bidRecipient]),
+    [[hash(1), MAKER], [hash(2), guest]],
+  );
+});
+
 test('filters expiry and contract failures, surfaces RPC failure and reorg', async () => {
   const expired = order(1, true, hash(9), { expiry: '100' });
   const liveBid = order(2, true);
@@ -174,10 +194,15 @@ test('history joins canonical settlement events to stored baskets only', async (
   const directory = mkdtempSync(join(tmpdir(), 'rental-market-'));
   const store = new Store(join(directory, 'orders.db'));
   try {
-    store.db.exec(`CREATE TABLE chain_events (
-      block_number INTEGER, log_index INTEGER, transaction_hash TEXT,
-      name TEXT, args TEXT
-    )`);
+    const client = {
+      getChainId: async () => 31337,
+      getBlock: async () => block,
+      simulateContract: async () => null,
+    };
+    const index = new ChainIndex(store, client, { ...config, startBlock: 0 });
+    store.db
+      .prepare('INSERT INTO blocks VALUES(?,?,?)')
+      .run(42, HASH, hash(41));
     for (const record of [order(1, true), order(2, false)]) {
       store.db
         .prepare('INSERT INTO orders(hash,payload,created_at) VALUES(?,?,?)')
@@ -211,20 +236,67 @@ test('history joins canonical settlement events to stored baskets only', async (
       }),
     );
     const book = { store, list: () => [] };
-    const index = { tip: () => ({ number: 42, hash: HASH }) };
-    const client = {
-      getChainId: async () => 31337,
-      getBlock: async () => block,
-      simulateContract: async () => null,
-    };
-    const result = await new Market(book, index, client, config).history();
+    const market = new Market(book, index, client, config);
+    const result = await market.history();
     assert.equal(result.sales.length, 1);
     assert.equal(result.sales[0].price, '1000000');
     assert.equal(result.sales[0].startDay, '100');
     assert.equal(result.bookingHistory, 'unavailable');
+    assert.deepEqual(result.window, {
+      limit: 20,
+      offset: 0,
+      events: 2,
+      attributed: 1,
+    });
+
+    // A page is a window of indexed events, even when none can be attributed
+    // to retained order envelopes. Later pages can still contain known sales.
+    for (let logIndex = 2; logIndex < 27; logIndex++)
+      insert.run(
+        42,
+        logIndex,
+        hash(100 + logIndex),
+        'Settled',
+        JSON.stringify({
+          buyHash: hash(98),
+          sellHash: hash(99),
+          price: '1',
+          fee: '0',
+        }),
+      );
+    const first = await market.history();
+    assert.deepEqual(first.sales, []);
+    assert.deepEqual(first.window, {
+      limit: 20,
+      offset: 0,
+      events: 20,
+      attributed: 0,
+    });
+    const second = await market.history({ offset: 20 });
+    assert.equal(second.sales.length, 1);
+    assert.equal(second.sales[0].transactionHash, hash(8));
+    assert.deepEqual(second.window, {
+      limit: 20,
+      offset: 20,
+      events: 7,
+      attributed: 1,
+    });
+    const plan = store.db
+      .prepare(`EXPLAIN QUERY PLAN
+        WITH event_window AS MATERIALIZED (
+          SELECT block_number, log_index FROM chain_events
+          WHERE name = 'Settled'
+          ORDER BY block_number DESC, log_index DESC LIMIT 20 OFFSET 20
+        )
+        SELECT * FROM event_window`)
+      .all();
+    assert.ok(plan.some((step) => step.detail === 'MATERIALIZE event_window'));
+    assert.ok(
+      plan.some((step) => step.detail.includes('chain_events_name_position')),
+    );
     store.db.prepare('DELETE FROM chain_events').run();
     assert.deepEqual(
-      (await new Market(book, index, client, config).history()).sales,
+      (await market.history()).sales,
       [],
     );
   } finally {

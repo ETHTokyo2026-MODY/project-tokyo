@@ -48,6 +48,7 @@ function rank(a, b) {
 function basketKey(quote) {
   return JSON.stringify([
     quote.bidMaker.toLowerCase(),
+    quote.bidRecipient.toLowerCase(),
     quote.pool.toLowerCase(),
     quote.startDay,
     quote.endDay,
@@ -121,6 +122,7 @@ export class Market {
             bidHash: bid.hash,
             askHash: ask.hash,
             bidMaker: bid.order.maker,
+            bidRecipient: bid.order.recipient,
             askMaker: ask.order.maker,
             mandate: bid.order.mandate,
             pool: bid.order.pool,
@@ -166,36 +168,43 @@ export class Market {
     await this.#canonical(block);
     const rows = this.db
       .prepare(
-        `SELECT e.block_number, e.transaction_hash, e.args,
+        `WITH event_window AS MATERIALIZED (
+           SELECT block_number, log_index, transaction_hash, args
+           FROM chain_events
+           WHERE name = 'Settled'
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT ? OFFSET ?
+         )
+         SELECT e.block_number, e.transaction_hash, e.args,
           bid.payload AS bid, ask.payload AS ask
-         FROM chain_events e
-         JOIN orders bid ON bid.hash = json_extract(e.args, '$.buyHash')
-         JOIN orders ask ON ask.hash = json_extract(e.args, '$.sellHash')
-         WHERE e.name = 'Settled'
-         ORDER BY e.block_number DESC, e.log_index DESC
-         LIMIT ? OFFSET ?`,
+         FROM event_window e
+         LEFT JOIN orders bid ON bid.hash = json_extract(e.args, '$.buyHash')
+         LEFT JOIN orders ask ON ask.hash = json_extract(e.args, '$.sellHash')
+         ORDER BY e.block_number DESC, e.log_index DESC`,
       )
       .all(limit, offset);
-    const sales = rows.map((row) => {
-      const event = JSON.parse(row.args);
-      const bid = JSON.parse(row.bid).order;
-      const ask = JSON.parse(row.ask).order;
-      return {
-        blockNumber: String(row.block_number),
-        transactionHash: row.transaction_hash,
-        bidHash: event.buyHash,
-        askHash: event.sellHash,
-        pool: bid.pool,
-        startDay: bid.startDay,
-        endDay: bid.endDay,
-        quantity: bid.quantity,
-        terms: bid.terms,
-        buyer: bid.maker,
-        seller: ask.maker,
-        price: event.price,
-        fee: event.fee,
-      };
-    });
+    const sales = rows
+      .filter((row) => row.bid && row.ask)
+      .map((row) => {
+        const event = JSON.parse(row.args);
+        const bid = JSON.parse(row.bid).order;
+        const ask = JSON.parse(row.ask).order;
+        return {
+          blockNumber: String(row.block_number),
+          transactionHash: row.transaction_hash,
+          bidHash: event.buyHash,
+          askHash: event.sellHash,
+          pool: bid.pool,
+          startDay: bid.startDay,
+          endDay: bid.endDay,
+          quantity: bid.quantity,
+          terms: bid.terms,
+          buyer: bid.maker,
+          seller: ask.maker,
+          price: event.price,
+          fee: event.fee,
+        };
+      });
     if (this.index.tip()?.hash !== tip.hash)
       throw new Error('Market index changed');
     await this.#canonical(block);
@@ -203,6 +212,7 @@ export class Market {
       indexedThrough: String(tip.number),
       priceSignal: 'settled rental-right sales',
       bookingHistory: 'unavailable',
+      window: { limit, offset, events: rows.length, attributed: sales.length },
       sales,
     };
   }
