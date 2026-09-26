@@ -121,7 +121,6 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
                 && bid.programHash == ask.programHash && bid.programHash == keccak256(program),
             InvalidOrder()
         );
-        _authorizeExecution(program);
         bytes32 mandateHash = hashMandate(m);
         require(
             bid.mandate == mandateHash && m.buyer == bid.maker && m.app == address(this) && m.token == usdc
@@ -170,6 +169,4 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         internal
         virtual
         returns (uint256 price, uint256 fee);
-
-    function _authorizeExecution(bytes calldata program) internal view virtual {}
 }

@@ -1,6 +1,6 @@
 # Rental settlement contracts
 
-ERC-1155 daily allotments settle atomically against wallet-held USDC through Aqua. Capacity-one daily allotments can also back transferable booking-revenue claims. The specialized router uses upstream SwapVM execution with fixed or descending Dutch prices. Signed programs can set bounded fees and duration discounts. A signed collective guard can require 2–8 distinct funding wallets and a minimum aggregate payment before any fill stands. It is not the stock SwapVM router.
+ERC-1155 daily allotments settle atomically against wallet-held USDC through Aqua. Capacity-one daily allotments can also back transferable booking-revenue claims. The specialized router uses upstream SwapVM execution with fixed or descending Dutch prices. Signed programs can set bounded fees and duration discounts. It is not the stock SwapVM router.
 
 ## Setup and test
 
@@ -23,7 +23,7 @@ The suite contains local and pinned-chain fork tests. Fork tests skip when RPC v
 
 [Deployment metadata](deployments/sepolia.json) includes addresses and public purchase, resale, and 31-day transaction hashes. The recorded 31-day fill consumed 985,898 gas; the deployed router is 9,210 bytes. Those contracts were compiled with the same dependency versions from npm package paths; the current source-checkout layout changes compilation metadata. The measurement describes that deployed build.
 
-That deployment predates the economic-terms and collective opcodes. Use a deployment of the current source for programs `0xa0`, `0xa1` and guarded `0xa2` programs.
+That deployment predates the economic-terms opcodes and three-argument quote. Use a deployment of the current source for programs `0xa0` and `0xa1`.
 
 Circle test USDC is used at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`. Aqua bytecode at the checked Sepolia address matches the mainnet deployment, but Sepolia is not in Aqua's published supported-network list.
 
@@ -35,6 +35,6 @@ The [Sepolia deployment metadata](deployments/sepolia.json) records a public ENS
 
 ## Scope
 
-One seller per fill; whole-unit quantities; contiguous future UTC dates up to 31 days. Legacy programs retain the 1% buyer-paid fee; economic-terms programs can set fees up to 10% and discounts up to 90%. Independent orders share conditional funding; OCO groups permit only one successful alternative. Collective activation is bounded to eight signed fills and counts distinct maker addresses, not unique people. It provides no escrow or reserved funding while orders are open.
+One seller per fill; whole-unit quantities; contiguous future UTC dates up to 31 days. Legacy programs retain the 1% buyer-paid fee; economic-terms programs can set fees up to 10% and discounts up to 90%. Independent orders share conditional funding; OCO groups permit only one successful alternative. No crowdsourcing threshold, pooled buyer commitment, or collective activation is implemented.
 
 [The specification](SPEC.md) defines the signed schema and trust boundaries. A separate router can trade revenue claims; booking USDC backs their eventual payout. Supplier fulfillment, offchain duplicate inventory, multi-unit revenue rights, refunds, and guaranteed liquidity remain outside these contracts. The contracts have not been audited.
