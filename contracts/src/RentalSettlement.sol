@@ -5,7 +5,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IAqua} from "aqua/interfaces/IAqua.sol";
-import {RentalInventory} from "./RentalInventory.sol";
+import {IRentalRights} from "./IRentalRights.sol";
 
 /// @notice Full-fill, single-seller rental exchange. Aqua holds only USDC allowances.
 abstract contract RentalSettlement is EIP712, ReentrancyGuard {
@@ -40,7 +40,7 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         "Order(address maker,bool buy,bytes32 pool,uint32 startDay,uint32 endDay,uint32 quantity,bytes32 terms,address recipient,uint256 priceLimit,uint256 maxFee,uint256 expiry,uint256 nonce,bytes32 group,bytes32 mandate,bytes32 programHash)"
     );
     IAqua public immutable aqua;
-    RentalInventory public immutable inventory;
+    IRentalRights public immutable inventory;
     address public immutable usdc;
     address public immutable feeRecipient;
     mapping(address => mapping(uint256 => bool)) public used;
@@ -60,7 +60,7 @@ abstract contract RentalSettlement is EIP712, ReentrancyGuard {
         bytes32 indexed buyHash, bytes32 indexed sellHash, bytes32 indexed mandate, uint256 price, uint256 fee
     );
 
-    constructor(IAqua a, RentalInventory i, address token, address fees) EIP712("RentalSettlement", "1") {
+    constructor(IAqua a, IRentalRights i, address token, address fees) EIP712("RentalSettlement", "1") {
         require(address(a) != address(0) && address(i) != address(0) && token != address(0) && fees != address(0));
         aqua = a;
         inventory = i;

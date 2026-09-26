@@ -4,6 +4,8 @@ pragma solidity 0.8.30;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import {RentalRevenue} from "../src/RentalRevenue.sol";
+import {RentalSettlement} from "../src/RentalSettlement.sol";
+import {RentalSwapVM} from "../src/RentalSwapVM.sol";
 import {Fixture} from "./Fixture.sol";
 
 contract CallbackUSDC is ERC20, ERC1155Holder {
@@ -174,6 +176,70 @@ contract RevenueTest is Fixture {
         vm.prank(seller);
         vm.expectRevert(RentalRevenue.InvalidClaim.selector);
         revenue.claimRevenue(claimId);
+    }
+
+    function testWithdrawnBasketCannotCreateReplacementClaimForOldSignedOrders() public {
+        vm.prank(seller);
+        revenue.withdrawUnbooked(claimId);
+        assertEq(revenue.tokenId(POOL, day, TERMS), claimId);
+        vm.prank(seller);
+        vm.expectRevert(RentalRevenue.InvalidClaim.selector);
+        revenue.createClaim(POOL, day, TERMS);
+        assertEq(revenue.balanceOf(seller, claimId), 0);
+    }
+
+    function testAquaRouterSellsEconomicClaimThenBuyerReceivesBookedRevenue() public {
+        RentalSwapVM claimRouter = new RentalSwapVM(aqua, revenue, address(usd), fees);
+        vm.prank(seller);
+        revenue.setApprovalForAll(address(claimRouter), true);
+        bytes memory saleProgram = fixedProgram(50e6);
+        RentalSettlement.Mandate memory saleMandate = RentalSettlement.Mandate(
+            buyer, address(claimRouter), address(usd), 51e6, block.timestamp + 1 days, keccak256("claim-sale")
+        );
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(usd);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 51e6;
+        vm.prank(buyer);
+        aqua.ship(address(claimRouter), abi.encode(saleMandate), tokens, amounts);
+        (RentalSettlement.Order memory bid, RentalSettlement.Order memory ask) = _orders(day, day + 1, 77, saleProgram);
+        bid.mandate = keccak256(abi.encode(saleMandate));
+        (uint8 bidV, bytes32 bidR, bytes32 bidS) = vm.sign(BUY_KEY, claimRouter.hashOrder(bid));
+        (uint8 askV, bytes32 askR, bytes32 askS) = vm.sign(SELL_KEY, claimRouter.hashOrder(ask));
+        claimRouter.settle(
+            bid, abi.encodePacked(bidR, bidS, bidV), ask, abi.encodePacked(askR, askS, askV), saleMandate, saleProgram
+        );
+        assertEq(revenue.tokenId(POOL, day, TERMS), claimId);
+        assertEq(revenue.balanceOf(buyer, claimId), 1);
+        assertEq(revenue.balanceOf(seller, claimId), 0);
+        assertEq(usd.balanceOf(seller), 50e6);
+        assertEq(usd.balanceOf(buyer), 1000e6 - 50_500_000);
+
+        vm.prank(buyer);
+        revenue.setPrice(claimId, 100e6);
+        RentalRevenue.BookingMandate memory booking = RentalRevenue.BookingMandate(
+            other,
+            address(revenue),
+            address(usd),
+            claimId,
+            other,
+            100e6,
+            block.timestamp + 1 days,
+            keccak256("guest-funding")
+        );
+        vm.prank(other);
+        usd.approve(address(aqua), 100e6);
+        amounts[0] = 100e6;
+        vm.prank(other);
+        aqua.ship(address(revenue), abi.encode(booking), tokens, amounts);
+        revenue.book(claimId, booking);
+        assertEq(inventory.consumed(POOL, day), 1);
+        assertEq(revenue.escrowedRevenue(), 100e6);
+        vm.warp((uint256(day) + 1) * 1 days);
+        vm.prank(buyer);
+        assertEq(revenue.claimRevenue(claimId), 100e6);
+        assertEq(usd.balanceOf(buyer), 1000e6 - 50_500_000 + 100e6);
+        assertEq(usd.balanceOf(other), 1000e6 - 100e6);
     }
 
     function testCapacityOneAndOnlyExpectedEscrowAreAccepted() public {

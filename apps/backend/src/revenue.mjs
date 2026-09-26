@@ -3,6 +3,7 @@ import {
   getAddress,
   isHex,
   keccak256,
+  parseAbi,
   parseEventLogs,
 } from 'viem';
 
@@ -30,180 +31,28 @@ const uint = (value, bits) => {
   return result;
 };
 
-export const bookingMandateFields = [
-  { name: 'buyer', type: 'address' },
-  { name: 'app', type: 'address' },
-  { name: 'token', type: 'address' },
-  { name: 'claimId', type: 'uint256' },
-  { name: 'beneficiary', type: 'address' },
-  { name: 'price', type: 'uint256' },
-  { name: 'expiry', type: 'uint256' },
-  { name: 'salt', type: 'bytes32' },
-];
-const tuple = { name: 'm', type: 'tuple', components: bookingMandateFields };
-const field = (name, type, indexed = false) => ({ name, type, indexed });
-export const revenueAbi = [
-  {
-    type: 'function',
-    name: 'aqua',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [field('', 'address')],
-  },
-  {
-    type: 'function',
-    name: 'usdc',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [field('', 'address')],
-  },
-  {
-    type: 'function',
-    name: 'createClaim',
-    stateMutability: 'nonpayable',
-    inputs: [
-      field('pool', 'bytes32'),
-      field('day', 'uint32'),
-      field('terms', 'bytes32'),
-    ],
-    outputs: [field('claimId', 'uint256')],
-  },
-  {
-    type: 'function',
-    name: 'setPrice',
-    stateMutability: 'nonpayable',
-    inputs: [field('claimId', 'uint256'), field('price', 'uint256')],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'book',
-    stateMutability: 'nonpayable',
-    inputs: [field('claimId', 'uint256'), tuple],
-    outputs: [field('reservationId', 'uint256')],
-  },
-  {
-    type: 'function',
-    name: 'withdrawUnbooked',
-    stateMutability: 'nonpayable',
-    inputs: [field('claimId', 'uint256')],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'claimRevenue',
-    stateMutability: 'nonpayable',
-    inputs: [field('claimId', 'uint256')],
-    outputs: [field('amount', 'uint256')],
-  },
-  {
-    type: 'function',
-    name: 'safeTransferFrom',
-    stateMutability: 'nonpayable',
-    inputs: [
-      field('from', 'address'),
-      field('to', 'address'),
-      field('id', 'uint256'),
-      field('value', 'uint256'),
-      field('data', 'bytes'),
-    ],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'claims',
-    stateMutability: 'view',
-    inputs: [field('claimId', 'uint256')],
-    outputs: [
-      field('pool', 'bytes32'),
-      field('day', 'uint32'),
-      field('terms', 'bytes32'),
-      field('price', 'uint256'),
-      field('reservationId', 'uint256'),
-      field('state', 'uint8'),
-    ],
-  },
-  {
-    type: 'event',
-    name: 'ClaimCreated',
-    inputs: [
-      field('claimId', 'uint256', true),
-      field('holder', 'address', true),
-      field('pool', 'bytes32', true),
-      field('day', 'uint32'),
-      field('terms', 'bytes32'),
-    ],
-  },
-  {
-    type: 'event',
-    name: 'PriceSet',
-    inputs: [field('claimId', 'uint256', true), field('price', 'uint256')],
-  },
-  {
-    type: 'event',
-    name: 'Booked',
-    inputs: [
-      field('claimId', 'uint256', true),
-      field('buyer', 'address', true),
-      field('beneficiary', 'address', true),
-      field('price', 'uint256'),
-      field('reservationId', 'uint256'),
-      field('mandateHash', 'bytes32'),
-    ],
-  },
-  {
-    type: 'event',
-    name: 'UnbookedWithdrawn',
-    inputs: [
-      field('claimId', 'uint256', true),
-      field('holder', 'address', true),
-    ],
-  },
-  {
-    type: 'event',
-    name: 'RevenuePaid',
-    inputs: [
-      field('claimId', 'uint256', true),
-      field('holder', 'address', true),
-      field('amount', 'uint256'),
-    ],
-  },
-  {
-    type: 'event',
-    name: 'TransferSingle',
-    inputs: [
-      field('operator', 'address', true),
-      field('from', 'address', true),
-      field('to', 'address', true),
-      field('id', 'uint256'),
-      field('value', 'uint256'),
-    ],
-  },
-];
-const aquaAbi = [
-  {
-    type: 'function',
-    name: 'ship',
-    stateMutability: 'nonpayable',
-    inputs: [
-      field('app', 'address'),
-      field('strategy', 'bytes'),
-      { name: 'tokens', type: 'address[]' },
-      { name: 'amounts', type: 'uint256[]' },
-    ],
-    outputs: [field('strategyHash', 'bytes32')],
-  },
-  {
-    type: 'event',
-    name: 'Shipped',
-    inputs: [
-      field('maker', 'address'),
-      field('app', 'address'),
-      field('strategyHash', 'bytes32', false),
-      field('strategy', 'bytes', false),
-    ],
-  },
-];
+export const revenueAbi = parseAbi([
+  'function aqua() view returns (address)',
+  'function usdc() view returns (address)',
+  'function createClaim(bytes32 pool,uint32 day,bytes32 terms) returns (uint256 claimId)',
+  'function setPrice(uint256 claimId,uint256 price)',
+  'function book(uint256 claimId,(address buyer,address app,address token,uint256 claimId,address beneficiary,uint256 price,uint256 expiry,bytes32 salt) m) returns (uint256 reservationId)',
+  'function withdrawUnbooked(uint256 claimId)',
+  'function claimRevenue(uint256 claimId) returns (uint256 amount)',
+  'function safeTransferFrom(address from,address to,uint256 id,uint256 value,bytes data)',
+  'function claims(uint256 claimId) view returns (bytes32 pool,uint32 day,bytes32 terms,uint256 price,uint256 reservationId,uint8 state)',
+  'event ClaimCreated(uint256 indexed claimId,address indexed holder,bytes32 indexed pool,uint32 day,bytes32 terms)',
+  'event PriceSet(uint256 indexed claimId,uint256 price)',
+  'event Booked(uint256 indexed claimId,address indexed buyer,address indexed beneficiary,uint256 price,uint256 reservationId,bytes32 mandateHash)',
+  'event UnbookedWithdrawn(uint256 indexed claimId,address indexed holder)',
+  'event RevenuePaid(uint256 indexed claimId,address indexed holder,uint256 amount)',
+  'event TransferSingle(address indexed operator,address indexed from,address indexed to,uint256 id,uint256 value)',
+]);
+const aquaAbi = parseAbi([
+  'function ship(address app,bytes strategy,address[] tokens,uint256[] amounts) returns (bytes32 strategyHash)',
+  'event Shipped(address maker,address app,bytes32 strategyHash,bytes strategy)',
+]);
+const tuple = revenueAbi.find((item) => item.name === 'book').inputs[1];
 
 export function bookingStrategy(m) {
   const mandate = {

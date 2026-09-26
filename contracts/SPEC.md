@@ -21,7 +21,9 @@ The pool represents interchangeable capacity within a supplier-attested class. A
 
 ## Capacity-one booking revenue
 
-`RentalRevenue` is a separate ERC-1155 claim, one unit per claim ID. A holder creates a claim by escrowing one future-day inventory token from a pool whose capacity is exactly one. The current claim holder sets the positive booking price before that day starts; the price follows the claim on transfer until its holder changes it. These claims are transferable, but the inventory settlement router trades only inventory IDs and cannot settle revenue claims without a separate market adapter. Transfer alone does not establish a market-clearing price.
+`RentalRevenue` is a separate ERC-1155 claim, one unit per claim ID. A holder creates a claim by escrowing one future-day inventory token from a pool whose capacity is exactly one. The current claim holder sets the positive booking price before that day starts; the price follows the claim on transfer until its holder changes it. Its `tokenId(pool,day,terms)` maps that basket to one claim ID forever. Withdrawing an unbooked claim cannot create a replacement for the same basket, so an old signed sale cannot silently target a new right.
+
+`RentalSwapVM` accepts either inventory or revenue claims through the same ERC-1155 basket interface. Deploy a separate router for `RentalRevenue`; its signed-order domain and Aqua app address are distinct from the inventory router. A claim sale pays its current seller from the buyer wallet through Aqua and transfers the economic claim atomically. Direct ERC-1155 transfer remains possible. Signed claim sale prices are executable asks/bids, but no empirical liquidity or particular market-price algorithm is established.
 
 A buyer authenticates a booking by shipping `abi.encode(BookingMandate)` to Aqua for this revenue contract and USDC. The mandate binds buyer, contract, token, unique immutable claim ID (and therefore pool/day/terms), beneficiary, exact price, expiry and salt. Booking requires the live mandate and wallet allowance, pulls the exact USDC amount into escrow, verifies it arrived, and atomically calls inventory `reserve` for the guest. No buyer money is held before booking, and proceeds from an earlier inventory sale do not back this claim. The claim remains transferable after booking. After the service day ends, its current holder burns it and receives exactly the booked escrowed USDC once.
 
@@ -87,6 +89,6 @@ Any revert unwinds the router, Aqua, ERC-20, and ERC-1155 state changes. ERC-115
 
 Proof covers canonical Aqua integration, fixed and Dutch pricing with authenticated fees and duration discounts, daily/weekly/31-day baskets, fungible room quantities, alternatives, independent orders, cancellations, revoked approvals, depleted wallet, moved inventory, authorization, budget refill, resale, rollback and malicious receivers. Invariants cover capacity/ownership, USDC conservation, and mandate cap over randomized sequences.
 
-Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, reservation cancellation/refunds, supplier integrations, a market adapter for revenue claims, production liquidity, continuous market making, and guaranteed fulfillment.
+Not implemented: multi-seller fills, partial fills, open-ended flexible date allocation, reservation cancellation/refunds, supplier integrations, production liquidity, continuous market making, and guaranteed fulfillment.
 
 The collective threshold applies only when all participating parties sign the guarded program. It counts wallet addresses and settled payment; it does not prove distinct people or guarantee that an open campaign will eventually activate.

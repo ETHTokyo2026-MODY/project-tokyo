@@ -8,10 +8,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IAqua} from "aqua/interfaces/IAqua.sol";
+import {IRentalRights} from "./IRentalRights.sol";
 import {RentalInventory} from "./RentalInventory.sol";
 
 /// @notice Transferable proceeds claim for a single supplier-attested capacity-one service day.
-contract RentalRevenue is ERC1155, IERC1155Receiver, ReentrancyGuard {
+contract RentalRevenue is ERC1155, IRentalRights, IERC1155Receiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     enum State {
@@ -49,6 +50,7 @@ contract RentalRevenue is ERC1155, IERC1155Receiver, ReentrancyGuard {
     uint256 public nextClaimId = 1;
     uint256 public escrowedRevenue;
     mapping(uint256 => Claim) public claims;
+    mapping(bytes32 => uint256) private claimIds;
 
     address private expectedHolder;
     uint256 private expectedTokenId;
@@ -84,9 +86,18 @@ contract RentalRevenue is ERC1155, IERC1155Receiver, ReentrancyGuard {
         return keccak256(abi.encode(m));
     }
 
+    /// @notice Stable router identity. A basket maps to at most one economic claim forever.
+    function tokenId(bytes32 pool, uint32 day, bytes32 terms) public view override returns (uint256) {
+        return claimIds[keccak256(abi.encode(pool, day, terms))];
+    }
+
     function createClaim(bytes32 pool, uint32 day, bytes32 terms) external nonReentrant returns (uint256 claimId) {
         (, uint32 start, uint32 end, uint32 capacity) = inventory.pools(pool);
-        require(capacity == 1 && day >= start && day < end && uint256(day) * 1 days > block.timestamp, InvalidClaim());
+        require(
+            capacity == 1 && day >= start && day < end && uint256(day) * 1 days > block.timestamp
+                && tokenId(pool, day, terms) == 0,
+            InvalidClaim()
+        );
 
         uint256 underlyingId = inventory.tokenId(pool, day, terms);
         expectedHolder = msg.sender;
@@ -96,6 +107,7 @@ contract RentalRevenue is ERC1155, IERC1155Receiver, ReentrancyGuard {
         expectedTokenId = 0;
 
         claimId = nextClaimId++;
+        claimIds[keccak256(abi.encode(pool, day, terms))] = claimId;
         claims[claimId] = Claim(pool, day, terms, 0, 0, State.Open);
         _mint(msg.sender, claimId, 1, "");
         emit ClaimCreated(claimId, msg.sender, pool, day, terms);

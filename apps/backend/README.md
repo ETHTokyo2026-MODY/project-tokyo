@@ -13,7 +13,7 @@ npm test --workspace=@project-tokyo/backend
 npm run test:integration --workspace=@project-tokyo/backend
 ```
 
-The integration tests launch disposable Anvil instances with real Aqua, the rental contracts, and a six-decimal test USDC. They cover order persistence, Solidity/JavaScript hash parity, ERC-1271 intake, overlap rejection, saved-transaction recovery, reorg reconciliation, and the revenue claim's Aqua-funded booking and payout path. They do not use a funded public wallet or write deployment receipts into Git.
+The integration tests launch disposable Anvil instances with real Aqua, the rental contracts, and a six-decimal test USDC. They cover order persistence, Solidity/JavaScript hash parity, ERC-1271 intake, overlap rejection, saved-transaction recovery, reorg reconciliation, and the revenue claim's order-backed resale, Aqua-funded booking, and payout path. They do not use a funded public wallet or write deployment receipts into Git.
 
 Run the internal order API with `RPC_URL`, `CHAIN_ID`, `ROUTER_ADDRESS`, `USDC_ADDRESS`, `START_BLOCK`, and an absolute `DATABASE_PATH` outside the repository. `START_BLOCK` must be the router's deployment block or earlier. Sepolia's chain ID is 11155111; published addresses are in `../../contracts/deployments/sepolia.json`.
 
@@ -61,7 +61,7 @@ The index processes up to 64 blocks per sync and defaults to two confirmations. 
 
 `RevenueClient` in `src/revenue.mjs` takes a public client, a role-specific wallet client, and `{chainId, revenue, aqua, usdc, confirmations}`. The holder approves the revenue contract to transfer inventory, then calls `createClaim`, `setPrice`, and optionally `transferClaim` or `withdrawUnbooked`. The buyer approves Aqua to transfer USDC and calls `shipBooking(mandate)`; any relayer can then call `book(claimId, mandate)`. The current claim holder calls `claimRevenue` after the booked day ends. `bookingStrategy` returns the exact ABI bytes and Aqua hash for the buyer's mandate. Each method simulates the contract call and checks its canonical receipt and expected event. A later reorg can still replace that block.
 
-Revenue claims are a separate ERC-1155 asset. `RentalSwapVM` only trades inventory tokens, so claim resale currently uses direct ERC-1155 transfer. A transfer changes who can set the unbooked price and who receives funded proceeds after booking; it does not create price discovery. Bookings are nonrefundable after the Aqua pull and inventory reservation. An unbooked claim can return its underlying for zero revenue. The backend exposes no signing key or public booking route.
+Revenue claims are a separate ERC-1155 asset. Deploy a separate `RentalSwapVM` with `RentalRevenue` as its rights contract, then configure an `OrderBook` and `Matcher` for that router to sell claims for wallet-held USDC through Aqua. Its router address gives claim orders a distinct signed domain and funding app from inventory orders. Direct ERC-1155 transfer is also possible. Resale changes who can set the unbooked price and who receives funded proceeds after booking. Signed resale prices are executable but do not establish market liquidity or a particular discovery algorithm. Bookings are nonrefundable after the Aqua pull and inventory reservation. An unbooked claim can return its underlying for zero revenue, but that basket cannot mint a replacement economic claim. The backend exposes no signing key or public booking route.
 
 ## Boundaries
 
