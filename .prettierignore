@@ -5,3 +5,5 @@ docs/
 next-env.d.ts
 apps/web/lib/demo/__fixtures__
 
+# Vendored Solidity sources
+contracts/lib/

@@ -1,0 +1,14 @@
+{
+  "chainId": 11155111,
+  "aqua": "0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a",
+  "aquaRuntimeHash": "0x720bc02d220db318164dc3bade86eec1f3655bdc00fc1174de7d816a95c341f8",
+  "usdc": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "inventory": "0x3ec8e7d506fd74a25a445e234b1eafcf67cbb5eb",
+  "router": "0xf70a2289eabc7960e49b47f5f3c40664d1f19c4d",
+  "routerRuntimeBytes": 9210,
+  "proofTransactions": {
+    "purchase": "0xe0723e23a3d6bcf27cb5e3a20befc3b4300aa077c1242f3b440f0ba64fb2c7ed",
+    "resale": "0x43557781baf095e4ca5060969d8ec8855a3ccb44dc863ba0b3c7adb396c0c3ba",
+    "thirtyOneDays": "0xa94d90b026acc3df6a0b9775dba6cf419220271c07b4f6813a6b323dc4d4c15e"
+  }
+}
