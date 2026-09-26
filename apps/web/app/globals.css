@@ -427,6 +427,17 @@
     color: var(--grey);
     font-weight: 600;
   }
+  .cell.sel {
+    box-shadow: 0 0 0 3px #111827 !important;
+  }
+  .cell.sel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.08);
+    pointer-events: none;
+  }
   .cell.today .top .num {
     background: #111827;
     color: #fff;
@@ -490,6 +501,126 @@
     font-weight: 600;
     font-size: 14px;
     margin-top: 6px;
+  }
+  #flash {
+    position: fixed;
+    top: 58px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    background: #111827;
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #flash.show {
+    animation: flashfade 2.5s forwards;
+  }
+  @keyframes flashfade {
+    0%,
+    92% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  .row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .row input:disabled {
+    background: #f3f4f6;
+    color: var(--grey);
+  }
+  .row input {
+    width: 90px;
+    padding: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 16px;
+  }
+  .panel button {
+    font-size: 16px;
+    padding: 7px 12px;
+  }
+  .panel button.primary {
+    background: #111827;
+    color: #fff;
+    border-color: #111827;
+  }
+  .panel button.buy {
+    width: 100%;
+    background: var(--green);
+    color: #fff;
+    border: 0;
+    font-weight: 700;
+    font-size: 18px;
+    padding: 10px;
+    margin-top: 8px;
+  }
+  .panel button.markbooked {
+    width: 100%;
+    margin-top: 8px;
+  }
+  .panel button.markbooked.on {
+    background: #dcfce7;
+    border-color: #16a34a;
+    color: #166534;
+    font-weight: 600;
+  }
+  .panel button.reset {
+    display: block;
+    margin: 4px 0 6px auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--grey);
+    font-size: 12px;
+    text-decoration: underline;
+  }
+  .panel button:disabled {
+    opacity: 0.45;
+  }
+  .panel.busy #trade button,
+  #trade.busy button {
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  .note {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .err {
+    color: var(--red);
+    font-size: 14px;
+    min-height: 18px;
+    margin-top: 6px;
+  }
+  .hist {
+    font-size: 13px;
+    margin: 6px 0 0;
+    padding-left: 18px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .panel details summary {
+    cursor: pointer;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    font-weight: 700;
   }
   #cal {
     container: cal / inline-size;

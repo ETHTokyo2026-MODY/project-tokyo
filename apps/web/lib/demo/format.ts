@@ -1,3 +1,5 @@
+import type { HistoryEntry } from './types';
+
 export const MONTHS = [
   'January',
   'February',
@@ -29,4 +31,21 @@ export function shortDate(date: string): string {
 
 export function longDate(date: string): string {
   return `${shortDate(date)}, ${date.slice(0, 4)}`;
+}
+
+/** `Sat Sep 26, 2026` — weekday from the day's stored index (0 = Sun). */
+export function weekdayDate(date: string, weekday: number): string {
+  return `${DOW[weekday]} ${longDate(date)}`;
+}
+
+export function historyLine(h: HistoryEntry, account: string): string {
+  if (h.type === 'booking') return `Booked at ${money(h.price)}`;
+  if (h.type === 'unbook') return 'Booking undone';
+  if (h.type === 'payout') {
+    return `Paid out ${money(h.price)}${h.to === account ? ' to you' : ''} (day passed)`;
+  }
+  const block = h.block && h.block > 1 ? ` (in ${h.block}-day block)` : '';
+  if (h.to === account) return `You bought for ${money(h.price)}${block}`;
+  if (h.from === account) return `You sold for ${money(h.price)}${block}`;
+  return `Bought for ${money(h.price)}${block}`;
 }
