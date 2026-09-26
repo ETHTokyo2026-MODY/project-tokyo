@@ -1,3 +1,4 @@
+import { requestProviders } from 'mipd';
 import {
   connect,
   createConfig,
@@ -456,16 +457,23 @@ export class WalletSession {
 }
 
 /** Keep this discovery listener for the page lifetime; dispose only when its owner tears down. */
-export function createWalletDiscovery(target: WalletWindow = window) {
+export function createWalletDiscovery() {
+  const target = window as WalletWindow;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
   const providers = new Map<
     string,
     { info: WalletChoice; provider: WalletProvider }
   >();
   const conflicts = new Set<string>();
   let disposed = false;
-  const announce = (event: Event) => {
-    const detail = (event as CustomEvent).detail;
-    const info = detail?.info;
+  const announce = (detail: unknown) => {
+    // Extension announcements are untrusted even when delivered by mipd.
+    if (!detail || typeof detail !== 'object') return;
+    const candidate = detail as { info?: WalletChoice; provider?: unknown };
+    const info = candidate.info;
     if (
       !info ||
       typeof info.uuid !== 'string' ||
@@ -476,30 +484,34 @@ export function createWalletDiscovery(target: WalletWindow = window) {
       !info.name ||
       typeof info.rdns !== 'string' ||
       !info.rdns ||
-      !isProvider(detail.provider)
+      !isProvider(candidate.provider)
     )
       return;
     const previous = providers.get(info.uuid);
     if (
       previous &&
-      (previous.provider !== detail.provider ||
+      (previous.provider !== candidate.provider ||
         previous.info.rdns !== info.rdns ||
         previous.info.name !== info.name)
     ) {
-      conflicts.add(info.uuid);
+      if (!conflicts.has(info.uuid)) {
+        conflicts.add(info.uuid);
+        notify();
+      }
       return;
     }
+    if (previous || conflicts.has(info.uuid)) return;
     providers.set(info.uuid, {
       info: { uuid: info.uuid, name: info.name, rdns: info.rdns },
-      provider: detail.provider,
+      provider: candidate.provider,
     });
+    notify();
   };
   const refresh = () => {
     if (disposed) throw new Error('Wallet discovery closed');
     target.dispatchEvent(new Event('eip6963:requestProvider'));
   };
-  target.addEventListener('eip6963:announceProvider', announce);
-  refresh();
+  const unsubscribe = requestProviders(announce);
   return {
     // RDNS is a self-attested label, not proof of an extension's authenticity.
     list(): WalletChoice[] {
@@ -535,9 +547,17 @@ export function createWalletDiscovery(target: WalletWindow = window) {
       return new WalletSession(matches[0].provider);
     },
     refresh,
+    subscribe(listener: () => void) {
+      if (disposed) throw new Error('Wallet discovery closed');
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     dispose() {
       disposed = true;
-      target.removeEventListener('eip6963:announceProvider', announce);
+      unsubscribe?.();
+      listeners.clear();
     },
   };
 }
