@@ -134,7 +134,9 @@ test(
       book = new OrderBook(store, client, config);
     t.after(() => store.close());
     let index = new ChainIndex(store, client, config);
-    const api = createServer({ book, index });
+    const supplyConfig = { chainId: foundry.id, inventory: inventory.address };
+    const supply = new SupplyBook(store, client, supplyConfig);
+    const api = createServer({ book, index, supply });
     await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
     t.after(
       () => api.listening && new Promise((resolve) => api.close(resolve)),
@@ -150,8 +152,6 @@ test(
       day + 7,
       1,
     ]);
-    const supplyConfig = { chainId: foundry.id, inventory: inventory.address };
-    const supply = new SupplyBook(store, client, supplyConfig);
     const schedule = {
       supplier: seller.account.address,
       pool,
@@ -167,7 +167,13 @@ test(
       primaryType: 'Schedule',
       message: schedule,
     });
-    const publication = await supply.publish({ schedule, signature });
+    const publicationResponse = await fetch(`${apiUrl}/supply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schedule, signature }),
+    });
+    assert.equal(publicationResponse.status, 201);
+    const publication = await publicationResponse.json();
     const plannedSupply = await supply.reconcile(publication.hash);
     assert.equal(plannedSupply.slots.length, 7);
     for (const slot of plannedSupply.slots) {

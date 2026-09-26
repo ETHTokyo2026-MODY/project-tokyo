@@ -58,7 +58,13 @@ export class SupplyBook {
       .run(key, value);
   }
 
+  async verifyChain() {
+    if (Number(await this.client.getChainId()) !== this.config.chainId)
+      throw new Error('supply RPC chain mismatch');
+  }
+
   async publish({ schedule, signature }) {
+    await this.verifyChain();
     if (
       !schedule ||
       Object.keys(schedule).sort().join() !==
@@ -85,6 +91,7 @@ export class SupplyBook {
       !s.target
     )
       throw new Error('invalid recurrence');
+    const block = await this.client.getBlock();
     if (
       !(await this.client.verifyTypedData({
         address: s.supplier,
@@ -93,6 +100,7 @@ export class SupplyBook {
         primaryType: 'Schedule',
         message: s,
         signature,
+        blockNumber: block.number,
       }))
     )
       throw new Error('invalid supplier signature');
@@ -106,7 +114,6 @@ export class SupplyBook {
       .prepare('SELECT payload FROM supply_schedules WHERE hash=?')
       .get(hash);
     if (prior) return JSON.parse(prior.payload);
-    const block = await this.client.getBlock();
     const [supplier, start, end, capacity] = await this.client.readContract({
       address: this.config.inventory,
       abi: inventorySupplyAbi,
@@ -128,6 +135,11 @@ export class SupplyBook {
       if (s.weekdays & (1 << ((day + 4) % 7))) days.push(day);
     }
     if (!days.length) throw new Error('empty recurrence');
+    if (
+      (await this.client.getBlock({ blockNumber: block.number })).hash !==
+      block.hash
+    )
+      throw new Error('supply snapshot reorganized');
     const result = { hash, schedule: s, signature, days };
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -147,6 +159,7 @@ export class SupplyBook {
   }
 
   async reconcile(hash) {
+    await this.verifyChain();
     const row = this.db
       .prepare('SELECT payload FROM supply_schedules WHERE hash=?')
       .get(hash);
@@ -178,6 +191,7 @@ export class SupplyBook {
           issued < target && day > Number(block.timestamp / 86400n)
             ? {
                 account: s.supplier,
+                chainId: this.config.chainId,
                 to: this.config.inventory,
                 data: encodeFunctionData({
                   abi: inventorySupplyAbi,
