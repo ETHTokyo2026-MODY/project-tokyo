@@ -59,6 +59,7 @@ Reused code: [1inch Aqua](https://github.com/1inch/aqua), [1inch SwapVM](https:/
 
 [`apps/backend`](apps/backend/README.md) rebuilds calendars and orders from
 canonical chain events, prepares unsigned wallet transactions, and runs a minimal
-open taker. It uses [viem](https://viem.sh/) and Node SQLite for a rebuildable
+open taker. The frontend uses [Wagmi Core](https://wagmi.sh/core) and [viem](https://viem.sh/)
+for wallet connections and signing. The backend uses viem and Node SQLite for a rebuildable
 index and durable transaction recovery. The HTTP integration test creates,
 lists and purchases an asset through the same interface used by the website.
