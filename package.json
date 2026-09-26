@@ -17,6 +17,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "playwright": "1.62.1",
     "prettier": "^3.6.2"
   }
 }
