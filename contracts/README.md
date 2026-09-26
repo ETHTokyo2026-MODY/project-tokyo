@@ -29,6 +29,8 @@ Circle test USDC is used at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`. Aqua b
 
 For a new deployment, set `FEE_RECIPIENT` and use `script/Deploy.s.sol` with a separately configured Foundry signer and Sepolia RPC. The script checks chain ID and Aqua code hash. Never place keys in this repository.
 
+`RentalPoolResolver` maps one ENSv2 parent name's direct child labels to existing `RentalInventory` pool IDs. Its owner may change an alias, while EIP-712 rental orders continue to bind the concrete `bytes32` pool at signing. It implements the ENSv2 wildcard `resolve(bytes,bytes)` record for `pool(bytes32)`; the [Universal Resolver V2](https://docs.ens.domains/ensv2/universal-resolver-v2/) chooses the longest matching resolver. The backend checks that the returned resolver is this configured contract, so an overridden child is not silently accepted. The resolver's labels are deliberately limited to lowercase ASCII letters, digits and interior hyphens. Set the official Sepolia ENSv2 parent resolver through the [ETH Registrar](https://docs.ens.domains/ensv2/eth-registrar/) or an owned ENS name; `test/ENSFork.t.sol` exercises registration and resolution against a Sepolia fork when `SEPOLIA_RPC_URL` is set.
+
 ## Scope
 
 One seller per fill; whole-unit quantities; contiguous future UTC dates up to 31 days. Legacy programs retain the 1% buyer-paid fee; economic-terms programs can set fees up to 10% and discounts up to 90%. Independent orders share conditional funding; OCO groups permit only one successful alternative. Collective activation is bounded to eight signed fills and counts distinct maker addresses, not unique people. It provides no escrow or reserved funding while orders are open.

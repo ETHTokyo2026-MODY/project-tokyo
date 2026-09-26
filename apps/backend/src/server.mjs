@@ -3,6 +3,12 @@ import { resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createPublicClient, getAddress, http } from 'viem';
 import { ChainIndex } from './chain.mjs';
+import {
+  DiscoveryInputError,
+  DiscoveryNotFound,
+  InventoryDiscovery,
+  SEPOLIA_ENS_V2,
+} from './discovery.mjs';
 import { Market, MarketInputError } from './market.mjs';
 import { OrderBook, OrderInputError } from './orders.mjs';
 import { routerAbi } from './protocol.mjs';
@@ -50,7 +56,7 @@ async function readJson(request) {
   }
 }
 
-export function createServer({ book, index, supply, market }) {
+export function createServer({ book, index, supply, market, discovery }) {
   if (!book || !index) throw new Error('Order book and chain index required');
   const health = { lastSuccessAt: null, lastErrorAt: null };
   const server = createHttpServer(async (request, response) => {
@@ -67,6 +73,41 @@ export function createServer({ book, index, supply, market }) {
           stale,
           lastSyncAt: health.lastSuccessAt,
         });
+      }
+      if (
+        discovery &&
+        request.method === 'GET' &&
+        url.pathname === '/inventory/resolve'
+      ) {
+        if (
+          [...url.searchParams.keys()].some((key) => key !== 'name') ||
+          url.searchParams.getAll('name').length !== 1
+        )
+          return json(response, 400, { error: 'invalid pool name' });
+        try {
+          return json(
+            response,
+            200,
+            await discovery.resolve(url.searchParams.get('name')),
+          );
+        } catch (error) {
+          return json(
+            response,
+            error instanceof DiscoveryInputError
+              ? 400
+              : error instanceof DiscoveryNotFound
+                ? 404
+                : 503,
+            {
+              error:
+                error instanceof DiscoveryInputError
+                  ? 'invalid pool name'
+                  : error instanceof DiscoveryNotFound
+                    ? 'pool name not found'
+                    : 'pool discovery unavailable',
+            },
+          );
+        }
       }
       if (supply && request.method === 'POST' && url.pathname === '/supply') {
         try {
@@ -257,7 +298,21 @@ async function main() {
           inventory: process.env.INVENTORY_ADDRESS,
         })
       : undefined;
-    server = createServer({ book, index, supply, market });
+    const discovery = process.env.ENS_POOL_RESOLVER
+      ? new InventoryDiscovery(client, {
+          chainId,
+          universalResolver:
+            process.env.ENS_UNIVERSAL_RESOLVER ??
+            SEPOLIA_ENS_V2.universalResolver,
+          rootRegistry:
+            process.env.ENS_ROOT_REGISTRY ?? SEPOLIA_ENS_V2.rootRegistry,
+          poolResolver: process.env.ENS_POOL_RESOLVER,
+          inventory: required('INVENTORY_ADDRESS'),
+          router: config.router,
+          parentName: required('ENS_PARENT_NAME'),
+        })
+      : undefined;
+    server = createServer({ book, index, supply, market, discovery });
     let syncTask = null;
     const sync = () => {
       if (syncTask) return syncTask;
