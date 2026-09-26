@@ -33,7 +33,7 @@ import {
 import { normalizeAssetId, usdText, rangeQuote } from '@/lib/chain/model';
 import { quoteBlock } from '@/lib/demo/quote';
 import { summaries } from '@/lib/demo/summaries';
-import { useDemo } from '@/lib/demo/store';
+import { useChainStore } from '@/lib/chain/store';
 import type { Account, Asset, Day } from '@/lib/demo/types';
 
 const TITLE = 'Calendar · ProjectTokyo';
@@ -354,7 +354,7 @@ function TradeBody({
   busy: boolean;
   onAct: (name: string, body: Record<string, unknown>, flash?: string) => void;
 }) {
-  const { state } = useDemo();
+  const { state } = useChainStore();
   const asset = state?.assets.find((a) => a.id === assetId);
   const host = asset?.provider === account;
   const dayEns =
@@ -499,7 +499,7 @@ function TradeBody({
 }
 
 function CalendarInner() {
-  const { ready, state, today } = useDemo();
+  const { ready, state, today } = useChainStore();
   const account = useAccount();
   const params = useSearchParams();
   const assetId = normalizeAssetId(params.get('asset') ?? '');
@@ -582,7 +582,7 @@ function AssetGrid({
   acct: Account | undefined;
   today: string;
 }) {
-  const { dispatch, reset, busy: walletBusy, ready } = useDemo();
+  const { dispatch, busy: walletBusy, ready } = useChainStore();
   const [anchor, setAnchor] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null);
@@ -705,15 +705,6 @@ function AssetGrid({
     },
     [account, asset.id, dispatch],
   );
-
-  const onReset = () => {
-    if (!confirm('Master reset: restore the initial sample data?')) return;
-    setAnchor(null);
-    setFocus(null);
-    setKbd(null);
-    setError('');
-    reset();
-  };
 
   const onCalKeyDown = (e: ReactKeyboardEvent) => {
     const cell = (e.target as HTMLElement).closest('[data-date]');
@@ -910,11 +901,6 @@ function AssetGrid({
           )}
           <div className="err">{error}</div>
         </section>
-        {!asset.chain ? (
-          <button className="reset" type="button" onClick={onReset}>
-            Master reset
-          </button>
-        ) : null}
       </aside>
     </div>
   );
