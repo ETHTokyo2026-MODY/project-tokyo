@@ -3,19 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { keccak256, toHex } from 'viem';
+import { DatabaseSync } from 'node:sqlite';
+import { keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { Matcher, ensureSubmissions } from '../src/matcher.mjs';
-import { StoredSubmission } from '../src/submission.mjs';
-import { fixedProgram, hashStrategy, ZERO_HASH } from '../src/protocol.mjs';
-import { Store } from '../src/store.mjs';
+import { StoredSubmission, ensureSubmissions } from '../src/submission.mjs';
 
-const directory = mkdtempSync(join(tmpdir(), 'rental-matcher-'));
+const directory = mkdtempSync(join(tmpdir(), 'day-submission-'));
 after(() => rmSync(directory, { recursive: true, force: true }));
 const filename = () => join(directory, `${Math.random()}.db`);
 const relayer = privateKeyToAccount(`0x${'33'.repeat(32)}`);
-const buyer = privateKeyToAccount(`0x${'44'.repeat(32)}`);
-const seller = privateKeyToAccount(`0x${'55'.repeat(32)}`);
 const config = {
   chainId: 31337,
   router: '0x1111111111111111111111111111111111111111',
@@ -23,9 +19,9 @@ const config = {
 };
 
 test('saved signed jobs cannot be retried with a different exact call', async () => {
-  const store = new Store(filename());
+  const store = new DatabaseSync(filename());
   try {
-    const sender = new StoredSubmission(store.db, fakeClient(), localWallet(), {
+    const sender = new StoredSubmission(store, fakeClient(), localWallet(), {
       chainId: config.chainId,
       kind: 'ordinary',
     });
@@ -52,21 +48,21 @@ test('saved signed jobs cannot be retried with a different exact call', async ()
 });
 
 test('legacy ordinary submissions migrate into the shared nonce namespace', () => {
-  const store = new Store(filename());
+  const store = new DatabaseSync(filename());
   try {
-    store.db.exec(`CREATE TABLE submissions (
+    store.exec(`CREATE TABLE submissions (
       id TEXT PRIMARY KEY, bid_hash TEXT NOT NULL, ask_hash TEXT NOT NULL,
       sender TEXT NOT NULL, nonce INTEGER NOT NULL, unsigned TEXT,
       raw TEXT, tx_hash TEXT, UNIQUE(sender, nonce)
     )`);
-    store.db
+    store
       .prepare(
         'INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce) VALUES(?,?,?,?,?)',
       )
       .run('old', 'bid', 'ask', relayer.address.toLowerCase(), 7);
-    ensureSubmissions(store.db);
-    ensureSubmissions(store.db);
-    const old = store.db
+    ensureSubmissions(store);
+    ensureSubmissions(store);
+    const old = store
       .prepare('SELECT nonce,kind,payload FROM submissions WHERE id = ?')
       .get('old');
     assert.equal(old.nonce, 7);
@@ -74,7 +70,7 @@ test('legacy ordinary submissions migrate into the shared nonce namespace', () =
     assert.equal(old.payload, null);
     assert.throws(
       () =>
-        store.db
+        store
           .prepare(
             "INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce,kind) VALUES(?,?,?,?,?,'conversion')",
           )
@@ -87,11 +83,11 @@ test('legacy ordinary submissions migrate into the shared nonce namespace', () =
 });
 
 test('unsigned ordinary job blocks a later conversion nonce until recovered', async () => {
-  const store = new Store(filename());
+  const store = new DatabaseSync(filename());
   const client = fakeClient();
   const badWallet = localWallet();
   badWallet.failSign = true;
-  const ordinary = new StoredSubmission(store.db, client, badWallet, {
+  const ordinary = new StoredSubmission(store, client, badWallet, {
     chainId: config.chainId,
     kind: 'ordinary',
   });
@@ -106,7 +102,7 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
     ordinary.submit({ ...args, id: 'ordinary' }),
     /signing failed/,
   );
-  const conversion = new StoredSubmission(store.db, client, localWallet(), {
+  const conversion = new StoredSubmission(store, client, localWallet(), {
     chainId: config.chainId,
     kind: 'conversion',
   });
@@ -115,10 +111,10 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
     /Earlier relayer submission requires recovery/,
   );
   assert.equal(
-    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    store.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
     1,
   );
-  const recovered = new StoredSubmission(store.db, client, localWallet(), {
+  const recovered = new StoredSubmission(store, client, localWallet(), {
     chainId: config.chainId,
     kind: 'ordinary',
   });
@@ -133,12 +129,12 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
 });
 
 test('saved but unbroadcast ordinary transaction blocks later conversion', async () => {
-  const store = new Store(filename());
+  const store = new DatabaseSync(filename());
   const client = fakeClient();
   client.sendRawTransaction = async () => {
     throw new Error('transport failed before acceptance');
   };
-  const ordinary = new StoredSubmission(store.db, client, localWallet(), {
+  const ordinary = new StoredSubmission(store, client, localWallet(), {
     chainId: config.chainId,
     kind: 'ordinary',
   });
@@ -154,7 +150,7 @@ test('saved but unbroadcast ordinary transaction blocks later conversion', async
     /transport failed/,
   );
   assert.ok(ordinary.get('ordinary').raw);
-  const conversion = new StoredSubmission(store.db, client, localWallet(), {
+  const conversion = new StoredSubmission(store, client, localWallet(), {
     chainId: config.chainId,
     kind: 'conversion',
   });
@@ -163,40 +159,58 @@ test('saved but unbroadcast ordinary transaction blocks later conversion', async
     /not accepted by RPC/,
   );
   assert.equal(
-    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    store.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
     1,
   );
   store.close();
 });
 
-async function pair() {
-  const inventory = '0x7777777777777777777777777777777777777777';
-  const make = (account, buy, price) => {
-    const strategy = {
-      maker: account.address,
-      inventory,
-      ids: ['1'],
-      quantity: '1',
-      buy,
-      salt: ZERO_HASH,
-      program: fixedProgram({
-        usdc: config.usdc,
-        inventory,
-        price,
-        expiry: 10000n,
-        nonce: 1,
-      }),
-    };
-    return { hash: hashStrategy(strategy), strategy };
+test('estimation leaves no nonce while signing failure survives database restart', async () => {
+  const path = filename();
+  let db = new DatabaseSync(path);
+  const client = fakeClient(),
+    wallet = localWallet();
+  const args = {
+    id: 'restart',
+    bidHash: 'bid',
+    askHash: 'ask',
+    to: config.router,
+    data: '0x1234',
+    simulate: async () => {},
   };
-  const bid = make(buyer, true, 1100000n),
-    ask = make(seller, false, 1000000n);
-  return {
-    bid,
-    ask,
-    book: { get: (hash) => [bid, ask].find((e) => e.hash === hash) },
-  };
-}
+  try {
+    const sender = new StoredSubmission(db, client, wallet, {
+      chainId: config.chainId,
+      kind: 'ordinary',
+    });
+    wallet.failEstimate = true;
+    await assert.rejects(sender.submit(args), /estimate failed/);
+    assert.equal(
+      db.prepare('SELECT count(*) AS n FROM submissions').get().n,
+      0,
+    );
+    wallet.failEstimate = false;
+    wallet.failSign = true;
+    await assert.rejects(sender.submit(args), /signing failed/);
+    const saved = sender.get(args.id);
+    assert.equal(saved.nonce, 0);
+    assert.ok(saved.unsigned);
+    assert.equal(saved.raw, null);
+    db.close();
+    db = new DatabaseSync(path);
+    const recovered = new StoredSubmission(db, client, localWallet(), {
+      chainId: config.chainId,
+      kind: 'ordinary',
+    });
+    await recovered.submit(args);
+    assert.equal(recovered.get(args.id).unsigned, saved.unsigned);
+    assert.equal(recovered.get(args.id).nonce, saved.nonce);
+    assert.ok(recovered.get(args.id).raw);
+    assert.equal(client.sent.length, 1);
+  } finally {
+    db.close();
+  }
+});
 
 function fakeClient() {
   const client = {
@@ -252,83 +266,3 @@ function localWallet() {
     },
   };
 }
-
-test('concurrent submissions of one pair persist and broadcast the same signed bytes', async () => {
-  const store = new Store(filename());
-  const { bid, ask, book } = await pair();
-  const client = fakeClient();
-  const matcher = new Matcher(store, book, client, localWallet(), config);
-  const [first, second] = await Promise.all([
-    matcher.submit(bid.hash, ask.hash),
-    matcher.submit(bid.hash, ask.hash),
-  ]);
-  assert.deepEqual(first, second);
-  assert.equal(first.state, 'broadcast');
-  const jobs = store.db
-    .prepare('SELECT nonce, raw, tx_hash FROM submissions')
-    .all();
-  assert.equal(jobs.length, 1);
-  assert.equal(jobs[0].nonce, 0);
-  assert.equal(jobs[0].tx_hash, first.transactionHash);
-  assert.equal(new Set(client.sent).size, 1);
-  assert.equal(client.sent[0], jobs[0].raw);
-  store.close();
-});
-
-test('failed estimation leaves no reserved nonce', async () => {
-  const store = new Store(filename());
-  const { bid, ask, book } = await pair();
-  const wallet = localWallet();
-  wallet.failEstimate = true;
-  const matcher = new Matcher(store, book, fakeClient(), wallet, config);
-  await assert.rejects(matcher.submit(bid.hash, ask.hash), /estimate failed/);
-  assert.equal(
-    store.db.prepare('SELECT count(*) AS n FROM submissions').get().n,
-    0,
-  );
-  store.close();
-});
-
-test('signing failure leaves durable unsigned bytes for recovery after restart', async () => {
-  const path = filename();
-  let store = new Store(path);
-  const { bid, ask, book } = await pair();
-  const client = fakeClient();
-  const wallet = localWallet();
-  wallet.failSign = true;
-  const matcher = new Matcher(store, book, client, wallet, config);
-  await assert.rejects(matcher.submit(bid.hash, ask.hash), /signing failed/);
-  const before = store.db
-    .prepare('SELECT nonce, unsigned, raw FROM submissions')
-    .get();
-  assert.equal(before.nonce, 0);
-  assert.ok(before.unsigned);
-  assert.equal(before.raw, null);
-  store.close();
-
-  store = new Store(path);
-  const restarted = new Matcher(store, book, client, localWallet(), config);
-  const [recovered] = await restarted.recover();
-  assert.equal(recovered.state, 'broadcast');
-  assert.ok(store.db.prepare('SELECT raw FROM submissions').get().raw);
-  assert.equal(client.sent.length, 1);
-  store.close();
-});
-
-test('a reverted receipt remains reverted through submission, status, and recovery', async () => {
-  const store = new Store(filename());
-  const { bid, ask, book } = await pair();
-  const client = fakeClient();
-  const matcher = new Matcher(store, book, client, localWallet(), config);
-  const broadcast = await matcher.submit(bid.hash, ask.hash);
-  client.receipts.set(broadcast.transactionHash, { status: 'reverted' });
-  assert.equal((await matcher.submit(bid.hash, ask.hash)).state, 'reverted');
-  assert.equal(
-    (await matcher.status(broadcast.id, { status: async () => 'filled' }))
-      .state,
-    'reverted',
-  );
-  assert.equal((await matcher.recover())[0].state, 'reverted');
-  assert.equal(client.sent.length, 1);
-  store.close();
-});

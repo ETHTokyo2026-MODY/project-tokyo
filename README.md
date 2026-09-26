@@ -1,11 +1,17 @@
-# Project Tokyo
+# ProjectTokyo
 
 Hosts presell future room-nights and get paid now. Traders buy those nights and set the public rental price.
 
 ## Status
 
-The web app is a working demo with sample data that lives in your browser
-(reset from the calendar panel). No on-chain parts yet.
+The ERC-20 demo connects the host calendar and trader bids to a local backend.
+Each physical asset has a fixed 365-day JST calendar. Each materialized day is
+an indivisible ERC-20 with supply one. Official Aqua settles both USDC and day
+tokens; a permissionless taker executes compatible onchain publications.
+
+The optional booking webhook simulates a trusted external host adapter. Booking
+reports do not create funded revenue payouts. See the backend setup below for
+live mode; the public deployment is updated separately.
 
 Live demo: https://project-tokyo-rbt7w.ondigitalocean.app
 
@@ -42,7 +48,8 @@ MIT. See [`LICENSE`](LICENSE).
 
 ## Rental settlement contracts
 
-`contracts/` contains the standalone ERC-1155/Aqua settlement package; it is not wired into the web app. See [contract setup and tests](contracts/README.md), [order semantics](contracts/SPEC.md), and [Sepolia addresses](contracts/deployments/sepolia.json).
+`contracts/` contains day ownership, booking-price curves and the Aqua settlement
+application. See [contract setup and tests](contracts/README.md).
 
 Reused code: [1inch Aqua](https://github.com/1inch/aqua), [1inch SwapVM](https://github.com/1inch/swap-vm), [1inch solidity-utils](https://github.com/1inch/solidity-utils), [OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts), and [forge-std](https://github.com/foundry-rs/forge-std). Exact revisions are pinned in `contracts/scripts/bootstrap.sh`.
 
@@ -50,4 +57,8 @@ Reused code: [1inch Aqua](https://github.com/1inch/aqua), [1inch SwapVM](https:/
 
 ## Order backend
 
-[`apps/backend`](apps/backend/README.md) discovers shipped AquaVapor strategies and provides a local HTTP API, chain reconciliation, and a relayer library using [viem](https://viem.sh/) and Node SQLite. It consumes the contract schemas and has a real-contract Anvil integration test. The web app is not connected to it.
+[`apps/backend`](apps/backend/README.md) rebuilds calendars and orders from
+canonical chain events, prepares unsigned wallet transactions, and runs a minimal
+open taker. It uses [viem](https://viem.sh/) and Node SQLite for a rebuildable
+index and durable transaction recovery. The HTTP integration test creates,
+lists and purchases an asset through the same interface used by the website.
