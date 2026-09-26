@@ -514,7 +514,7 @@ function CalendarInner() {
     if (!asset) document.title = TITLE;
   }, [asset]);
 
-  if (!ready || !state) return <Loading />;
+  if (!state) return <Loading />;
   if (!assetId || !asset || !meta) {
     return (
       <main className="page">
@@ -576,20 +576,20 @@ function AssetGrid({
   asset: Asset;
   metaName: string;
   account: string;
-  acct: Account;
+  acct: Account | undefined;
   today: string;
 }) {
-  const { dispatch, reset, busy: walletBusy } = useDemo();
+  const { dispatch, reset, busy: walletBusy, ready } = useDemo();
   const [anchor, setAnchor] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [localBusy, setBusy] = useState(false);
-  const busy = localBusy || walletBusy;
+  const busy = localBusy || walletBusy || !ready;
   const [flash, setFlash] = useState({ text: '', token: 0 });
   const pending = useRef(false);
   const calRef = useRef<HTMLDivElement>(null);
-  const pl = acct.cash - acct.startCash;
+  const pl = acct ? acct.cash - acct.startCash : 0;
   const lockedIn = asset.days
     .filter(
       (d) => d.date >= today && d.owner === account && d.status === 'booked',
@@ -836,28 +836,43 @@ function AssetGrid({
         </div>
       </main>
       <aside className="panel">
-        <section>
-          <h2>{acct.name}</h2>
-          <div className="kv">
-            <div>Wallet USDC</div>
-            <div>{money(acct.cash)}</div>
-            <div>Profit / loss</div>
-            <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
-              {asset.chain ? 'Not indexed' : signed(pl)}
+        {acct ? (
+          <section>
+            <h2>{acct.name}</h2>
+            <div className="kv">
+              <div>Wallet USDC</div>
+              <div>{money(acct.cash)}</div>
+              <div>Profit / loss</div>
+              <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
+                {asset.chain ? 'Not indexed' : signed(pl)}
+              </div>
+              <div>Booked public prices (unfunded)</div>
+              <div>{money(lockedIn)}</div>
             </div>
-            <div>Booked public prices (unfunded)</div>
-            <div>{money(lockedIn)}</div>
-          </div>
-          {Number.isFinite(cheapest) && acct.cash < cheapest ? (
-            <div className="warn">
-              Not enough cash to buy any listed day (cheapest {money(cheapest)}
-              ).
-            </div>
-          ) : null}
-        </section>
+            {Number.isFinite(cheapest) && acct.cash < cheapest ? (
+              <div className="warn">
+                Not enough cash to buy any listed day (cheapest{' '}
+                {money(cheapest)}
+                ).
+              </div>
+            ) : null}
+          </section>
+        ) : (
+          <section>
+            <h2>Browse the calendar</h2>
+            <p className="note">
+              Connect a wallet from the navigation to buy days or manage your
+              assets.
+            </p>
+          </section>
+        )}
         <section id="trade" className={busy ? 'busy' : undefined}>
           <div className="hint">Shift-click to select a block of days</div>
-          {selDays.length > 1 && quote ? (
+          {!acct ? (
+            <p className="note">
+              Select days to explore their prices. Connect a wallet to trade.
+            </p>
+          ) : selDays.length > 1 && quote ? (
             <BlockPanel
               assetId={asset.id}
               days={selDays}

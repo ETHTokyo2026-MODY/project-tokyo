@@ -152,7 +152,7 @@ function CurveInner() {
     save(next);
   }
 
-  if (!ready || !state) return <Loading />;
+  if (!state) return <Loading />;
 
   const [y, m, d] = dayDate.split('-').map(Number);
   const title = day
