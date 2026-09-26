@@ -417,6 +417,53 @@ test(
       }),
       380_000n,
     );
+    for (const mutation of [
+      { input: '0x' },
+      { to: '0x0000000000000000000000000000000000000000' },
+    ]) {
+      const alteredClient = new Proxy(client, {
+        get(target, key) {
+          if (key === 'getTransaction')
+            return async (args) => ({
+              ...(await target.getTransaction(args)),
+              ...mutation,
+            });
+          return target[key];
+        },
+      });
+      await assert.rejects(
+        new ConversionRelay(book, alteredClient, relayer, relayConfig).status(
+          recovered[1].id,
+        ),
+        /mined call mismatched/,
+      );
+    }
+    for (const wrongEmitter of [false, true]) {
+      const alteredClient = new Proxy(client, {
+        get(target, key) {
+          if (key === 'getTransactionReceipt')
+            return async (args) => {
+              const receipt = await target.getTransactionReceipt(args);
+              return {
+                ...receipt,
+                logs: wrongEmitter
+                  ? receipt.logs.map((log) => ({
+                      ...log,
+                      address: '0x0000000000000000000000000000000000000000',
+                    }))
+                  : [],
+              };
+            };
+          return target[key];
+        },
+      });
+      await assert.rejects(
+        new ConversionRelay(book, alteredClient, relayer, relayConfig).status(
+          recovered[1].id,
+        ),
+        /settlement events missing/,
+      );
+    }
     const orphanClient = new Proxy(client, {
       get(target, key) {
         if (key === 'getBlock')
