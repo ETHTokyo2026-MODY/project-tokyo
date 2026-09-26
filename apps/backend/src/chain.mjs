@@ -75,6 +75,7 @@ export class ChainIndex {
         PRIMARY KEY (block_number, log_index)
       );
       CREATE INDEX IF NOT EXISTS chain_events_name ON chain_events(name);
+      CREATE INDEX IF NOT EXISTS chain_events_name_position ON chain_events(name, block_number DESC, log_index DESC);
       CREATE INDEX IF NOT EXISTS chain_events_tx ON chain_events(transaction_hash);
     `);
     const hasScopeTable = this.db

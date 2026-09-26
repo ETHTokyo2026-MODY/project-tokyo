@@ -20,6 +20,7 @@ import { SupplyBook, supplyDomain, scheduleTypes } from '../src/supply.mjs';
 import { OrderBook } from '../src/orders.mjs';
 import { ChainIndex } from '../src/chain.mjs';
 import { Matcher } from '../src/matcher.mjs';
+import { Market } from '../src/market.mjs';
 import { createServer } from '../src/server.mjs';
 import { Redemption } from '../src/redemption.mjs';
 import {
@@ -136,7 +137,12 @@ test(
     let index = new ChainIndex(store, client, config);
     const supplyConfig = { chainId: foundry.id, inventory: inventory.address };
     const supply = new SupplyBook(store, client, supplyConfig);
-    const api = createServer({ book, index, supply });
+    const api = createServer({
+      book,
+      index,
+      supply,
+      market: new Market(book, index, client, config),
+    });
     await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
     t.after(
       () => api.listening && new Promise((resolve) => api.close(resolve)),
@@ -227,6 +233,7 @@ test(
       nonce,
       endDay,
       maker = wallet.account.address,
+      funding = mandate,
       programBytes = program,
     ) {
       const o = {
@@ -243,7 +250,7 @@ test(
         expiry,
         nonce: BigInt(nonce),
         group: ZERO_HASH,
-        mandate: buy ? hashMandate(mandate) : ZERO_HASH,
+        mandate: buy ? hashMandate(funding) : ZERO_HASH,
         programHash: keccak256(programBytes),
       };
       const signature = await wallet.signTypedData({
@@ -252,20 +259,22 @@ test(
         primaryType: 'Order',
         message: o,
       });
-      const response = await fetch(`${apiUrl}/orders`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(
-          json({
-            order: o,
-            signature,
-            program: programBytes,
-            ...(buy ? { mandate } : {}),
-          }),
-        ),
+      const payload = json({
+        order: o,
+        signature,
+        program: programBytes,
+        ...(buy ? { mandate: funding } : {}),
       });
-      assert.equal(response.status, 201);
-      const record = await response.json();
+      let record;
+      if (api.listening) {
+        const response = await fetch(`${apiUrl}/orders`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(response.status, 201);
+        record = await response.json();
+      } else record = await book.submit(payload);
       assert.equal(
         record.hash,
         await client.readContract({
@@ -302,6 +311,7 @@ test(
       4,
       day + 7,
       buyer.account.address,
+      mandate,
       economicProgram,
     );
     const economicAsk = await order(
@@ -310,9 +320,21 @@ test(
       4,
       day + 7,
       seller.account.address,
+      mandate,
       economicProgram,
     );
     assert.equal(economicBid.order.programHash, economicAsk.order.programHash);
+    const listed = await fetch(`${apiUrl}/market/quotes?limit=5`);
+    assert.equal(listed.status, 200);
+    const alternatives = await listed.json();
+    assert.equal(alternatives.quotes.length, 2);
+    assert.equal(alternatives.bestByBasket.length, 2);
+    assert.ok(
+      alternatives.bestByBasket.every((quote) => quote.total === '1010000'),
+    );
+    assert.equal(alternatives.quotes[0].bidMaker, buyer.account.address);
+    assert.equal(alternatives.quotes[1].bidMaker, buyer.account.address);
+    assert.match(alternatives.execution, /alternatives/);
     const balance = () =>
       client.readContract({
         ...usd,
@@ -320,12 +342,24 @@ test(
         args: [buyer.account.address],
       });
     assert.equal(await balance(), 10_000_000n); // Publishing alternatives did not escrow or reserve money.
+    await send(buyer, usd, 'transfer', [seller.account.address, 8_500_000n]);
+    assert.equal(await balance(), 1_500_000n);
+    const constrained = await (
+      await fetch(`${apiUrl}/market/quotes?limit=5`)
+    ).json();
+    assert.equal(constrained.quotes.length, 2);
+    assert.ok(
+      constrained.quotes.reduce((sum, quote) => sum + BigInt(quote.total), 0n) >
+        (await balance()),
+    ); // Each alternative is fillable; their combined cost exceeds the wallet.
+    await send(seller, usd, 'transfer', [buyer.account.address, 8_500_000n]);
     if (api.listening) await new Promise((resolve) => api.close(resolve));
     store.close();
     store = new Store(dbPath);
     book = new OrderBook(store, client, config);
     index = new ChainIndex(store, client, config);
     const matcher = new Matcher(store, book, client, relayer, config);
+    let market = new Market(book, index, client, config);
     assert.deepEqual(book.get(bid.hash), bid);
     assert.equal((await matcher.candidates()).length, 3);
     // Execute the persisted economic program through the production relay, then
@@ -378,12 +412,17 @@ test(
     assert.equal(await balance(), 10_000_000n);
 
     await send(buyer, usd, 'transfer', [seller.account.address, 10_000_000n]);
+    assert.equal((await market.quotes()).quotes.length, 0);
     await assert.rejects(matcher.submit(bid.hash, ask.hash));
     assert.equal(
       store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
       0,
     );
     await send(seller, usd, 'transfer', [buyer.account.address, 10_000_000n]);
+    assert.deepEqual(
+      new Set((await market.quotes()).quotes.map((quote) => quote.bidHash)),
+      new Set([bid.hash, weekBid.hash, economicBid.hash]),
+    );
     const snapshot = await client.request({ method: 'evm_snapshot' });
     let dropped = false;
     const lossyClient = new Proxy(client, {
@@ -411,6 +450,7 @@ test(
     store = new Store(dbPath);
     book = new OrderBook(store, client, config);
     index = new ChainIndex(store, client, config);
+    market = new Market(book, index, client, config);
     const restarted = new Matcher(store, book, client, relayer, config);
     const settled = await restarted.submit(bid.hash, ask.hash);
     assert.equal(settled.transactionHash, saved.tx_hash);
@@ -426,6 +466,18 @@ test(
     await client.waitForTransactionReceipt({ hash: saved.tx_hash });
     await index.sync();
     assert.equal(await index.status(bid), 'filled');
+    const firstSales = await market.history();
+    assert.equal(firstSales.sales.length, 1);
+    assert.equal(firstSales.sales[0].price, '1000000');
+    assert.equal(firstSales.bookingHistory, 'unavailable');
+    const readApi = createServer({ book, index, market });
+    await new Promise((resolve) => readApi.listen(0, '127.0.0.1', resolve));
+    const historyResponse = await fetch(
+      `http://127.0.0.1:${readApi.address().port}/market/history`,
+    );
+    assert.equal(historyResponse.status, 200);
+    assert.equal((await historyResponse.json()).sales.length, 1);
+    await new Promise((resolve) => readApi.close(resolve));
     assert.equal(
       (await restarted.status(settled.id, index)).state,
       'confirmed',
@@ -491,6 +543,7 @@ test(
     await client.request({ method: 'evm_mine' });
     await index.sync();
     assert.equal(await index.status(bid), 'open');
+    assert.deepEqual((await market.history()).sales, []);
     assert.equal(await balance(), 10_000_000n);
     assert.equal(
       await client.readContract({
@@ -513,5 +566,79 @@ test(
       (await restarted.status(settled.id, index)).state,
       'confirmed',
     );
+    await send(seller, usd, 'mint', [seller.account.address, 10_000n]);
+    await send(seller, usd, 'approve', [aqua.address, 1_010_000n]);
+    const resaleMandate = {
+      buyer: seller.account.address,
+      app: router.address,
+      token: usd.address,
+      limit: 1_010_000n,
+      expiry,
+      salt: keccak256(toHex('resale-funding')),
+    };
+    await send(seller, aqua, 'ship', [
+      router.address,
+      encodeAbiParameters([routerAbi[0].inputs[4]], [resaleMandate]),
+      [usd.address],
+      [1_010_000n],
+    ]);
+    await send(buyer, inventory, 'setApprovalForAll', [router.address, true]);
+    const resaleBid = await order(
+      seller,
+      true,
+      4,
+      day + 1,
+      seller.account.address,
+      resaleMandate,
+    );
+    const resaleAsk = await order(buyer, false, 4, day + 1);
+    const resaleQuotes = await market.quotes();
+    assert.equal(resaleQuotes.quotes.length, 1);
+    assert.equal(resaleQuotes.bestByBasket[0].bidHash, resaleBid.hash);
+    assert.equal(resaleQuotes.bestByBasket[0].askHash, resaleAsk.hash);
+    const resale = await restarted.submit(resaleBid.hash, resaleAsk.hash);
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: resale.transactionHash }))
+        .status,
+      'success',
+    );
+    await index.sync();
+    assert.equal((await market.history()).sales.length, 2);
+    const resaleTokenId = await client.readContract({
+      ...inventory,
+      functionName: 'tokenId',
+      args: [pool, day, terms],
+    });
+    assert.equal(
+      await client.readContract({
+        ...inventory,
+        functionName: 'balanceOf',
+        args: [seller.account.address, resaleTokenId],
+      }),
+      1n,
+    );
+    assert.equal(
+      await client.readContract({
+        ...inventory,
+        functionName: 'balanceOf',
+        args: [buyer.account.address, resaleTokenId],
+      }),
+      0n,
+    );
+    const afterResale = await market.quotes();
+    assert.equal(afterResale.quotes.length, 1);
+    assert.equal(afterResale.bestByBasket[0].bidHash, weekBid.hash);
+    assert.equal(afterResale.bestByBasket[0].askHash, weekAsk.hash);
+    await send(buyer, router, 'cancel', [2n]);
+    assert.equal((await market.quotes()).quotes.length, 0);
+    await order(buyer, true, 5, day + 1);
+    await order(seller, false, 5, day + 1);
+    assert.equal((await market.quotes()).quotes.length, 1);
+    await client.request({
+      method: 'evm_setNextBlockTimestamp',
+      params: [Number(expiry + 1n)],
+    });
+    await client.request({ method: 'evm_mine' });
+    assert.equal((await market.quotes()).quotes.length, 0);
   },
 );
