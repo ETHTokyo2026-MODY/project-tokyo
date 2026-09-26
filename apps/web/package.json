@@ -14,6 +14,7 @@
   "dependencies": {
     "@dotenvx/dotenvx": "2.30.0",
     "@wagmi/core": "3.6.5",
+    "mipd": "0.0.7",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",

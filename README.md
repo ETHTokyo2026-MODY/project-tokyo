@@ -67,3 +67,5 @@ lists and purchases an asset through the same interface used by the website.
 ### Typography
 
 [Sora](https://github.com/sora-xor/sora-font) is self-hosted as a variable font under the SIL Open Font License. The license is included in `apps/web/app/fonts/OFL.txt`.
+
+Wallet discovery uses [mipd](https://github.com/wevm/mipd) for EIP-6963 announcements. Wallet selection and transaction authorization remain explicit.

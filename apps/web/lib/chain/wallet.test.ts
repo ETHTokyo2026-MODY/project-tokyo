@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createWalletDiscovery,
   PREFERRED_WALLET_RDNS,
@@ -8,8 +8,8 @@ import {
   type WalletProvider,
 } from './wallet';
 
-beforeAll(() => vi.stubGlobal('window', new EventTarget()));
-afterAll(() => vi.unstubAllGlobals());
+beforeEach(() => vi.stubGlobal('window', new EventTarget()));
+afterEach(() => vi.unstubAllGlobals());
 
 // Provider mocks only: these tests are not evidence of real extension/browser interaction.
 const account = '0x1111111111111111111111111111111111111111';
@@ -87,6 +87,11 @@ function announce(
   );
 }
 
+function discover(target: EventTarget & { ethereum?: WalletProvider }) {
+  vi.stubGlobal('window', target);
+  return createWalletDiscovery();
+}
+
 describe('native wallet discovery (unit)', () => {
   it('requests announcements, retains late providers, and never connects automatically', () => {
     const target = new EventTarget();
@@ -95,7 +100,7 @@ describe('native wallet discovery (unit)', () => {
     target.addEventListener('eip6963:requestProvider', () =>
       announce(target, alternate, 2, 'example.wallet'),
     );
-    const discovery = createWalletDiscovery(target);
+    const discovery = discover(target);
     announce(target, preferred);
     announce(target, preferred);
     expect(discovery.list().map((p) => p.rdns)).toEqual([
@@ -109,9 +114,30 @@ describe('native wallet discovery (unit)', () => {
     expect(() => discovery.select({ uuid: uuid(1) })).toThrow('closed');
   });
 
+  it('updates subscribers for late wallets and conflicts, then removes its listener', () => {
+    const target = new EventTarget();
+    const discovery = discover(target);
+    const changed = vi.fn();
+    const stop = discovery.subscribe(changed);
+    const provider = new MockProvider();
+    announce(target, provider);
+    announce(target, provider);
+    expect(changed).toHaveBeenCalledTimes(1);
+    announce(target, new MockProvider());
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(discovery.list()).toEqual([]);
+    stop();
+    announce(target, provider, 2);
+    expect(changed).toHaveBeenCalledTimes(2);
+    discovery.dispose();
+    announce(target, provider, 3);
+    expect(discovery.list()).toHaveLength(1);
+    expect(() => discovery.refresh()).toThrow('closed');
+  });
+
   it('requires explicit legacy selection and never falls back from an absent RDNS', async () => {
     const legacy = new MockProvider();
-    const discovery = createWalletDiscovery(
+    const discovery = discover(
       Object.assign(new EventTarget(), { ethereum: legacy }),
     );
     expect(() => discovery.select({ rdns: PREFERRED_WALLET_RDNS })).toThrow(
@@ -126,7 +152,7 @@ describe('native wallet discovery (unit)', () => {
 
   it('rejects ambiguous RDNS and conflicting UUID announcements', () => {
     const target = new EventTarget();
-    const discovery = createWalletDiscovery(target);
+    const discovery = discover(target);
     announce(target, new MockProvider(), 1);
     announce(target, new MockProvider(), 2);
     expect(() => discovery.select({ rdns: PREFERRED_WALLET_RDNS })).toThrow(

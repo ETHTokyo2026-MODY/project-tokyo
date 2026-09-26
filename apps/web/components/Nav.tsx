@@ -11,6 +11,7 @@ import {
   switchNetwork,
   useChainStore,
   walletChoices,
+  subscribeWalletChoices,
 } from '@/lib/chain/store';
 import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
@@ -35,9 +36,9 @@ export function Nav() {
   const [message, setMessage] = useState('');
   useEffect(() => {
     const update = () => setProviders(walletChoices());
+    const unsubscribe = subscribeWalletChoices(update);
     update();
-    const timer = setInterval(update, 2000);
-    return () => clearInterval(timer);
+    return unsubscribe;
   }, []);
   async function act(fn: () => Promise<void>) {
     setWaiting(true);

@@ -230,6 +230,11 @@ export function walletChoices() {
   discovery.refresh();
   return discovery.list();
 }
+export function subscribeWalletChoices(listener: () => void) {
+  discovery ??= createWalletDiscovery();
+  return discovery.subscribe(listener);
+}
+
 export async function switchNetwork() {
   if (!session) throw new Error('Connect a wallet first');
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
