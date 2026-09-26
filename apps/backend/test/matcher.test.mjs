@@ -36,17 +36,28 @@ test('legacy ordinary submissions migrate into the shared nonce namespace', () =
       sender TEXT NOT NULL, nonce INTEGER NOT NULL, unsigned TEXT,
       raw TEXT, tx_hash TEXT, UNIQUE(sender, nonce)
     )`);
-    store.db.prepare('INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce) VALUES(?,?,?,?,?)')
+    store.db
+      .prepare(
+        'INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce) VALUES(?,?,?,?,?)',
+      )
       .run('old', 'bid', 'ask', relayer.address.toLowerCase(), 7);
     ensureSubmissions(store.db);
     ensureSubmissions(store.db);
-    const old = store.db.prepare('SELECT nonce,kind,payload FROM submissions WHERE id = ?').get('old');
+    const old = store.db
+      .prepare('SELECT nonce,kind,payload FROM submissions WHERE id = ?')
+      .get('old');
     assert.equal(old.nonce, 7);
     assert.equal(old.kind, 'ordinary');
     assert.equal(old.payload, null);
-    assert.throws(() => store.db.prepare(
-      "INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce,kind) VALUES(?,?,?,?,?,'conversion')",
-    ).run('new', 'bid', 'ask', relayer.address.toLowerCase(), 7), /UNIQUE constraint failed/);
+    assert.throws(
+      () =>
+        store.db
+          .prepare(
+            "INSERT INTO submissions(id,bid_hash,ask_hash,sender,nonce,kind) VALUES(?,?,?,?,?,'conversion')",
+          )
+          .run('new', 'bid', 'ask', relayer.address.toLowerCase(), 7),
+      /UNIQUE constraint failed/,
+    );
   } finally {
     store.close();
   }
@@ -58,21 +69,42 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
   const badWallet = localWallet();
   badWallet.failSign = true;
   const ordinary = new StoredSubmission(store.db, client, badWallet, {
-    chainId: config.chainId, kind: 'ordinary',
+    chainId: config.chainId,
+    kind: 'ordinary',
   });
-  const args = { bidHash: 'bid', askHash: 'ask', to: config.router, data: '0x1234', simulate: async () => {} };
-  await assert.rejects(ordinary.submit({ ...args, id: 'ordinary' }), /signing failed/);
+  const args = {
+    bidHash: 'bid',
+    askHash: 'ask',
+    to: config.router,
+    data: '0x1234',
+    simulate: async () => {},
+  };
+  await assert.rejects(
+    ordinary.submit({ ...args, id: 'ordinary' }),
+    /signing failed/,
+  );
   const conversion = new StoredSubmission(store.db, client, localWallet(), {
-    chainId: config.chainId, kind: 'conversion',
+    chainId: config.chainId,
+    kind: 'conversion',
   });
-  await assert.rejects(conversion.submit({ ...args, id: 'conversion', payload: 'signed intent' }),
-    /Earlier relayer submission requires recovery/);
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n, 1);
+  await assert.rejects(
+    conversion.submit({ ...args, id: 'conversion', payload: 'signed intent' }),
+    /Earlier relayer submission requires recovery/,
+  );
+  assert.equal(
+    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    1,
+  );
   const recovered = new StoredSubmission(store.db, client, localWallet(), {
-    chainId: config.chainId, kind: 'ordinary',
+    chainId: config.chainId,
+    kind: 'ordinary',
   });
   await recovered.submit({ ...args, id: 'ordinary' });
-  const later = await conversion.submit({ ...args, id: 'conversion', payload: 'signed intent' });
+  const later = await conversion.submit({
+    ...args,
+    id: 'conversion',
+    payload: 'signed intent',
+  });
   assert.equal(later.job.nonce, 1);
   store.close();
 });
@@ -80,19 +112,37 @@ test('unsigned ordinary job blocks a later conversion nonce until recovered', as
 test('saved but unbroadcast ordinary transaction blocks later conversion', async () => {
   const store = new Store(filename());
   const client = fakeClient();
-  client.sendRawTransaction = async () => { throw new Error('transport failed before acceptance'); };
+  client.sendRawTransaction = async () => {
+    throw new Error('transport failed before acceptance');
+  };
   const ordinary = new StoredSubmission(store.db, client, localWallet(), {
-    chainId: config.chainId, kind: 'ordinary',
+    chainId: config.chainId,
+    kind: 'ordinary',
   });
-  const args = { bidHash: 'bid', askHash: 'ask', to: config.router, data: '0x1234', simulate: async () => {} };
-  await assert.rejects(ordinary.submit({ ...args, id: 'ordinary' }), /transport failed/);
+  const args = {
+    bidHash: 'bid',
+    askHash: 'ask',
+    to: config.router,
+    data: '0x1234',
+    simulate: async () => {},
+  };
+  await assert.rejects(
+    ordinary.submit({ ...args, id: 'ordinary' }),
+    /transport failed/,
+  );
   assert.ok(ordinary.get('ordinary').raw);
   const conversion = new StoredSubmission(store.db, client, localWallet(), {
-    chainId: config.chainId, kind: 'conversion',
+    chainId: config.chainId,
+    kind: 'conversion',
   });
-  await assert.rejects(conversion.submit({ ...args, id: 'conversion', payload: 'intent' }),
-    /not accepted by RPC/);
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n, 1);
+  await assert.rejects(
+    conversion.submit({ ...args, id: 'conversion', payload: 'intent' }),
+    /not accepted by RPC/,
+  );
+  assert.equal(
+    store.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
+    1,
+  );
   store.close();
 });
 

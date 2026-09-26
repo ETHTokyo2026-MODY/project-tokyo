@@ -25,7 +25,8 @@ export class Matcher {
     this.config = config;
     this.sender = wallet.account.address.toLowerCase();
     this.submissions = new StoredSubmission(this.db, client, wallet, {
-      chainId: Number(config.chainId), kind: 'ordinary',
+      chainId: Number(config.chainId),
+      kind: 'ordinary',
     });
   }
 
@@ -92,12 +93,23 @@ export class Matcher {
     if (!bid || !ask) throw new Error('Unknown order');
     const id = keccak256(concatHex([bid.hash, ask.hash]));
     const data = encodeFunctionData({
-      abi: routerAbi, functionName: 'settle',
-      args: [bid.order, bid.signature, ask.order, ask.signature, bid.mandate, bid.program],
+      abi: routerAbi,
+      functionName: 'settle',
+      args: [
+        bid.order,
+        bid.signature,
+        ask.order,
+        ask.signature,
+        bid.mandate,
+        bid.program,
+      ],
     });
     const { job, receipt } = await this.submissions.submit({
-      id, bidHash: bid.hash, askHash: ask.hash,
-      to: this.config.router, data,
+      id,
+      bidHash: bid.hash,
+      askHash: ask.hash,
+      to: this.config.router,
+      data,
       simulate: () => this.simulate(bid, ask),
     });
     return this.result(job, receipt);
@@ -135,7 +147,9 @@ export class Matcher {
 
   async recover() {
     const jobs = this.db
-      .prepare("SELECT bid_hash, ask_hash FROM submissions WHERE kind = 'ordinary' ORDER BY nonce")
+      .prepare(
+        "SELECT bid_hash, ask_hash FROM submissions WHERE kind = 'ordinary' ORDER BY nonce",
+      )
       .all();
     const results = [];
     for (const job of jobs)

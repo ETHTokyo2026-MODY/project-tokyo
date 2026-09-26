@@ -32,17 +32,14 @@ const unpack = (value) =>
       : v,
   );
 const uint = (value, name) => {
-  if (
-    !(
-      typeof value === 'bigint' ||
-      (typeof value === 'number' && Number.isSafeInteger(value)) ||
-      (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))
-    )
-  )
+  if (!(
+    typeof value === 'bigint' ||
+    (typeof value === 'number' && Number.isSafeInteger(value)) ||
+    (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))
+  ))
     throw new Error(`Invalid ${name}`);
   const result = BigInt(value);
-  if (result < 0n || result >= 1n << 256n)
-    throw new Error(`Invalid ${name}`);
+  if (result < 0n || result >= 1n << 256n) throw new Error(`Invalid ${name}`);
   return result;
 };
 const hash = (value, name) => {
@@ -256,12 +253,19 @@ export class ConversionRelay {
       throw new Error('Conversion store deployment differs');
     if (!existing)
       this.db
-        .prepare("INSERT INTO metadata (key, value) VALUES ('conversion_scope', ?)")
+        .prepare(
+          "INSERT INTO metadata (key, value) VALUES ('conversion_scope', ?)",
+        )
         .run(scope);
-    this.submissions = new StoredSubmission(this.db, publicClient, walletClient, {
-      chainId: this.config.chainId,
-      kind: 'conversion',
-    });
+    this.submissions = new StoredSubmission(
+      this.db,
+      publicClient,
+      walletClient,
+      {
+        chainId: this.config.chainId,
+        kind: 'conversion',
+      },
+    );
   }
 
   get(id) {
@@ -280,13 +284,20 @@ export class ConversionRelay {
 
   async recover() {
     const rows = this.db
-      .prepare("SELECT payload FROM submissions WHERE kind = 'conversion' ORDER BY nonce")
+      .prepare(
+        "SELECT payload FROM submissions WHERE kind = 'conversion' ORDER BY nonce",
+      )
       .all();
     const results = [];
     for (const { payload } of rows) {
       const saved = unpack(payload);
       results.push(
-        await this.#submit(saved.mode, saved.pairs, saved.intent, saved.intentSig),
+        await this.#submit(
+          saved.mode,
+          saved.pairs,
+          saved.intent,
+          saved.intentSig,
+        ),
       );
     }
     return results;
@@ -298,7 +309,8 @@ export class ConversionRelay {
     if (!job) throw new Error('Unknown conversion submission');
     if (!job.raw) return { id: job.id, state: 'prepared' };
     const receipt = await this.#receipt(job.tx_hash);
-    if (!receipt) return { id: job.id, transactionHash: job.tx_hash, state: 'broadcast' };
+    if (!receipt)
+      return { id: job.id, transactionHash: job.tx_hash, state: 'broadcast' };
     await this.#assertCanonical(receipt);
     if (receipt.status !== 'success')
       return { id: job.id, transactionHash: job.tx_hash, state: 'reverted' };
@@ -309,7 +321,11 @@ export class ConversionRelay {
     )
       return { id: job.id, transactionHash: job.tx_hash, state: 'mined' };
     const saved = unpack(job.payload);
-    return this.#verify(job, receipt, this.#build(saved.mode, saved.pairs, saved.intent, saved.intentSig));
+    return this.#verify(
+      job,
+      receipt,
+      this.#build(saved.mode, saved.pairs, saved.intent, saved.intentSig),
+    );
   }
 
   #build(mode, pairs, intent, intentSig) {
@@ -351,8 +367,8 @@ export class ConversionRelay {
       ]),
     );
     const signed = signature(intentSig, 'funding signature');
-    const selected = entries.filter(
-      ({ bid }) => same(bid.order.maker, normalized.buyer),
+    const selected = entries.filter(({ bid }) =>
+      same(bid.order.maker, normalized.buyer),
     );
     if (selected.length !== 1)
       throw new Error('Conversion buyer must occur exactly once');
@@ -368,7 +384,9 @@ export class ConversionRelay {
       normalized.minOutput === 0n ||
       normalized.usdcCap === 0n
     )
-      throw new Error('Funding intent differs from signed orders or deployment');
+      throw new Error(
+        'Funding intent differs from signed orders or deployment',
+      );
     const fills = entries.map(({ bid, ask }) => ({
       bid: bid.order,
       bidSig: bid.signature,
@@ -377,7 +395,8 @@ export class ConversionRelay {
       mandate: bid.mandate,
       program: bid.program,
     }));
-    const batch = mode === 'collective' ? hashBatch(fills) : `0x${'0'.repeat(64)}`;
+    const batch =
+      mode === 'collective' ? hashBatch(fills) : `0x${'0'.repeat(64)}`;
     if (!same(normalized.batchHash, batch))
       throw new Error('Funding intent batch hash mismatch');
     const functionName = mode === 'single' ? 'execute' : 'executeCollective';
@@ -441,7 +460,10 @@ export class ConversionRelay {
       names.some((name, i) =>
         name === 'poolFee'
           ? Number(deployed[i]) !== this.config.poolFee
-          : !same(deployed[i], this.config[name === 'rentalRouter' ? 'router' : name]),
+          : !same(
+              deployed[i],
+              this.config[name === 'rentalRouter' ? 'router' : name],
+            ),
       )
     )
       throw new Error('Conversion deployment differs from configuration');
@@ -538,7 +560,9 @@ export class ConversionRelay {
       prepared.mode === 'single' ? 'ConvertedSettled' : 'ConvertedCollective';
     const converted = parseEventLogs({
       abi: converterAbi,
-      logs: receipt.logs.filter((log) => same(log.address, this.config.executor)),
+      logs: receipt.logs.filter((log) =>
+        same(log.address, this.config.executor),
+      ),
       eventName,
       strict: true,
     });
@@ -580,7 +604,9 @@ export class ConversionRelay {
       const own = settled[selected].args;
       const activated = parseEventLogs({
         abi: collectiveAbi,
-        logs: receipt.logs.filter((log) => same(log.address, this.config.collective)),
+        logs: receipt.logs.filter((log) =>
+          same(log.address, this.config.collective),
+        ),
         eventName: 'Activated',
         strict: true,
       });
