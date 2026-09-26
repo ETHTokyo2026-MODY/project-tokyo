@@ -110,14 +110,22 @@ export const handleDayWeb = lazyDayWeb();
 /** Requests yield indexing status while one shared batch continues; errors surface on the next poll. */
 export function boundedIndexSync(index, waitMs = 1000) {
   let pending, failure;
+  let completed = false;
   return async () => {
     if (failure) {
       const error = failure;
       failure = undefined;
       throw error;
     }
+    if (completed) {
+      completed = false;
+      return true;
+    }
     pending ??= index
       .sync()
+      .then(() => {
+        completed = true;
+      })
       .catch((error) => {
         failure = error;
       })
@@ -140,6 +148,10 @@ export function boundedIndexSync(index, waitMs = 1000) {
       failure = undefined;
       throw error;
     }
-    return !pending;
+    if (completed) {
+      completed = false;
+      return true;
+    }
+    return false;
   };
 }

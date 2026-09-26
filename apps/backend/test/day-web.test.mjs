@@ -63,3 +63,25 @@ test('cold reads yield while a single batch progresses and late RPC errors remai
   await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(sync(), /RPC unavailable/);
 });
+
+test('a slow completed batch is consumed before another sync begins', async () => {
+  let finish,
+    calls = 0;
+  const work = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const sync = boundedIndexSync(
+    {
+      sync: () => {
+        calls++;
+        return work;
+      },
+    },
+    1,
+  );
+  assert.equal(await sync(), false);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await sync(), true);
+  assert.equal(calls, 1);
+});
