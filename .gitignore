@@ -14,9 +14,6 @@ contracts/broadcast/
 .env*
 !.env.example
 
-# Vercel
-.vercel/
-
 # OS / editor
 .DS_Store
 Thumbs.db
