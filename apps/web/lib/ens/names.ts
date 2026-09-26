@@ -1,13 +1,18 @@
-import { type Address, type Hex } from 'viem';
-import { inventoryAbi, namesAbi, registryAbi } from './abi';
-import { DAY_CHUNK, ENS, HORIZON, PARENT_LABEL } from './constants';
+import { keccak256, stringToBytes, type Address, type Hex } from 'viem';
+import {
+  dayTokenAbi,
+  factoryAbi,
+  namesAbi,
+  registryAbi,
+  rentalAssetAbi,
+} from './abi';
+import { DAY_CHUNK, ENS, PARENT_LABEL } from './constants';
 import { assertEnsRoot, type EnsClients } from './client';
-import { poolOfLabel } from './lookup';
 
 export type Deployment = {
-  inventory: Address;
   names: Address;
   assetRegistry: Address;
+  rentalFactory: Address;
   deployBlock: bigint;
 };
 
@@ -16,13 +21,22 @@ export type AssetPropertiesInput = {
   title: string;
   location: string;
   description?: string;
-  discounts?: string;
+  metadataURI?: string;
+  salt?: Hex;
+  defaults?: {
+    minimum: bigint;
+    listedPrices: readonly bigint[];
+    sellingPrices: readonly bigint[];
+  };
+  discounts?: { minDays: number; discountBps: number }[];
 };
+
+const WEEKDAY = (n: bigint) => [n, n, n, n, n, n, n] as const;
 
 async function send(
   clients: EnsClients,
   address: Address,
-  abi: typeof inventoryAbi | typeof namesAbi | typeof registryAbi,
+  abi: readonly unknown[],
   functionName: string,
   args: readonly unknown[],
 ) {
@@ -31,7 +45,7 @@ async function send(
   const { request } = await clients.public.simulateContract({
     account,
     address,
-    abi: abi as typeof inventoryAbi,
+    abi: abi as typeof namesAbi,
     functionName: functionName as never,
     args: args as never,
   });
@@ -44,24 +58,12 @@ async function send(
 
 export async function setup(
   clients: EnsClients,
-  bytecode: { inventory: Hex; names: Hex },
+  bytecode: { names: Hex },
   existing?: Partial<Deployment>,
 ): Promise<Deployment> {
   if (!clients.wallet) throw new Error('wallet client required');
   await assertEnsRoot(clients.public);
   const account = clients.wallet.account;
-
-  let inventory = existing?.inventory;
-  if (!inventory) {
-    const hash = await clients.wallet.deployContract({
-      abi: inventoryAbi,
-      bytecode: bytecode.inventory,
-      account,
-    });
-    const receipt = await clients.public.waitForTransactionReceipt({ hash });
-    if (!receipt.contractAddress) throw new Error('inventory deploy failed');
-    inventory = receipt.contractAddress;
-  }
 
   let names = existing?.names;
   if (!names) {
@@ -69,12 +71,12 @@ export async function setup(
       abi: namesAbi,
       bytecode: bytecode.names,
       args: [
-        inventory,
         ENS.verifiableFactory,
         ENS.userRegistryImpl,
         ENS.permissionedResolverImpl,
         ENS.ethRegistry,
         PARENT_LABEL,
+        ENS.rentalFactory,
       ],
       account,
     });
@@ -83,14 +85,6 @@ export async function setup(
     names = receipt.contractAddress;
   }
 
-  const currentNames = await clients.public.readContract({
-    address: inventory,
-    abi: inventoryAbi,
-    functionName: 'names',
-  });
-  if (currentNames === '0x0000000000000000000000000000000000000000') {
-    await send(clients, inventory, inventoryAbi, 'setNames', [names]);
-  }
   try {
     await send(clients, names, namesAbi, 'linkParent', []);
   } catch {
@@ -115,72 +109,171 @@ export async function setup(
     ]);
   }
   const deployBlock = await clients.public.getBlockNumber();
-  return { inventory, names, assetRegistry, deployBlock };
+  return {
+    names,
+    assetRegistry,
+    rentalFactory: ENS.rentalFactory,
+    deployBlock,
+  };
 }
 
-export async function createAsset(
+export async function createRentalAsset(
   clients: EnsClients,
-  deployment: Deployment,
-  label: string,
-  owner: Address,
+  factory: Address,
   properties: AssetPropertiesInput,
-  prices: { listedPrice: bigint; sellingPrice: bigint } = {
-    listedPrice: BigInt(80_000000),
-    sellingPrice: BigInt(50_000000),
-  },
+  label: string,
 ) {
   if (!clients.wallet) throw new Error('wallet client required');
-  const created = await clients.public.simulateContract({
-    account: clients.wallet.account,
-    address: deployment.inventory,
-    abi: inventoryAbi,
-    functionName: 'createAsset',
-    args: [
-      label,
-      owner,
-      properties.kind,
-      properties.title,
-      properties.location,
-    ],
+  const account = clients.wallet.account;
+  const salt =
+    properties.salt ??
+    keccak256(stringToBytes(`${label}:${account.address}:${Date.now()}`));
+  const metadataURI =
+    properties.metadataURI ??
+    JSON.stringify({
+      title: properties.title,
+      type: properties.kind,
+      location: properties.location,
+    });
+  const listed =
+    properties.defaults?.listedPrices ?? WEEKDAY(BigInt(80_000000));
+  const selling =
+    properties.defaults?.sellingPrices ?? WEEKDAY(BigInt(60_000000));
+  const minimum = properties.defaults?.minimum ?? BigInt(40_000000);
+  const discounts = (properties.discounts ?? []).map((d) => ({
+    minDays: d.minDays,
+    discountBps: d.discountBps,
+  }));
+  const created = await send(clients, factory, factoryAbi, 'createAsset', [
+    salt,
+    metadataURI,
+    { minimum, listedPrices: listed, sellingPrices: selling },
+    discounts,
+  ]);
+  const asset = await clients.public.readContract({
+    address: factory,
+    abi: factoryAbi,
+    functionName: 'assets',
+    args: [account.address, salt],
   });
-  const createHash = await clients.wallet.writeContract(created.request);
-  const receipt = await clients.public.waitForTransactionReceipt({
-    hash: createHash,
-  });
-  if (receipt.status !== 'success')
-    throw new Error(`createAsset failed ${createHash}`);
-  const startDay = BigInt(created.result[1]);
+  if (asset === '0x0000000000000000000000000000000000000000') {
+    throw new Error('factory did not record the new asset');
+  }
+  return { asset, salt, hash: created.hash };
+}
+
+export async function registerEnsAsset(
+  clients: EnsClients,
+  names: Address,
+  label: string,
+  asset: Address,
+  properties: Pick<
+    AssetPropertiesInput,
+    'title' | 'kind' | 'location' | 'description'
+  >,
+) {
+  const registered = await send(clients, names, namesAbi, 'registerAsset', [
+    label,
+    asset,
+  ]);
   const keys = ['title', 'kind', 'location'];
   const values = [properties.title, properties.kind, properties.location];
   if (properties.description) {
     keys.push('description');
     values.push(properties.description);
   }
-  if (properties.discounts) {
-    keys.push('discounts');
-    values.push(properties.discounts);
-  }
-  await send(clients, deployment.names, namesAbi, 'setAssetTexts', [
+  const texts = await send(clients, names, namesAbi, 'setAssetTexts', [
     label,
     keys,
     values,
   ]);
+  return { hashes: [registered.hash, texts.hash] };
+}
 
-  const pool = poolOfLabel(label);
-  const end = startDay + BigInt(HORIZON);
-  const hashes: Hex[] = [receipt.transactionHash];
-  for (let d = startDay; d < end; d += BigInt(DAY_CHUNK)) {
-    const chunkEnd = d + BigInt(DAY_CHUNK) < end ? d + BigInt(DAY_CHUNK) : end;
-    const minted = await send(
+export async function registerDayRange(
+  clients: EnsClients,
+  names: Address,
+  label: string,
+  startDay: number,
+  endDay: number,
+) {
+  return send(clients, names, namesAbi, 'registerDays', [
+    label,
+    startDay,
+    endDay,
+  ]);
+}
+
+export async function createAsset(
+  clients: EnsClients,
+  deployment: Deployment,
+  label: string,
+  properties: AssetPropertiesInput,
+  onChunk?: (info: {
+    startDay: number;
+    endDay: number;
+    hash: Hex;
+    gasUsed?: bigint;
+  }) => boolean | void,
+) {
+  const rental = await createRentalAsset(
+    clients,
+    deployment.rentalFactory,
+    properties,
+    label,
+  );
+  const ens = await registerEnsAsset(
+    clients,
+    deployment.names,
+    label,
+    rental.asset,
+    properties,
+  );
+  const startDay = await clients.public.readContract({
+    address: rental.asset,
+    abi: rentalAssetAbi,
+    functionName: 'startDay',
+  });
+  const endDay = await clients.public.readContract({
+    address: rental.asset,
+    abi: rentalAssetAbi,
+    functionName: 'endDayExclusive',
+  });
+  const hashes: Hex[] = [rental.hash, ...ens.hashes];
+  for (let d = startDay; d < endDay; d += DAY_CHUNK) {
+    const chunkEnd = d + DAY_CHUNK < endDay ? d + DAY_CHUNK : endDay;
+    const registered = await registerDayRange(
       clients,
-      deployment.inventory,
-      inventoryAbi,
-      'mintDays',
-      [pool, d, chunkEnd, prices.listedPrice, prices.sellingPrice],
+      deployment.names,
+      label,
+      d,
+      chunkEnd,
     );
-    hashes.push(minted.hash);
+    hashes.push(registered.hash);
+    const stop = onChunk?.({
+      startDay: d,
+      endDay: chunkEnd,
+      hash: registered.hash,
+      gasUsed: registered.receipt.gasUsed,
+    });
+    if (stop === false) {
+      return {
+        asset: rental.asset,
+        salt: rental.salt,
+        startDay,
+        endDay,
+        hashes,
+        stoppedAt: chunkEnd,
+      };
+    }
   }
-  return { pool, startDay, endDay: end, hashes };
+  return {
+    asset: rental.asset,
+    salt: rental.salt,
+    startDay,
+    endDay,
+    hashes,
+  };
 }
 
 export async function updateAssetRecords(
@@ -194,18 +287,33 @@ export async function updateAssetRecords(
   return send(clients, names, namesAbi, 'setAssetTexts', [label, keys, values]);
 }
 
-export async function transferDay(
+export async function materializeDay(
   clients: EnsClients,
-  inventory: Address,
-  from: Address,
-  to: Address,
-  id: bigint,
+  asset: Address,
+  day: number,
 ) {
-  return send(clients, inventory, inventoryAbi, 'safeTransferFrom', [
-    from,
-    to,
-    id,
-    BigInt(1),
-    '0x',
+  return send(clients, asset, rentalAssetAbi, 'materialize', [day]);
+}
+
+export async function transferDayToken(
+  clients: EnsClients,
+  token: Address,
+  to: Address,
+) {
+  return send(clients, token, dayTokenAbi, 'transfer', [to, BigInt(1)]);
+}
+
+export async function setDayListing(
+  clients: EnsClients,
+  asset: Address,
+  day: number,
+  listed: boolean,
+  sellingPrice: bigint,
+) {
+  return send(clients, asset, rentalAssetAbi, 'setListing', [
+    day,
+    day + 1,
+    listed,
+    sellingPrice,
   ]);
 }

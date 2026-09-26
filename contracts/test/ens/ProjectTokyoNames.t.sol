@@ -2,44 +2,59 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {ProjectTokyoInventory} from "../../src/ProjectTokyoInventory.sol";
 import {ProjectTokyoNames} from "../../src/ProjectTokyoNames.sol";
 import {IPermissionedRegistry, IVerifiableFactory} from "../../src/ens/IEnsV2.sol";
 import {ProjectTokyoDates} from "../../src/ens/ProjectTokyoDates.sol";
 
+contract MockRentalAsset {
+    address public host;
+    uint32 public startDay;
+    uint32 public endDayExclusive;
+
+    constructor(address host_, uint32 startDay_) {
+        host = host_;
+        startDay = startDay_;
+        endDayExclusive = startDay_ + 365;
+    }
+
+    function tokenAddress(uint32 day) external view returns (address) {
+        return address(uint160(uint256(keccak256(abi.encode(address(this), day)))));
+    }
+}
+
 contract NamesHarness is ProjectTokyoNames {
-    constructor(ProjectTokyoInventory inventory_)
+    constructor()
         ProjectTokyoNames(
-            inventory_,
             IVerifiableFactory(address(0)),
             address(0),
             address(0),
             IPermissionedRegistry(address(0)),
-            "projecttokyo"
+            "projecttokyo",
+            address(0)
         )
     {}
 
-    function seed(string calldata label, bytes32 pool) external {
-        poolOfLabel[keccak256(bytes(label))] = pool;
+    function seed(string calldata label, address rentalAsset, address host) external {
+        bytes32 labelHash = keccak256(bytes(label));
+        assetOfLabel[labelHash] = rentalAsset;
+        labelHashOfAsset[rentalAsset] = labelHash;
+        assetHostOf[labelHash] = host;
     }
 }
 
 contract ProjectTokyoNamesTest is Test {
-    ProjectTokyoInventory internal inv;
     NamesHarness internal names;
+    MockRentalAsset internal asset;
     address internal host = address(0xA11CE);
-    bytes32 internal pool;
     uint32 internal startDay;
     bytes internal parentDns;
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        inv = new ProjectTokyoInventory();
-        names = new NamesHarness(inv);
-        (pool, startDay,) = inv.createAsset("cabin", host, "airbnb", "Cabin", "Shibuya");
-        names.seed("cabin", pool);
-        vm.prank(host);
-        inv.mintDays(pool, startDay, startDay + 2, 80e6, 60e6);
+        startDay = ProjectTokyoDates.tokyoDay(1_800_000_000);
+        asset = new MockRentalAsset(host, startDay);
+        names = new NamesHarness();
+        names.seed("cabin", address(asset), host);
         parentDns = names.parentDns();
     }
 
@@ -48,34 +63,36 @@ contract ProjectTokyoNamesTest is Test {
         assertEq(names.parseDateLabel(names.dateLabel(startDay)), startDay);
     }
 
-    function testResolveAddrAndToken() public view {
+    function testResolveAddrTokenAndAsset() public view {
         bytes memory name = _dayName(startDay, "cabin");
-        uint256 id = inv.tokenId(pool, startDay);
+        address token = asset.tokenAddress(startDay);
         bytes32 node = bytes32(0);
         bytes memory addr = names.resolve(name, abi.encodeWithSignature("addr(bytes32)", node));
-        assertEq(abi.decode(addr, (address)), address(inv));
-        bytes memory token = names.resolve(name, abi.encodeWithSignature("text(bytes32,string)", node, "token"));
-        string memory caip = abi.decode(token, (string));
-        assertEq(caip, string.concat("eip155:31337/erc1155:", _hex(address(inv)), "/", _u(id)));
+        assertEq(abi.decode(addr, (address)), token);
+        bytes memory tokenText = names.resolve(name, abi.encodeWithSignature("text(bytes32,string)", node, "token"));
+        string memory caip = abi.decode(tokenText, (string));
+        assertEq(caip, string.concat("eip155:31337/erc20:", _hex(token)));
         bytes memory avatar = names.resolve(name, abi.encodeWithSignature("text(bytes32,string)", node, "avatar"));
         assertEq(abi.decode(avatar, (string)), caip);
+        bytes memory assetText = names.resolve(name, abi.encodeWithSignature("text(bytes32,string)", node, "asset"));
+        assertEq(abi.decode(assetText, (string)), _hex(address(asset)));
     }
 
-    function testResolveUnmintedReverts() public {
-        bytes memory name = _dayName(startDay + 10, "cabin");
+    function testResolveUnknownAssetReverts() public {
+        bytes memory name = _dayName(startDay, "missing");
         vm.expectRevert(ProjectTokyoNames.UnknownName.selector);
         names.resolve(name, abi.encodeWithSignature("addr(bytes32)", bytes32(0)));
     }
 
     function testSupportsResolverInterfaces() public view {
         assertTrue(names.supportsInterface(0x9061b923));
-        assertTrue(names.supportsInterface(0x4e2312e0));
         assertTrue(names.supportsInterface(0x01ffc9a7));
+        assertFalse(names.supportsInterface(0x4e2312e0));
     }
 
-    function _dayName(uint32 day, string memory asset) internal view returns (bytes memory) {
+    function _dayName(uint32 day, string memory assetLabel) internal view returns (bytes memory) {
         bytes memory label = bytes(ProjectTokyoDates.dateLabel(day));
-        bytes memory assetB = bytes(asset);
+        bytes memory assetB = bytes(assetLabel);
         return bytes.concat(bytes1(uint8(label.length)), label, bytes1(uint8(assetB.length)), assetB, parentDns);
     }
 
@@ -88,22 +105,6 @@ contract ProjectTokyoNamesTest is Test {
             uint8 v = uint8(b[i]);
             s[2 + 2 * i] = bytes1(v >> 4 < 10 ? uint8(48 + (v >> 4)) : uint8(87 + (v >> 4)));
             s[3 + 2 * i] = bytes1((v & 0xf) < 10 ? uint8(48 + (v & 0xf)) : uint8(87 + (v & 0xf)));
-        }
-        return string(s);
-    }
-
-    function _u(uint256 v) internal pure returns (string memory) {
-        if (v == 0) return "0";
-        uint256 len;
-        uint256 t = v;
-        while (t != 0) {
-            ++len;
-            t /= 10;
-        }
-        bytes memory s = new bytes(len);
-        while (v != 0) {
-            s[--len] = bytes1(uint8(48 + v % 10));
-            v /= 10;
         }
         return string(s);
     }

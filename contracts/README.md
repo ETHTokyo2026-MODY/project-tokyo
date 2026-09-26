@@ -28,12 +28,13 @@ The earlier ERC-1155 implementation remains in Git at `checkpoint/erc1155-aquava
 
 ## ProjectTokyo ENSv2 (asset and day index)
 
-`projecttokyo.eth` is already registered on ENSv2 Sepolia. This package adds:
+`projecttokyo.eth` is already registered on ENSv2 Sepolia. `ProjectTokyoNames` is the ENS registrar for that name. It does not mint tokens.
 
-- `ProjectTokyoInventory`: one never-burned ERC-1155 day token per (asset, day), with on-chain `booked` / `listed` / `listed_price` / `selling_price`. Price edits follow the current holder. Booking does not burn or freeze transfers.
-- `ProjectTokyoNames`: deploys a UserRegistry asset registry via the live VerifiableFactory, one day registry per asset, and a PermissionedResolver per asset so the host can edit text records through ENSv2 EAC. Day names resolve `addr` to the inventory and `text token` to a CAIP-19 ERC-1155 id.
+- `<asset>.projecttokyo.eth` maps to an existing `RentalAsset` from the live factory (`addr` = the asset, text records = title/kind/location). The host keeps ENSv2 EAC edit rights.
+- `<YYYY-MM-DD>.<asset>.projecttokyo.eth` covers the asset's 365-day horizon. `addr` is the predicted `DayToken` (`RentalAsset.tokenAddress(day)`), `text token` is `eip155:11155111/erc20:<dayToken>`, and `text asset` is the RentalAsset address. Day names register in 73-day chunks.
+- Day ownership, listing, booking and Aqua settlement stay on `RentalAsset` / `DayToken` / `DaySwapVM`. Do not change those contracts for ENS.
 
-The ERC-20 `DayToken` / `DaySwapVM` path is unchanged. This inventory is a parallel ENS index; a new Aqua router would be required to settle these ERC-1155 ids.
+Addresses after a Sepolia deploy are recorded under `ens` in `deployments/sepolia.json`.
 
 ### Tests
 
@@ -60,4 +61,4 @@ PROJECTTOKYO_DEPLOYER_KEY=0x... \
   node --experimental-strip-types contracts/scripts/deploy-projecttokyo.mjs --send
 ```
 
-Then call `createAsset` from `apps/web/lib/ens` (no UI in this PR). Labels starting with `testasset` are hidden from `listAssets` / `listDays` unless `includeTest` is true.
+Then call `createAsset` from `apps/web/lib/ens` (creates the RentalAsset through the live factory, then registers the ENS names). Labels starting with `testasset` are hidden from `listAssets` / `listDays` unless `includeTest` is true.

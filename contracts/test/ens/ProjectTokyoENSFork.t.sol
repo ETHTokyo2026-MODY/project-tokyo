@@ -2,7 +2,9 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {ProjectTokyoInventory} from "../../src/ProjectTokyoInventory.sol";
+import {DayToken} from "../../src/day/DayToken.sol";
+import {RentalAsset} from "../../src/day/RentalAsset.sol";
+import {RentalAssetFactory} from "../../src/day/RentalAssetFactory.sol";
 import {ProjectTokyoNames} from "../../src/ProjectTokyoNames.sol";
 import {EnsSepolia} from "../../src/ens/EnsSepolia.sol";
 import {IPermissionedRegistry, IVerifiableFactory} from "../../src/ens/IEnsV2.sol";
@@ -32,16 +34,14 @@ contract ProjectTokyoENSForkTest is Test {
         if (block.chainid != 11155111) return;
         assertEq(IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER).ROOT_REGISTRY(), EnsSepolia.ROOT_REGISTRY);
 
-        ProjectTokyoInventory inv = new ProjectTokyoInventory();
         ProjectTokyoNames names = new ProjectTokyoNames(
-            inv,
             IVerifiableFactory(EnsSepolia.VERIFIABLE_FACTORY),
             EnsSepolia.USER_REGISTRY_IMPL,
             EnsSepolia.PERMISSIONED_RESOLVER_IMPL,
             IPermissionedRegistry(EnsSepolia.ETH_REGISTRY),
-            EnsSepolia.PARENT_LABEL
+            EnsSepolia.PARENT_LABEL,
+            EnsSepolia.RENTAL_FACTORY
         );
-        inv.setNames(names);
         assertTrue(address(names.assetRegistry()).code.length > 0);
 
         address assetRegistry = address(names.assetRegistry());
@@ -55,34 +55,48 @@ contract ProjectTokyoENSForkTest is Test {
 
         string memory label =
             string.concat("testasset", _digits(uint256(keccak256(abi.encode(blockhash(block.number - 1)))) % 100000));
+        RentalAssetFactory factory = RentalAssetFactory(EnsSepolia.RENTAL_FACTORY);
+        RentalAsset.AssetDefaults memory defaults;
+        defaults.minimum = 40e6;
+        for (uint256 i; i < 7; ++i) {
+            defaults.listedPrices[i] = 80e6;
+            defaults.sellingPrices[i] = 60e6;
+        }
         vm.deal(host, 1 ether);
-        (bytes32 pool, uint32 start,) = inv.createAsset(label, host, "car", "Test car", "Tokyo");
-        string[] memory keys = new string[](4);
-        string[] memory values = new string[](4);
+        vm.prank(host);
+        RentalAsset asset = RentalAsset(
+            factory.createAsset(
+                keccak256(bytes(label)), string.concat("ipfs://", label), defaults, new RentalAsset.DiscountStep[](0)
+            )
+        );
+        uint32 start = asset.startDay();
+        uint32 end = asset.endDayExclusive();
+        assertEq(end - start, 365);
+
+        vm.prank(host);
+        names.registerAsset(label, address(asset));
+        string[] memory keys = new string[](3);
+        string[] memory values = new string[](3);
         keys[0] = "title";
         values[0] = "Test car";
         keys[1] = "kind";
         values[1] = "car";
         keys[2] = "location";
         values[2] = "Tokyo";
-        keys[3] = "discounts";
-        values[3] = "{\"3\":10,\"7\":20}";
+        vm.prank(host);
         names.setAssetTexts(label, keys, values);
 
-        uint32 end = start + 365;
         for (uint32 d = start; d < end; d += 73) {
             uint32 chunkEnd = d + 73;
             if (chunkEnd > end) chunkEnd = end;
             vm.prank(host);
-            inv.mintDays(pool, d, chunkEnd, 80e6, 50e6);
+            names.registerDays(label, d, chunkEnd);
         }
 
-        uint256 firstId = inv.tokenId(pool, start);
-        uint256 lastId = inv.tokenId(pool, end - 1);
-        (bool minted,, bool listed,,) = inv.dayInfo(firstId);
-        assertTrue(minted && listed);
-        assertEq(inv.holderOf(lastId), host);
-        assertEq(inv.balanceOf(host, firstId), 1);
+        address firstToken = asset.tokenAddress(start);
+        address lastToken = asset.tokenAddress(end - 1);
+        assertEq(firstToken, asset.tokenAddress(start));
+        assertEq(asset.dayState(start).owner, host);
 
         bytes memory firstName = _dns(string.concat(names.dateLabel(start), ".", label, ".projecttokyo.eth"));
         (address resolver,,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER).findResolver(firstName);
@@ -90,39 +104,45 @@ contract ProjectTokyoENSForkTest is Test {
         (bytes memory addrData, address used) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
             .resolve(firstName, abi.encodeWithSignature("addr(bytes32)", bytes32(0)));
         assertEq(used, address(names));
-        assertEq(abi.decode(addrData, (address)), address(inv));
+        assertEq(abi.decode(addrData, (address)), firstToken);
         (bytes memory tokenData,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
             .resolve(firstName, abi.encodeWithSignature("text(bytes32,string)", bytes32(0), "token"));
-        assertEq(
-            abi.decode(tokenData, (string)),
-            string.concat("eip155:11155111/erc1155:", _hex(address(inv)), "/", _u(firstId))
-        );
+        assertEq(abi.decode(tokenData, (string)), string.concat("eip155:11155111/erc20:", _hex(firstToken)));
+        (bytes memory assetData,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
+            .resolve(firstName, abi.encodeWithSignature("text(bytes32,string)", bytes32(0), "asset"));
+        assertEq(abi.decode(assetData, (string)), _hex(address(asset)));
 
         bytes memory lastName = _dns(string.concat(names.dateLabel(end - 1), ".", label, ".projecttokyo.eth"));
         (bytes memory lastAddr,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
             .resolve(lastName, abi.encodeWithSignature("addr(bytes32)", bytes32(0)));
-        assertEq(abi.decode(lastAddr, (address)), address(inv));
+        assertEq(abi.decode(lastAddr, (address)), lastToken);
 
         bytes memory assetName = _dns(string.concat(label, ".projecttokyo.eth"));
         (bytes memory titleData,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
             .resolve(assetName, abi.encodeWithSignature("text(bytes32,string)", bytes32(0), "title"));
         assertEq(abi.decode(titleData, (string)), "Test car");
+        (bytes memory assetAddr,) = IUniversalResolver(EnsSepolia.UNIVERSAL_RESOLVER)
+            .resolve(assetName, abi.encodeWithSignature("addr(bytes32)", bytes32(0)));
+        assertEq(abi.decode(assetAddr, (address)), address(asset));
 
+        address materialized = asset.materialize(start);
+        assertEq(materialized, firstToken);
+        DayToken token = DayToken(firstToken);
+        assertEq(token.owner(), host);
         vm.prank(host);
-        inv.safeTransferFrom(host, trader, firstId, 1, "");
-        assertEq(inv.holderOf(firstId), trader);
+        token.transfer(trader, 1);
+        assertEq(asset.dayState(start).owner, trader);
+        assertEq(token.owner(), trader);
         vm.prank(trader);
-        inv.setListing(firstId, true, 123e6);
+        asset.setListing(start, start + 1, true, 123e6);
+        assertEq(asset.dayState(start).sellingPrice, 123e6);
         vm.prank(host);
-        vm.expectRevert(ProjectTokyoInventory.Unauthorized.selector);
-        inv.setListing(firstId, false, 1);
-        vm.prank(host);
-        inv.setBooked(firstId, true);
+        vm.expectRevert(RentalAsset.Unauthorized.selector);
+        asset.setListing(start, start + 1, false, 1);
         vm.prank(trader);
-        inv.safeTransferFrom(trader, host, firstId, 1, "");
-        assertEq(inv.holderOf(firstId), host);
-        (, bool booked,,,) = inv.dayInfo(firstId);
-        assertTrue(booked);
+        token.transfer(host, 1);
+        assertEq(asset.dayState(start).owner, host);
+        assertEq(token.totalSupply(), 1);
     }
 
     function _digits(uint256 n) private pure returns (string memory) {
@@ -165,22 +185,6 @@ contract ProjectTokyoENSForkTest is Test {
             uint8 v = uint8(b[i]);
             s[2 + 2 * i] = bytes1(v >> 4 < 10 ? uint8(48 + (v >> 4)) : uint8(87 + (v >> 4)));
             s[3 + 2 * i] = bytes1((v & 0xf) < 10 ? uint8(48 + (v & 0xf)) : uint8(87 + (v & 0xf)));
-        }
-        return string(s);
-    }
-
-    function _u(uint256 v) private pure returns (string memory) {
-        if (v == 0) return "0";
-        uint256 len;
-        uint256 t = v;
-        while (t != 0) {
-            ++len;
-            t /= 10;
-        }
-        bytes memory s = new bytes(len);
-        while (v != 0) {
-            s[--len] = bytes1(uint8(48 + v % 10));
-            v /= 10;
         }
         return string(s);
     }

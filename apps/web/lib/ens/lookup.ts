@@ -1,17 +1,15 @@
 import {
   decodeFunctionResult,
   encodeFunctionData,
-  keccak256,
-  stringToBytes,
   toHex,
   type Address,
 } from 'viem';
 import { packetToBytes } from 'viem/ens';
 import {
-  inventoryAbi,
   labelRegistered,
   namesAbi,
   registryAbi,
+  rentalAssetAbi,
   resolverAbi,
   urAbi,
 } from './abi';
@@ -29,16 +27,17 @@ export type AssetProperties = {
   kind?: string;
   location?: string;
   description?: string;
-  discounts?: string;
 };
 
 export type DayMetadata = {
-  minted: boolean;
-  booked: boolean;
+  token: Address;
+  owner: Address;
+  deployed: boolean;
   listed: boolean;
+  saleNonce: bigint;
+  booked: boolean;
   listedPrice: bigint;
   sellingPrice: bigint;
-  holder: Address;
 };
 
 export type ResolvedDay = {
@@ -46,17 +45,14 @@ export type ResolvedDay = {
   resolver: Address | null;
   addr: Address | null;
   token: string | null;
+  asset: string | null;
 };
 
 export function parseCaip19(token: string) {
-  const m = /^eip155:(\d+)\/erc1155:(0x[0-9a-fA-F]{40})\/(\d+)$/.exec(token);
-  return m
-    ? { chainId: Number(m[1]), contract: m[2] as Address, id: BigInt(m[3]) }
+  const erc20 = /^eip155:(\d+)\/erc20:(0x[0-9a-fA-F]{40})$/.exec(token);
+  return erc20
+    ? { chainId: Number(erc20[1]), contract: erc20[2] as Address }
     : null;
-}
-
-export function poolOfLabel(label: string) {
-  return keccak256(stringToBytes(label));
 }
 
 function earliestFromError(err: unknown): bigint | null {
@@ -159,16 +155,30 @@ export async function dayRegistryOf(
   });
 }
 
+export async function rentalAssetOf(
+  clients: EnsClients,
+  names: Address,
+  label: string,
+) {
+  return clients.public.readContract({
+    address: names,
+    abi: namesAbi,
+    functionName: 'assetOf',
+    args: [label],
+  });
+}
+
 export async function resolveDay(
   clients: EnsClients,
   name: string,
 ): Promise<ResolvedDay> {
-  const [resolver, addr, token] = await Promise.all([
+  const [resolver, addr, token, asset] = await Promise.all([
     clients.public.getEnsResolver({ name }).catch(() => null),
     clients.public.getEnsAddress({ name }).catch(() => null),
     clients.public.getEnsText({ name, key: 'token' }).catch(() => null),
+    clients.public.getEnsText({ name, key: 'asset' }).catch(() => null),
   ]);
-  return { name, resolver, addr, token };
+  return { name, resolver, addr, token, asset };
 }
 
 export async function getAssetRecords(
@@ -176,13 +186,7 @@ export async function getAssetRecords(
   label: string,
 ): Promise<AssetProperties> {
   const name = `${label}.${PARENT_NAME}`;
-  const keys = [
-    'title',
-    'kind',
-    'location',
-    'description',
-    'discounts',
-  ] as const;
+  const keys = ['title', 'kind', 'location', 'description'] as const;
   const values = await Promise.all(
     keys.map((key) => clients.public.getEnsText({ name, key }).catch(() => '')),
   );
@@ -193,45 +197,27 @@ export async function getAssetRecords(
 
 export async function readDayMetadata(
   clients: EnsClients,
-  inventory: Address,
-  ids: bigint[],
+  asset: Address,
+  startDay: number,
+  endDayExclusive: number,
 ): Promise<DayMetadata[]> {
-  if (ids.length === 0) return [];
-  const contracts = ids.flatMap((id) => [
-    {
-      address: inventory,
-      abi: inventoryAbi,
-      functionName: 'dayInfo' as const,
-      args: [id] as const,
-    },
-    {
-      address: inventory,
-      abi: inventoryAbi,
-      functionName: 'holderOf' as const,
-      args: [id] as const,
-    },
-  ]);
-  const out = await clients.public.multicall({
-    contracts,
-    allowFailure: false,
+  if (endDayExclusive <= startDay) return [];
+  const states = await clients.public.readContract({
+    address: asset,
+    abi: rentalAssetAbi,
+    functionName: 'rangeState',
+    args: [startDay, endDayExclusive],
   });
-  return ids.map((_, i) => {
-    const info = out[2 * i] as readonly [
-      boolean,
-      boolean,
-      boolean,
-      bigint,
-      bigint,
-    ];
-    return {
-      minted: info[0],
-      booked: info[1],
-      listed: info[2],
-      listedPrice: info[3],
-      sellingPrice: info[4],
-      holder: out[2 * i + 1] as Address,
-    };
-  });
+  return states.map((s) => ({
+    token: s.token,
+    owner: s.owner,
+    deployed: s.deployed,
+    listed: s.listed,
+    saleNonce: s.saleNonce,
+    booked: s.booked,
+    listedPrice: s.listedPrice,
+    sellingPrice: s.sellingPrice,
+  }));
 }
 
 export async function resolveDayViaUniversal(

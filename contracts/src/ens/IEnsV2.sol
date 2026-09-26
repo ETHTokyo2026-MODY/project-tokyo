@@ -51,26 +51,26 @@ interface IExtendedResolver {
     function resolve(bytes calldata name, bytes calldata data) external view returns (bytes memory);
 }
 
+interface IRentalAssetView {
+    function host() external view returns (address);
+    function startDay() external view returns (uint32);
+    function endDayExclusive() external view returns (uint32);
+    function tokenAddress(uint32 day) external view returns (address);
+    function metadataURI() external view returns (string memory);
+}
+
+interface IRentalAssetFactoryView {
+    function isAsset(address asset) external view returns (bool);
+}
+
 interface IProjectTokyoNames {
-    function registerAsset(string calldata label, bytes32 pool, address host)
+    function registerAsset(string calldata label, address rentalAsset)
         external
         returns (address dayRegistry, address resolver);
 
-    function registerDays(bytes32 pool, uint32 startDay, uint32 endDay) external;
+    function registerDays(string calldata label, uint32 startDay, uint32 endDay) external;
 
     function setAssetTexts(string calldata label, string[] calldata keys, string[] calldata values) external;
-}
-
-interface IProjectTokyoInventory {
-    function tokenId(bytes32 pool, uint32 day) external pure returns (uint256);
-
-    function dayInfo(uint256 id)
-        external
-        view
-        returns (bool minted, bool booked, bool listed, uint128 listedPrice, uint128 sellingPrice);
-
-    function holderOf(uint256 id) external view returns (address);
-    function assetHost(bytes32 pool) external view returns (address);
 }
 
 library EnsRoles {

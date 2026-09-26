@@ -10,7 +10,14 @@ import {
   parseAbi,
 } from 'viem';
 import { sepolia } from 'viem/chains';
-import { setup, createAsset, updateAssetRecords, transferDay } from './names';
+import {
+  setup,
+  createAsset,
+  updateAssetRecords,
+  materializeDay,
+  transferDayToken,
+  setDayListing,
+} from './names';
 import {
   dayRegistryOf,
   getAssetRecords,
@@ -22,6 +29,7 @@ import {
 } from './lookup';
 import { filterLabels } from './filter';
 import type { EnsClients } from './client';
+import { rentalAssetAbi } from './abi';
 
 const RUN = process.env.RUN_ENS_FORK === '1';
 const RPC =
@@ -67,7 +75,7 @@ async function waitForRpc(url: string, proc: ChildProcess) {
 
 describe.skipIf(!RUN)('projecttokyo ens fork', () => {
   let anvil: ChildProcess;
-  let clients: EnsClients;
+  let ownerClients: EnsClients;
   let hostClients: EnsClients;
   let traderClients: EnsClients;
 
@@ -91,7 +99,7 @@ describe.skipIf(!RUN)('projecttokyo ens fork', () => {
     await rpc('anvil_setBalance', [OWNER, '0x56BC75E2D63100000']);
     await rpc('anvil_setBalance', [HOST, '0x56BC75E2D63100000']);
     await rpc('anvil_setBalance', [TRADER, '0x56BC75E2D63100000']);
-    clients = {
+    ownerClients = {
       public: pub,
       wallet: createWalletClient({
         chain: sepolia,
@@ -122,120 +130,110 @@ describe.skipIf(!RUN)('projecttokyo ens fork', () => {
   });
 
   it('sets up, creates 365 days, resolves, trades, and hides testasset', async () => {
-    const deployed = await setup(clients, {
-      inventory: artifact('ProjectTokyoInventory').bytecode.object,
+    const deployed = await setup(ownerClients, {
       names: artifact('ProjectTokyoNames').bytecode.object,
     });
     const label = `testasset${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
-    const created = await createAsset(clients, deployed, label, HOST, {
+    const created = await createAsset(hostClients, deployed, label, {
       kind: 'car',
       title: 'Fork car',
       location: 'Tokyo',
-      discounts: '{"3":10,"7":20}',
     });
-    expect(created.endDay - created.startDay).toBe(BigInt(365));
+    expect(created.endDay - created.startDay).toBe(365);
+    expect(created.asset).toMatch(/^0x[0-9a-fA-F]{40}$/);
 
-    const dateLabel = await clients.public.readContract({
+    const dateLabel = await ownerClients.public.readContract({
       address: deployed.names,
       abi: parseAbi(['function dateLabel(uint32 day) pure returns (string)']),
       functionName: 'dateLabel',
-      args: [Number(created.startDay)],
+      args: [created.startDay],
     });
-    const lastLabel = await clients.public.readContract({
+    const lastLabel = await ownerClients.public.readContract({
       address: deployed.names,
       abi: parseAbi(['function dateLabel(uint32 day) pure returns (string)']),
       functionName: 'dateLabel',
-      args: [Number(created.endDay - BigInt(1))],
+      args: [created.endDay - 1],
+    });
+    const predicted = await ownerClients.public.readContract({
+      address: created.asset,
+      abi: rentalAssetAbi,
+      functionName: 'tokenAddress',
+      args: [created.startDay],
     });
     const first = await resolveDay(
-      clients,
+      ownerClients,
       `${dateLabel}.${label}.projecttokyo.eth`,
     );
     const last = await resolveDay(
-      clients,
+      ownerClients,
       `${lastLabel}.${label}.projecttokyo.eth`,
     );
-    expect(first.addr?.toLowerCase()).toBe(deployed.inventory.toLowerCase());
+    expect(first.addr?.toLowerCase()).toBe(predicted.toLowerCase());
     const parsed = parseCaip19(first.token ?? '');
     const parsedLast = parseCaip19(last.token ?? '');
-    expect(parsed?.contract.toLowerCase()).toBe(
-      deployed.inventory.toLowerCase(),
-    );
+    expect(parsed?.contract.toLowerCase()).toBe(predicted.toLowerCase());
     expect(parsedLast?.contract.toLowerCase()).toBe(
-      deployed.inventory.toLowerCase(),
+      (
+        await ownerClients.public.readContract({
+          address: created.asset,
+          abi: rentalAssetAbi,
+          functionName: 'tokenAddress',
+          args: [created.endDay - 1],
+        })
+      ).toLowerCase(),
     );
 
-    const records = await getAssetRecords(clients, label);
+    const records = await getAssetRecords(ownerClients, label);
     expect(records.title).toBe('Fork car');
 
-    const before = await readDayMetadata(clients, deployed.inventory, [
-      parsed!.id,
-    ]);
-    expect(before[0].holder.toLowerCase()).toBe(HOST.toLowerCase());
-    await transferDay(
-      hostClients,
-      deployed.inventory,
-      HOST,
-      TRADER,
-      parsed!.id,
+    await materializeDay(hostClients, created.asset, created.startDay);
+    const before = await readDayMetadata(
+      ownerClients,
+      created.asset,
+      created.startDay,
+      created.startDay + 1,
     );
-    const after = await readDayMetadata(clients, deployed.inventory, [
-      parsed!.id,
-    ]);
-    expect(after[0].holder.toLowerCase()).toBe(TRADER.toLowerCase());
+    expect(before[0].owner.toLowerCase()).toBe(HOST.toLowerCase());
+    expect(before[0].token.toLowerCase()).toBe(predicted.toLowerCase());
+    await transferDayToken(hostClients, predicted, TRADER);
+    const after = await readDayMetadata(
+      ownerClients,
+      created.asset,
+      created.startDay,
+      created.startDay + 1,
+    );
+    expect(after[0].owner.toLowerCase()).toBe(TRADER.toLowerCase());
 
     await expect(
-      clients.public.simulateContract({
+      ownerClients.public.simulateContract({
         account: HOST,
-        address: deployed.inventory,
-        abi: parseAbi([
-          'function setListing(uint256 id, bool listed, uint128 sellingPrice)',
-        ]),
+        address: created.asset,
+        abi: rentalAssetAbi,
         functionName: 'setListing',
-        args: [parsed!.id, false, BigInt(1)],
+        args: [created.startDay, created.startDay + 1, false, BigInt(1)],
       }),
     ).rejects.toThrow();
 
-    await traderClients.wallet!.writeContract(
-      (
-        await clients.public.simulateContract({
-          account: TRADER,
-          address: deployed.inventory,
-          abi: parseAbi([
-            'function setListing(uint256 id, bool listed, uint128 sellingPrice)',
-          ]),
-          functionName: 'setListing',
-          args: [parsed!.id, true, BigInt(123000000)],
-        })
-      ).request,
-    );
-    await hostClients.wallet!.writeContract(
-      (
-        await clients.public.simulateContract({
-          account: HOST,
-          address: deployed.inventory,
-          abi: parseAbi(['function setBooked(uint256 id, bool booked)']),
-          functionName: 'setBooked',
-          args: [parsed!.id, true],
-        })
-      ).request,
-    );
-    await transferDay(
+    await setDayListing(
       traderClients,
-      deployed.inventory,
-      TRADER,
-      HOST,
-      parsed!.id,
+      created.asset,
+      created.startDay,
+      true,
+      BigInt(123_000000),
     );
-    const booked = await readDayMetadata(clients, deployed.inventory, [
-      parsed!.id,
-    ]);
-    expect(booked[0].booked).toBe(true);
-    expect(booked[0].holder.toLowerCase()).toBe(HOST.toLowerCase());
+    await transferDayToken(traderClients, predicted, HOST);
+    const back = await readDayMetadata(
+      ownerClients,
+      created.asset,
+      created.startDay,
+      created.startDay + 1,
+    );
+    expect(back[0].owner.toLowerCase()).toBe(HOST.toLowerCase());
+    expect(back[0].deployed).toBe(true);
 
     expect(
       await listAssets(
-        clients,
+        ownerClients,
         deployed.assetRegistry,
         deployed.deployBlock,
         false,
@@ -243,7 +241,7 @@ describe.skipIf(!RUN)('projecttokyo ens fork', () => {
     ).not.toContain(label);
     expect(
       await listAssets(
-        clients,
+        ownerClients,
         deployed.assetRegistry,
         deployed.deployBlock,
         true,
@@ -251,13 +249,24 @@ describe.skipIf(!RUN)('projecttokyo ens fork', () => {
     ).toContain(label);
     expect(filterLabels([label, 'tesla-model-3'])).toEqual(['tesla-model-3']);
 
-    const dayReg = await dayRegistryOf(clients, deployed.assetRegistry, label);
-    const days = await listDays(clients, dayReg, deployed.deployBlock, true);
+    const dayReg = await dayRegistryOf(
+      ownerClients,
+      deployed.assetRegistry,
+      label,
+    );
+    const days = await listDays(
+      ownerClients,
+      dayReg,
+      deployed.deployBlock,
+      true,
+    );
     expect(days).toHaveLength(365);
 
     await updateAssetRecords(hostClients, deployed.names, label, {
       description: 'updated',
     });
-    expect((await getAssetRecords(clients, label)).description).toBe('updated');
+    expect((await getAssetRecords(ownerClients, label)).description).toBe(
+      'updated',
+    );
   }, 300_000);
 });

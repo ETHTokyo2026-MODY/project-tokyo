@@ -18,42 +18,140 @@ export const urAbi = parseAbi([
   'function findResolver(bytes name) view returns (address, bytes32, uint256)',
 ]);
 
-export const inventoryAbi = parseAbi([
-  'function administrator() view returns (address)',
-  'function names() view returns (address)',
-  'function setNames(address n)',
-  'function createAsset(string label, address host, string kind, string title, string location) returns (bytes32 pool, uint32 startDay, uint32 endDay)',
-  'function mintDays(bytes32 pool, uint32 start, uint32 end, uint128 listedPrice, uint128 sellingPrice)',
-  'function setListing(uint256 id, bool listed, uint128 sellingPrice)',
-  'function setListedPrice(uint256 id, uint128 listedPrice)',
-  'function setBooked(uint256 id, bool booked)',
-  'function tokenId(bytes32 pool, uint32 day) pure returns (uint256)',
-  'function dayInfo(uint256 id) view returns (bool minted, bool booked, bool listed, uint128 listedPrice, uint128 sellingPrice)',
-  'function holderOf(uint256 id) view returns (address)',
-  'function assetHost(bytes32 pool) view returns (address)',
-  'function assetInfo(bytes32 pool) view returns (address host, uint32 startDay, uint32 endDay, string label, string kind, string title, string location)',
-  'function isAsset(bytes32 pool) view returns (bool)',
-  'function currentDay() view returns (uint32)',
-  'function safeTransferFrom(address from, address to, uint256 id, uint256 value, bytes data)',
-  'function balanceOf(address account, uint256 id) view returns (uint256)',
-  'function setApprovalForAll(address operator, bool approved)',
+export const factoryAbi = parseAbi([
+  'function createAsset(bytes32 hostSalt, string metadataURI, (uint128 minimum, uint128[7] listedPrices, uint128[7] sellingPrices) defaults, (uint16 minDays, uint16 discountBps)[] discounts) returns (address asset)',
+  'function assets(address host, bytes32 hostSalt) view returns (address)',
+  'function isAsset(address asset) view returns (bool)',
+  'function dayTokenImplementation() view returns (address)',
+]);
+
+export const rentalAssetAbi = [
+  {
+    type: 'function',
+    name: 'host',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'startDay',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'endDayExclusive',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'tokenAddress',
+    stateMutability: 'view',
+    inputs: [{ name: 'day', type: 'uint32' }],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'metadataURI',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    type: 'function',
+    name: 'materialize',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'day', type: 'uint32' }],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'setListing',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'start', type: 'uint32' },
+      { name: 'endExclusive', type: 'uint32' },
+      { name: 'listed', type: 'bool' },
+      { name: 'sellingPrice', type: 'uint128' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'dayState',
+    stateMutability: 'view',
+    inputs: [{ name: 'day', type: 'uint32' }],
+    outputs: [
+      {
+        name: 'state',
+        type: 'tuple',
+        components: [
+          { name: 'token', type: 'address' },
+          { name: 'owner', type: 'address' },
+          { name: 'deployed', type: 'bool' },
+          { name: 'listed', type: 'bool' },
+          { name: 'saleNonce', type: 'uint64' },
+          { name: 'booked', type: 'bool' },
+          { name: 'listedPrice', type: 'uint128' },
+          { name: 'sellingPrice', type: 'uint128' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'rangeState',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'start', type: 'uint32' },
+      { name: 'endExclusive', type: 'uint32' },
+    ],
+    outputs: [
+      {
+        name: 'states',
+        type: 'tuple[]',
+        components: [
+          { name: 'token', type: 'address' },
+          { name: 'owner', type: 'address' },
+          { name: 'deployed', type: 'bool' },
+          { name: 'listed', type: 'bool' },
+          { name: 'saleNonce', type: 'uint64' },
+          { name: 'booked', type: 'bool' },
+          { name: 'listedPrice', type: 'uint128' },
+          { name: 'sellingPrice', type: 'uint128' },
+        ],
+      },
+    ],
+  },
+] as const;
+
+export const dayTokenAbi = parseAbi([
+  'function transfer(address to, uint256 value) returns (bool)',
+  'function owner() view returns (address)',
+  'function balanceOf(address account) view returns (uint256)',
+  'function totalSupply() view returns (uint256)',
 ]);
 
 export const namesAbi = parseAbi([
-  'constructor(address inventory_, address factory_, address userRegistryImpl_, address permissionedResolverImpl_, address ethRegistry_, string parentLabel_)',
+  'constructor(address ensFactory_, address userRegistryImpl_, address permissionedResolverImpl_, address ethRegistry_, string parentLabel_, address rentalFactory_)',
   'function assetRegistry() view returns (address)',
   'function parentDns() view returns (bytes)',
   'function parentLabel() view returns (string)',
-  'function inventory() view returns (address)',
+  'function rentalFactory() view returns (address)',
+  'function assetOf(string label) view returns (address)',
   'function linkParent()',
-  'function registerAsset(string label, bytes32 pool, address host) returns (address dayRegistry, address resolver)',
-  'function registerDays(bytes32 pool, uint32 startDay, uint32 endDay)',
+  'function registerAsset(string label, address rentalAsset) returns (address dayRegistry, address resolver)',
+  'function registerDays(string label, uint32 startDay, uint32 endDay)',
   'function setAssetTexts(string label, string[] keys, string[] values)',
   'function dateLabel(uint32 day) pure returns (string)',
   'function parseDateLabel(string label) pure returns (uint32)',
-  'function dayRegistryOf(bytes32 pool) view returns (address)',
-  'function assetResolverOf(bytes32 pool) view returns (address)',
-  'function poolOfLabel(bytes32 labelHash) view returns (bytes32)',
+  'function dayRegistryOf(bytes32 labelHash) view returns (address)',
+  'function assetResolverOf(bytes32 labelHash) view returns (address)',
+  'function assetOfLabel(bytes32 labelHash) view returns (address)',
 ]);
 
 export const resolverAbi = parseAbi([

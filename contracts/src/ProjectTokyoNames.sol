@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {
     EnsRoles,
@@ -9,32 +8,36 @@ import {
     IPermissionedRegistry,
     IPermissionedResolver,
     IPermissionedResolverInit,
-    IProjectTokyoInventory,
     IProjectTokyoNames,
+    IRentalAssetFactoryView,
+    IRentalAssetView,
     IUserRegistryInit,
     IVerifiableFactory
 } from "./ens/IEnsV2.sol";
 import {ProjectTokyoDates} from "./ens/ProjectTokyoDates.sol";
 
-/// @notice Registrar for projecttokyo.eth asset/day names and computed day resolver.
-contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Receiver {
+/// @notice Registrar for projecttokyo.eth asset/day names over live RentalAsset / DayToken.
+contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC165 {
     bytes4 private constant ADDR_SIG = 0x3b3b57de;
     bytes4 private constant ADDR_COIN_SIG = 0xf1cb7e06;
     bytes4 private constant TEXT_SIG = 0x59d1d43c;
     bytes4 private constant MULTICALL_SIG = 0xac9650d8;
 
+    uint32 public constant MAX_DAYS_PER_TX = 80;
+
     address public immutable administrator;
-    IProjectTokyoInventory public immutable inventory;
-    IVerifiableFactory public immutable factory;
+    IVerifiableFactory public immutable ensFactory;
     address public immutable userRegistryImpl;
     address public immutable permissionedResolverImpl;
     IPermissionedRegistry public immutable ethRegistry;
     IPermissionedRegistry public immutable assetRegistry;
+    IRentalAssetFactoryView public immutable rentalFactory;
     bytes32 public immutable parentNode;
     bytes public parentDns;
     string public parentLabel;
 
-    mapping(bytes32 => bytes32) public poolOfLabel;
+    mapping(bytes32 => address) public assetOfLabel;
+    mapping(address => bytes32) public labelHashOfAsset;
     mapping(bytes32 => IPermissionedRegistry) public dayRegistryOf;
     mapping(bytes32 => address) public assetResolverOf;
     mapping(bytes32 => address) public assetHostOf;
@@ -45,30 +48,30 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
 
     event AssetRegistryCreated(address indexed registry);
     event AssetRegistered(
-        string label, bytes32 indexed pool, address indexed host, address dayRegistry, address resolver
+        string label, address indexed rentalAsset, address indexed host, address dayRegistry, address resolver
     );
-    event DaysRegistered(bytes32 indexed pool, uint32 startDay, uint32 endDay);
+    event DaysRegistered(string label, address indexed rentalAsset, uint32 startDay, uint32 endDay);
 
     constructor(
-        IProjectTokyoInventory inventory_,
-        IVerifiableFactory factory_,
+        IVerifiableFactory ensFactory_,
         address userRegistryImpl_,
         address permissionedResolverImpl_,
         IPermissionedRegistry ethRegistry_,
-        string memory parentLabel_
+        string memory parentLabel_,
+        address rentalFactory_
     ) {
-        require(address(inventory_) != address(0) && bytes(parentLabel_).length != 0, InvalidName());
+        require(bytes(parentLabel_).length != 0, InvalidName());
         administrator = msg.sender;
-        inventory = inventory_;
-        factory = factory_;
+        ensFactory = ensFactory_;
         userRegistryImpl = userRegistryImpl_;
         permissionedResolverImpl = permissionedResolverImpl_;
         ethRegistry = ethRegistry_;
+        rentalFactory = IRentalAssetFactoryView(rentalFactory_);
         parentLabel = parentLabel_;
         parentDns = _dnsEncode(string.concat(parentLabel_, ".eth"));
         bytes32 ethNode = keccak256(abi.encodePacked(bytes32(0), keccak256("eth")));
         parentNode = keccak256(abi.encodePacked(ethNode, keccak256(bytes(parentLabel_))));
-        if (address(factory_) != address(0)) {
+        if (address(ensFactory_) != address(0)) {
             assetRegistry = IPermissionedRegistry(_deployRegistry(parentNode));
             emit AssetRegistryCreated(address(assetRegistry));
         }
@@ -79,44 +82,57 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
         assetRegistry.setParent(address(ethRegistry), parentLabel);
     }
 
-    function registerAsset(string calldata label, bytes32 pool, address host)
+    function assetOf(string calldata label) external view returns (address) {
+        return assetOfLabel[_labelHash(bytes(label))];
+    }
+
+    function registerAsset(string calldata label, address rentalAsset)
         external
         returns (address dayRegistry, address resolver)
     {
-        require(msg.sender == address(inventory) || msg.sender == administrator, Unauthorized());
-        require(host != address(0) && pool == keccak256(bytes(label)), InvalidName());
+        require(rentalAsset != address(0), InvalidName());
+        require(address(rentalFactory) == address(0) || rentalFactory.isAsset(rentalAsset), InvalidName());
+        address host = IRentalAssetView(rentalAsset).host();
+        require(msg.sender == host || msg.sender == administrator, Unauthorized());
         bytes32 labelHash = _labelHash(bytes(label));
-        require(poolOfLabel[labelHash] == bytes32(0), InvalidName());
+        require(assetOfLabel[labelHash] == address(0) && labelHashOfAsset[rentalAsset] == bytes32(0), InvalidName());
         bytes32 assetNode = keccak256(abi.encodePacked(parentNode, labelHash));
         dayRegistry = _deployRegistry(assetNode);
         IPermissionedRegistry(dayRegistry).setParent(address(assetRegistry), label);
         resolver = _deployAssetResolver(host, assetNode);
+        bytes memory name = _dnsEncode(string.concat(label, ".", parentLabel, ".eth"));
+        IPermissionedResolver(resolver).setAddress(name, 60, abi.encodePacked(rentalAsset));
         assetRegistry.register(label, host, dayRegistry, resolver, 0, type(uint64).max);
-        poolOfLabel[labelHash] = pool;
-        dayRegistryOf[pool] = IPermissionedRegistry(dayRegistry);
-        assetResolverOf[pool] = resolver;
-        assetHostOf[pool] = host;
-        emit AssetRegistered(label, pool, host, dayRegistry, resolver);
+        assetOfLabel[labelHash] = rentalAsset;
+        labelHashOfAsset[rentalAsset] = labelHash;
+        dayRegistryOf[labelHash] = IPermissionedRegistry(dayRegistry);
+        assetResolverOf[labelHash] = resolver;
+        assetHostOf[labelHash] = host;
+        emit AssetRegistered(label, rentalAsset, host, dayRegistry, resolver);
     }
 
-    function registerDays(bytes32 pool, uint32 startDay, uint32 endDay) external {
-        require(msg.sender == address(inventory) || msg.sender == administrator, Unauthorized());
-        IPermissionedRegistry dayRegistry = dayRegistryOf[pool];
-        require(address(dayRegistry) != address(0) && startDay < endDay, InvalidName());
+    function registerDays(string calldata label, uint32 startDay, uint32 endDay) external {
+        bytes32 labelHash = _labelHash(bytes(label));
+        address rentalAsset = assetOfLabel[labelHash];
+        require(rentalAsset != address(0) && startDay < endDay && endDay - startDay <= MAX_DAYS_PER_TX, InvalidName());
+        require(msg.sender == assetHostOf[labelHash] || msg.sender == administrator, Unauthorized());
+        IRentalAssetView asset = IRentalAssetView(rentalAsset);
+        require(startDay >= asset.startDay() && endDay <= asset.endDayExclusive(), InvalidName());
+        IPermissionedRegistry dayRegistry = dayRegistryOf[labelHash];
         for (uint32 d = startDay; d < endDay; ++d) {
             dayRegistry.register(
                 ProjectTokyoDates.dateLabel(d), address(this), address(0), address(this), 0, type(uint64).max
             );
         }
-        emit DaysRegistered(pool, startDay, endDay);
+        emit DaysRegistered(label, rentalAsset, startDay, endDay);
     }
 
     function setAssetTexts(string calldata label, string[] calldata keys, string[] calldata values) external {
-        bytes32 pool = poolOfLabel[_labelHash(bytes(label))];
-        require(pool != bytes32(0) && keys.length == values.length, InvalidName());
-        require(msg.sender == assetHostOf[pool] || msg.sender == administrator, Unauthorized());
+        bytes32 labelHash = _labelHash(bytes(label));
+        require(assetOfLabel[labelHash] != address(0) && keys.length == values.length, InvalidName());
+        require(msg.sender == assetHostOf[labelHash] || msg.sender == administrator, Unauthorized());
         bytes memory name = _dnsEncode(string.concat(label, ".", parentLabel, ".eth"));
-        IPermissionedResolver resolver = IPermissionedResolver(assetResolverOf[pool]);
+        IPermissionedResolver resolver = IPermissionedResolver(assetResolverOf[labelHash]);
         for (uint256 i; i < keys.length; ++i) {
             resolver.setText(name, keys[i], values[i]);
         }
@@ -135,19 +151,7 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {
-        return id == type(IERC165).interfaceId || id == type(IERC1155Receiver).interfaceId || id == 0x9061b923;
-    }
-
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
-        return IERC1155Receiver.onERC1155Received.selector;
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        return IERC1155Receiver.onERC1155BatchReceived.selector;
+        return id == type(IERC165).interfaceId || id == 0x9061b923;
     }
 
     function _resolve(bytes calldata name, bytes calldata data) private view returns (bytes memory) {
@@ -160,26 +164,27 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
             }
             return abi.encode(out);
         }
-        (,, uint256 id) = _dayFromName(name);
-        (bool minted,,,,) = inventory.dayInfo(id);
-        require(minted, UnknownName());
-        if (sel == ADDR_SIG) return abi.encode(address(inventory));
+        (address rentalAsset, uint32 day) = _dayFromName(name);
+        address token = IRentalAssetView(rentalAsset).tokenAddress(day);
+        if (sel == ADDR_SIG) return abi.encode(token);
         if (sel == ADDR_COIN_SIG) {
             (, uint256 coin) = abi.decode(data[4:], (bytes32, uint256));
             require(coin == 60, InvalidName());
-            return abi.encode(abi.encodePacked(address(inventory)));
+            return abi.encode(abi.encodePacked(token));
         }
         if (sel == TEXT_SIG) {
             (, string memory key) = abi.decode(data[4:], (bytes32, string));
-            if (keccak256(bytes(key)) == keccak256("token") || keccak256(bytes(key)) == keccak256("avatar")) {
-                return abi.encode(_caip19(id));
+            bytes32 keyHash = keccak256(bytes(key));
+            if (keyHash == keccak256("token") || keyHash == keccak256("avatar")) {
+                return abi.encode(_caip19(token));
             }
+            if (keyHash == keccak256("asset")) return abi.encode(_toHex(rentalAsset));
             revert InvalidName();
         }
         revert InvalidName();
     }
 
-    function _dayFromName(bytes calldata name) private view returns (bytes32 pool, uint32 day, uint256 id) {
+    function _dayFromName(bytes calldata name) private view returns (address rentalAsset, uint32 day) {
         require(name.length > parentDns.length + 2, InvalidName());
         uint256 suffixAt = name.length - parentDns.length;
         require(keccak256(name[suffixAt:]) == keccak256(parentDns), InvalidName());
@@ -190,15 +195,16 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
         uint256 assetLen = uint8(name[assetAt]);
         require(assetLen > 0 && assetAt + 1 + assetLen == suffixAt, InvalidName());
         bytes32 labelHash = _labelHash(name[assetAt + 1:assetAt + 1 + assetLen]);
-        pool = poolOfLabel[labelHash];
-        require(pool != bytes32(0), UnknownName());
-        id = inventory.tokenId(pool, day);
+        rentalAsset = assetOfLabel[labelHash];
+        require(rentalAsset != address(0), UnknownName());
+        IRentalAssetView asset = IRentalAssetView(rentalAsset);
+        require(day >= asset.startDay() && day < asset.endDayExclusive(), InvalidName());
     }
 
     function _deployRegistry(bytes32 node) private returns (address registry) {
         IUserRegistryInit.Grant[] memory grants = new IUserRegistryInit.Grant[](1);
         grants[0] = IUserRegistryInit.Grant(address(this), EnsRoles.REGISTRY_ROOT);
-        registry = factory.deployProxy(
+        registry = ensFactory.deployProxy(
             userRegistryImpl,
             uint256(keccak256(abi.encode(keccak256("UserRegistry"), node, uint256(0)))),
             abi.encodeCall(IUserRegistryInit.initialize, (grants))
@@ -210,17 +216,15 @@ contract ProjectTokyoNames is IExtendedResolver, IProjectTokyoNames, IERC1155Rec
         grants[0] = IPermissionedResolverInit.Grant(host, EnsRoles.RESOLVER_ALL);
         grants[1] = IPermissionedResolverInit.Grant(address(this), EnsRoles.RESOLVER_ALL);
         grants[2] = IPermissionedResolverInit.Grant(administrator, EnsRoles.RESOLVER_ALL);
-        resolver = factory.deployProxy(
+        resolver = ensFactory.deployProxy(
             permissionedResolverImpl,
             uint256(keccak256(abi.encode(keccak256("PermissionedResolver"), node, uint256(1)))),
             abi.encodeCall(IPermissionedResolverInit.initialize, (grants, new bytes[](0)))
         );
     }
 
-    function _caip19(uint256 id) private view returns (string memory) {
-        return string.concat(
-            "eip155:", _uToString(block.chainid), "/erc1155:", _toHex(address(inventory)), "/", _uToString(id)
-        );
+    function _caip19(address token) private view returns (string memory) {
+        return string.concat("eip155:", _uToString(block.chainid), "/erc20:", _toHex(token));
     }
 
     function _labelHash(bytes memory label) private pure returns (bytes32) {
