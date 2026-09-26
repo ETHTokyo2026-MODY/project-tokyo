@@ -57,16 +57,18 @@ export function Nav() {
           ProjectTokyo
           <small>Sepolia · test USDC</small>
         </span>
-        {TABS.map((tab) => (
-          <Link
-            key={tab.href}
-            className={pathname === tab.href ? 'tab on' : 'tab'}
-            href={linkTo(tab.href, {}, account)}
-            aria-current={pathname === tab.href ? 'page' : undefined}
-          >
-            {tab.label}
-          </Link>
-        ))}
+        <div className="nav-links">
+          {TABS.map((tab) => (
+            <Link
+              key={tab.href}
+              className={pathname === tab.href ? 'tab on' : 'tab'}
+              href={linkTo(tab.href, {}, account)}
+              aria-current={pathname === tab.href ? 'page' : undefined}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </div>
         <button
           type="button"
           disabled={busy || waiting}
