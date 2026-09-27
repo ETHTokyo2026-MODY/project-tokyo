@@ -32,6 +32,12 @@ Set `DAY_RPC_URL` and `DAY_DB` (an absolute path outside Git), then run:
 npm start --workspace=@project-tokyo/backend
 ```
 
+Set optional `DAY_RPC_URLS` to a comma-separated list of up to seven additional
+HTTP(S) RPC URLs. Public viem reads rotate their first endpoint on each request
+and fail over to the remaining URLs. Each endpoint must report the configured
+chain ID before it serves reads. Signing and broadcasting use `DAY_RPC_URL`.
+Keep any API keys in server environment variables, never in public config.
+
 The default listener is local. `DAY_HOST`, `DAY_PORT` and `DAY_INTERVAL_MS`
 configure it. `DAY_TAKER_PRIVATE_KEY` enables automatic fills; inject secrets
 through the process environment without saving them in the repository.
@@ -96,7 +102,12 @@ contract addresses come from the checked-in deployment manifest. Optional server
   for the web process; it contains public deployment data only. Omit to use
   `contracts/deployments/sepolia.json`. Invalid explicit overrides fail closed.
 - `DAY_RPC_URL`: override the public RPC with a dedicated endpoint for reliability.
-  A non-Sepolia deployment requires an explicit RPC URL.
+  A non-Sepolia deployment requires an explicit RPC URL or `DAY_RPC_URLS`.
+- `DAY_RPC_URLS`: optional comma-separated additional HTTP(S) endpoints, each
+  with its own API key if required. Set this as an encrypted run-time variable
+  in DigitalOcean or encrypt it in `apps/web/.env.production` with dotenvx.
+  Public reads from the day and ENS APIs rotate across the configured URLs;
+  wallet writes use the first URL. Do not use `NEXT_PUBLIC_` for RPC keys.
 - `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash. By default
   this is the request origin; set it if the reverse proxy rewrites the public URL.
 
@@ -105,8 +116,9 @@ The web app always reads the chain through this handler.
 No `DAY_BACKEND_URL`, listener, signing key, or database file is needed for config,
 state, curves, receipts, or unsigned transaction preparation. Configuration and
 public metadata are validated without RPC for `/config`. Live operations still
-verify contract identity. RPC calls have a five-second limit without hidden
-retries; API work has an eight-second response deadline. Slow reads return JSON 503. State polls share their in-flight work, including completed results
+verify contract identity. Each RPC attempt has a five-second limit and can
+fall back to the next configured endpoint; API work has an eight-second
+response deadline. Slow reads return JSON 503. State polls share their in-flight work, including completed results
 for up to 30 seconds. At most 32 read jobs are retained per process. Setup errors
 remain explicit failures, not empty calendars.
 Each process shares one in-memory canonical index. Requests advance it in bounded

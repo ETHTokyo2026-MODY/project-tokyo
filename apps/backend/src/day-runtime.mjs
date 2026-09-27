@@ -20,6 +20,7 @@ import {
   http,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { balancedDayRpc, dayRpcUrls } from './day-rpc.mjs';
 import { EventIndex } from './event-index.mjs';
 import { DayTaker } from './day-taker.mjs';
 import { createDayServer } from './day-server.mjs';
@@ -80,19 +81,13 @@ export function loadDayRuntimeOptions(env = process.env) {
     throw new Error('Unable to load DAY_CONFIG JSON');
   }
   const config = normalize(parsed);
-  let url;
-  try {
-    url = new URL(env.DAY_RPC_URL);
-  } catch {
-    throw new Error('DAY_RPC_URL is required');
-  }
-  if (!['http:', 'https:'].includes(url.protocol))
-    throw new Error('RPC must use HTTP or HTTPS');
+  if (!env.DAY_RPC_URL) throw new Error('DAY_RPC_URL is required');
+  const urls = dayRpcUrls(env);
   const chain = defineChain({
     id: config.chainId,
     name: 'Rental day chain',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: { default: { http: [env.DAY_RPC_URL] } },
+    rpcUrls: { default: { http: urls } },
   });
   const transport = http(env.DAY_RPC_URL, { timeout: 15000, retryCount: 1 });
   const wallet = (key) =>
@@ -111,7 +106,11 @@ export function loadDayRuntimeOptions(env = process.env) {
     throw new Error('Booking configuration requires a booking signer');
   return {
     config,
-    client: createPublicClient({ chain, transport, cacheTime: 0 }),
+    client: createPublicClient({
+      chain,
+      transport: balancedDayRpc(urls, { timeout: 15000 }),
+      cacheTime: 0,
+    }),
     takerWallet,
     bookingWallet,
     webhookToken: env.DAY_WEBHOOK_TOKEN,
