@@ -114,7 +114,7 @@ describe('native wallet discovery (unit)', () => {
     expect(() => discovery.select({ uuid: uuid(1) })).toThrow('closed');
   });
 
-  it('updates subscribers for late wallets and conflicts, then removes its listener', () => {
+  it('updates subscribers for late wallets and removes its listener', () => {
     const target = new EventTarget();
     const discovery = discover(target);
     const changed = vi.fn();
@@ -124,14 +124,14 @@ describe('native wallet discovery (unit)', () => {
     announce(target, provider);
     expect(changed).toHaveBeenCalledTimes(1);
     announce(target, new MockProvider());
-    expect(changed).toHaveBeenCalledTimes(2);
-    expect(discovery.list()).toEqual([]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(discovery.list()).toHaveLength(1);
     stop();
     announce(target, provider, 2);
-    expect(changed).toHaveBeenCalledTimes(2);
+    expect(changed).toHaveBeenCalledTimes(1);
     discovery.dispose();
     announce(target, provider, 3);
-    expect(discovery.list()).toHaveLength(1);
+    expect(discovery.list()).toHaveLength(0);
     expect(() => discovery.refresh()).toThrow('closed');
   });
 
@@ -150,17 +150,39 @@ describe('native wallet discovery (unit)', () => {
     });
   });
 
-  it('rejects ambiguous RDNS and conflicting UUID announcements', () => {
+  it('rejects ambiguous RDNS while mipd keeps the first announcement for a UUID', () => {
     const target = new EventTarget();
     const discovery = discover(target);
-    announce(target, new MockProvider(), 1);
+    const first = new MockProvider();
+    announce(target, first, 1);
     announce(target, new MockProvider(), 2);
     expect(() => discovery.select({ rdns: PREFERRED_WALLET_RDNS })).toThrow(
       'ambiguous',
     );
     expect(discovery.select({ uuid: uuid(2) })).toBeInstanceOf(WalletSession);
     announce(target, new MockProvider(), 1);
-    expect(() => discovery.select({ uuid: uuid(1) })).toThrow('unavailable');
+    expect(discovery.list()).toHaveLength(2);
+    expect(discovery.select({ uuid: uuid(1) })).toBeInstanceOf(WalletSession);
+    expect(first.request).not.toHaveBeenCalled();
+  });
+
+  it('lists every announcement and checks provider capabilities only on selection', () => {
+    const target = new EventTarget();
+    const discovery = discover(target);
+    announce(target, new MockProvider(), 1);
+    announce(
+      target,
+      { request: vi.fn() } as unknown as MockProvider,
+      2,
+      'wallet.two',
+    );
+    expect(discovery.list().map((wallet) => wallet.name)).toEqual([
+      'Wallet 1',
+      'Wallet 2',
+    ]);
+    expect(() => discovery.select({ uuid: uuid(2) })).toThrow(
+      'required provider events',
+    );
   });
 });
 

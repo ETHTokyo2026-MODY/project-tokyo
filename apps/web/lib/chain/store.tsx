@@ -227,7 +227,6 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
 }
 export function walletChoices() {
   discovery ??= createWalletDiscovery();
-  discovery.refresh();
   return discovery.list();
 }
 export function subscribeWalletChoices(listener: () => void) {

@@ -1,4 +1,4 @@
-import { requestProviders } from 'mipd';
+import { createStore } from 'mipd';
 import {
   connect,
   createConfig,
@@ -456,68 +456,25 @@ export class WalletSession {
   }
 }
 
-/** Keep this discovery listener for the page lifetime; dispose only when its owner tears down. */
+/** mipd owns EIP-6963 discovery and deduplication for this page. */
 export function createWalletDiscovery() {
   const target = window as WalletWindow;
-  const listeners = new Set<() => void>();
-  const notify = () => {
-    for (const listener of listeners) listener();
-  };
-  const providers = new Map<
-    string,
-    { info: WalletChoice; provider: WalletProvider }
-  >();
-  const conflicts = new Set<string>();
+  const store = createStore();
   let disposed = false;
-  const announce = (detail: unknown) => {
-    // Extension announcements are untrusted even when delivered by mipd.
-    if (!detail || typeof detail !== 'object') return;
-    const candidate = detail as { info?: WalletChoice; provider?: unknown };
-    const info = candidate.info;
-    if (
-      !info ||
-      typeof info.uuid !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        info.uuid,
-      ) ||
-      typeof info.name !== 'string' ||
-      !info.name ||
-      typeof info.rdns !== 'string' ||
-      !info.rdns ||
-      !isProvider(candidate.provider)
-    )
-      return;
-    const previous = providers.get(info.uuid);
-    if (
-      previous &&
-      (previous.provider !== candidate.provider ||
-        previous.info.rdns !== info.rdns ||
-        previous.info.name !== info.name)
-    ) {
-      if (!conflicts.has(info.uuid)) {
-        conflicts.add(info.uuid);
-        notify();
-      }
-      return;
-    }
-    if (previous || conflicts.has(info.uuid)) return;
-    providers.set(info.uuid, {
-      info: { uuid: info.uuid, name: info.name, rdns: info.rdns },
-      provider: candidate.provider,
-    });
-    notify();
-  };
   const refresh = () => {
     if (disposed) throw new Error('Wallet discovery closed');
     target.dispatchEvent(new Event('eip6963:requestProvider'));
   };
-  const unsubscribe = requestProviders(announce);
   return {
     // RDNS is a self-attested label, not proof of an extension's authenticity.
     list(): WalletChoice[] {
-      return [...providers.values()]
-        .filter(({ info }) => !conflicts.has(info.uuid))
-        .map(({ info }) => ({ ...info }))
+      return store
+        .getProviders()
+        .map(({ info }) => ({
+          uuid: info.uuid,
+          name: info.name,
+          rdns: info.rdns,
+        }))
         .sort(
           (a, b) =>
             Number(b.rdns === PREFERRED_WALLET_RDNS) -
@@ -531,33 +488,33 @@ export function createWalletDiscovery() {
           throw new Error('Legacy injected wallet is unavailable');
         return new WalletSession(target.ethereum);
       }
-      const matches = [...providers.values()].filter(
-        ({ info }) =>
-          !conflicts.has(info.uuid) &&
-          ('uuid' in selection
+      const matches = store
+        .getProviders()
+        .filter(({ info }) =>
+          'uuid' in selection
             ? info.uuid === selection.uuid
-            : 'rdns' in selection && info.rdns === selection.rdns),
-      );
+            : 'rdns' in selection && info.rdns === selection.rdns,
+        );
       if (matches.length !== 1)
         throw new Error(
           matches.length
             ? 'Wallet selection is ambiguous'
             : 'Selected wallet is unavailable',
         );
+      if (!isProvider(matches[0].provider))
+        throw new Error(
+          'Selected wallet does not support required provider events',
+        );
       return new WalletSession(matches[0].provider);
     },
     refresh,
     subscribe(listener: () => void) {
       if (disposed) throw new Error('Wallet discovery closed');
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
+      return store.subscribe(listener);
     },
     dispose() {
       disposed = true;
-      unsubscribe?.();
-      listeners.clear();
+      store.destroy();
     },
   };
 }
