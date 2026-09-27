@@ -2,6 +2,7 @@ import { UserError } from '@/lib/demo/actions';
 import {
   demoToday,
   dispatchDemoAction,
+  prefillDemoState,
   readDemoState,
   resetDemoState,
 } from '@/lib/demo/server-store';
@@ -40,6 +41,22 @@ export async function POST(
   if (action === 'reset') {
     const state = await resetDemoState();
     return Response.json({ ok: true, ...payload(state) }, { headers: noStore });
+  }
+  if (action === 'prefill') {
+    try {
+      const state = await prefillDemoState();
+      return Response.json(
+        { ok: true, ...payload(state) },
+        { headers: noStore },
+      );
+    } catch (error) {
+      const message =
+        error instanceof UserError ? error.message : 'Prefill failed';
+      return Response.json(
+        { ok: false, error: message },
+        { status: error instanceof UserError ? 400 : 500, headers: noStore },
+      );
+    }
   }
   if (action !== 'action') {
     return Response.json(
