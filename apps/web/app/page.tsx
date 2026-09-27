@@ -19,8 +19,9 @@ import './add.css';
 const TITLE = 'Dashboard · DayTrader';
 
 export default function DashboardPage() {
-  const { ready, state, today, dispatch, busy } = useChainStore();
+  const { ready, state, today, dispatch, busy, wallet } = useChainStore();
   const accountId = useAccount();
+  const readOnly = accountId !== wallet;
 
   useEffect(() => {
     document.title = TITLE;
@@ -71,7 +72,7 @@ export default function DashboardPage() {
   return (
     <main className="page">
       <h1>Dashboard</h1>
-      <AddAssetForm account={accountId} />
+      {!readOnly ? <AddAssetForm account={accountId} /> : null}
       <div className="scroll-x">
         {!provided.length && !holding.length ? (
           <div className="empty">No assets or days owned yet.</div>
@@ -196,7 +197,7 @@ export default function DashboardPage() {
           </table>
         ) : null}
       </div>
-      {state?.chain ? (
+      {state?.chain && !readOnly ? (
         <section>
           <h2>Open buy orders</h2>
           {state.bids?.length ? (

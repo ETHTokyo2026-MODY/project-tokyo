@@ -27,7 +27,7 @@ function Loading() {
 }
 
 function ProfileInner() {
-  const { ready, state, today } = useChainStore();
+  const { ready, state, today, wallet } = useChainStore();
   const account = useAccount();
 
   useEffect(() => {
@@ -61,7 +61,7 @@ function ProfileInner() {
         <div className="card">
           <div className="sub">Cash</div>
           <div className="t" style={{ fontSize: 22 }}>
-            {money(p.cash)}
+            {account === wallet ? money(p.cash) : 'Unavailable'}
           </div>
         </div>
         <div className="card">

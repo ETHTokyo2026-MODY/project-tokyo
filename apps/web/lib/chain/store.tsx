@@ -9,6 +9,7 @@ import {
   exactDay,
   parseUSDC,
   usdText,
+  viewedAccount,
   type ChainCalendar,
   type ChainSnapshot,
 } from './model';
@@ -454,6 +455,18 @@ export async function dispatch(
   name: string,
   body: Record<string, unknown> = {},
 ): Promise<ActionResult> {
+  const requested =
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location?.search ?? '').get('account');
+  if (
+    viewedAccount(requested, snapshot.wallet, snapshot.state?.accounts) !==
+    snapshot.wallet
+  )
+    return {
+      ok: false,
+      error: 'This is a public view. Connect that account’s wallet to act.',
+    };
   if (snapshot.busy)
     return { ok: false, error: 'A wallet action is already in progress' };
   if (!snapshot.ready)

@@ -100,12 +100,16 @@
 
   #nav .who {
     margin-left: auto;
-    white-space: nowrap;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 14px;
     color: #d1d5db;
+  }
+
+  #nav .who select {
+    max-width: min(240px, 54vw);
+    text-overflow: ellipsis;
   }
 
   #nav select {

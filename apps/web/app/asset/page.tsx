@@ -21,7 +21,7 @@ function Loading() {
 }
 
 function AssetInner() {
-  const { ready, state, dispatch, busy } = useChainStore();
+  const { ready, state, dispatch, busy, wallet } = useChainStore();
   const account = useAccount();
   const id = normalizeAssetId(useSearchParams().get('asset') ?? '');
   const asset = id && state ? state.assets.find((a) => a.id === id) : undefined;
@@ -66,17 +66,19 @@ function AssetInner() {
       <p>
         <Link href={cal}>Open calendar →</Link>
       </p>
-      <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>
-        <DiscountsEditor
-          key={`${asset.id}:${account}`}
-          asset={asset}
-          account={account}
-          busy={busy}
-          onAct={(name, body) =>
-            dispatch(name, { asset: asset.id, account, ...body })
-          }
-        />
-      </div>
+      {account === wallet ? (
+        <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>
+          <DiscountsEditor
+            key={`${asset.id}:${account}`}
+            asset={asset}
+            account={account}
+            busy={busy}
+            onAct={(name, body) =>
+              dispatch(name, { asset: asset.id, account, ...body })
+            }
+          />
+        </div>
+      ) : null}
     </main>
   );
 }
