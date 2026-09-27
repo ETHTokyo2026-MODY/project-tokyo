@@ -1,7 +1,8 @@
 import deployment from '../../../contracts/deployments/sepolia.json' with { type: 'json' };
 import { sepolia } from 'viem/chains';
 import { DatabaseSync } from 'node:sqlite';
-import { createPublicClient, defineChain, getAddress, http } from 'viem';
+import { createPublicClient, defineChain, getAddress } from 'viem';
+import { balancedDayRpc, dayRpcUrls } from './day-rpc.mjs';
 import { normalize } from './day-config.mjs';
 import { EventIndex } from './event-index.mjs';
 import { createDayHandler } from './day-server.mjs';
@@ -28,21 +29,19 @@ export function dayWebConfig(env = process.env) {
  */
 export async function createDayWeb(env = process.env) {
   const config = dayWebConfig(env);
-  if (!env.DAY_RPC_URL && config.chainId !== sepolia.id)
+  if (!env.DAY_RPC_URL && !env.DAY_RPC_URLS && config.chainId !== sepolia.id)
     throw new Error('A custom chain requires DAY_RPC_URL');
-  const rpc = new URL(env.DAY_RPC_URL ?? sepolia.rpcUrls.default.http[0]);
-  if (!['https:', 'http:'].includes(rpc.protocol))
-    throw new Error('Invalid RPC protocol');
+  const urls = dayRpcUrls(env, sepolia.rpcUrls.default.http[0]);
   const chain = defineChain({
     id: config.chainId,
     name: 'Rental day chain',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: { default: { http: [rpc.href] } },
+    rpcUrls: { default: { http: urls } },
   });
   const client = createPublicClient({
     chain,
     cacheTime: 0,
-    transport: http(rpc.href, { timeout: 5000, retryCount: 1 }),
+    transport: balancedDayRpc(urls),
   });
   if ((await client.getChainId()) !== config.chainId)
     throw new Error('Wrong runtime chain');

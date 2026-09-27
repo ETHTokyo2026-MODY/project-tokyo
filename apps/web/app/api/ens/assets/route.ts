@@ -8,11 +8,9 @@ export async function GET(request: Request) {
   try {
     const assets = await listEnsAssets(includeTest);
     return Response.json({ assets });
-  } catch (error) {
+  } catch {
     return Response.json(
-      {
-        error: error instanceof Error ? error.message : 'ENS listing failed',
-      },
+      { error: 'ENS listing is unavailable' },
       { status: 502 },
     );
   }

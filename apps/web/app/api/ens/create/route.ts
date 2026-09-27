@@ -53,12 +53,7 @@ export async function POST(request: Request) {
       hashes: created.hashes,
       stoppedAt: created.stoppedAt ?? null,
     });
-  } catch (error) {
-    return Response.json(
-      {
-        error: error instanceof Error ? error.message : 'ENS create failed',
-      },
-      { status: 502 },
-    );
+  } catch {
+    return Response.json({ error: 'ENS creation failed' }, { status: 502 });
   }
 }

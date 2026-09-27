@@ -12,6 +12,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { DEFAULT_RPC_URL, ENS } from './constants';
+import { balancedDayRpc, dayRpcUrls } from '../../../backend/src/day-rpc.mjs';
 import { urAbi } from './abi';
 
 export type EnsClients = {
@@ -26,17 +27,20 @@ export function deployerAccount() {
 }
 
 export function createEnsClients(
-  rpcUrl = DEFAULT_RPC_URL,
+  rpcUrl?: string,
   account?: Account,
 ): EnsClients {
-  const transport = http(rpcUrl);
+  const urls = rpcUrl
+    ? dayRpcUrls({ DAY_RPC_URL: rpcUrl })
+    : dayRpcUrls(process.env, DEFAULT_RPC_URL);
+  const transport = balancedDayRpc(urls);
   const pub = createPublicClient({
     chain: sepolia,
     transport,
     batch: { multicall: true },
   });
   const wallet = account
-    ? createWalletClient({ chain: sepolia, transport, account })
+    ? createWalletClient({ chain: sepolia, transport: http(urls[0]), account })
     : undefined;
   return { public: pub, wallet };
 }
