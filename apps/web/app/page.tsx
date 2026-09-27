@@ -8,6 +8,7 @@ import { Screener } from '@/components/dashboard/Screener';
 import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
+import { DEMO_MODE } from '@/lib/demo/mode';
 import { usdText } from '@/lib/chain/model';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
@@ -72,7 +73,9 @@ export default function DashboardPage() {
   return (
     <main className="page">
       <h1>Dashboard</h1>
-      {!readOnly ? <AddAssetForm account={accountId} /> : null}
+      {!readOnly && (DEMO_MODE === 'real' || accountId === 'host') ? (
+        <AddAssetForm account={accountId} />
+      ) : null}
       <div className="scroll-x">
         {!provided.length && !holding.length ? (
           <div className="empty">No assets or days owned yet.</div>

@@ -5,9 +5,15 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import {
+  DEMO_ACCOUNT_IDS,
+  DEMO_ACCOUNT_LABELS,
+  DEMO_MODE,
+} from '@/lib/demo/mode';
+import {
   connectWallet,
   disconnectWallet,
   refreshChain,
+  setDemoAccount,
   switchNetwork,
   useChainStore,
   walletChoices,
@@ -25,8 +31,16 @@ const TABS = [
 ];
 export function Nav() {
   const account = useAccount();
-  const { state, wallet, busy, error, progress, hashes, hasWalletSession } =
-    useChainStore();
+  const {
+    state,
+    wallet,
+    busy,
+    error,
+    progress,
+    hashes,
+    hasWalletSession,
+    reset,
+  } = useChainStore();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,6 +51,7 @@ export function Nav() {
   const [waiting, setWaiting] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
+    if (DEMO_MODE === 'simulated') return;
     const update = () => setProviders(walletChoices());
     const unsubscribe = subscribeWalletChoices(update);
     update();
@@ -69,7 +84,11 @@ export function Nav() {
       <nav id="nav" aria-label="Main">
         <span className="brand">
           DayTrader
-          <small>Sepolia · test USDC</small>
+          <small>
+            {DEMO_MODE === 'simulated'
+              ? 'Simulated demo'
+              : 'Sepolia · test USDC'}
+          </small>
         </span>
         <div className="nav-links">
           {TABS.map((tab) => (
@@ -83,55 +102,102 @@ export function Nav() {
             </Link>
           ))}
         </div>
-        <label className="who" htmlFor="persona">
-          Viewing as
-          <select
-            id="persona"
-            value={account}
-            onChange={(event) => choosePersona(event.target.value)}
-            disabled={!personas.length}
-          >
-            {!account ? <option value="">Choose a persona</option> : null}
-            {personas.map(([id, persona]) => (
-              <option key={id} value={id}>
-                {persona.role} · {persona.name}
-                {id === wallet ? ' (your wallet)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          disabled={busy || waiting}
-          onClick={() => void act(refreshChain)}
-          aria-label="Refresh data"
-        >
-          Refresh
-        </button>
-        <WalletMenu
-          account={wallet}
-          hasSession={Boolean(hasWalletSession)}
-          balance={
-            state?.accounts[wallet]
-              ? money(state.accounts[wallet].cash)
-              : undefined
-          }
-          providers={providers}
-          selected={selected}
-          busy={waiting || busy}
-          onSelect={setChoice}
-          onConnect={() =>
-            void act(() =>
-              connectWallet(
-                selected === 'legacy' ? { legacy: true } : { uuid: selected },
-              ),
-            )
-          }
-          onSwitch={() => void act(switchNetwork)}
-          onDisconnect={() => void act(disconnectWallet)}
-        />
+        {DEMO_MODE === 'simulated' ? (
+          <>
+            <label className="who" htmlFor="persona">
+              Viewing as
+              <select
+                id="persona"
+                value={account}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (
+                    next === 'host' ||
+                    next === 'traderA' ||
+                    next === 'traderB'
+                  ) {
+                    setDemoAccount(next);
+                  }
+                  choosePersona(next);
+                }}
+              >
+                {DEMO_ACCOUNT_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {DEMO_ACCOUNT_LABELS[id]}
+                    {state?.accounts[id]
+                      ? ` · ${money(state.accounts[id].cash)} USDC`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={busy || waiting}
+              onClick={() =>
+                void act(async () => {
+                  await reset();
+                })
+              }
+            >
+              Reset demo
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="who" htmlFor="persona">
+              Viewing as
+              <select
+                id="persona"
+                value={account}
+                onChange={(event) => choosePersona(event.target.value)}
+                disabled={!personas.length}
+              >
+                {!account ? <option value="">Choose a persona</option> : null}
+                {personas.map(([id, persona]) => (
+                  <option key={id} value={id}>
+                    {persona.role} · {persona.name}
+                    {id === wallet ? ' (your wallet)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={busy || waiting}
+              onClick={() => void act(refreshChain)}
+              aria-label="Refresh data"
+            >
+              Refresh
+            </button>
+            <WalletMenu
+              account={wallet}
+              hasSession={Boolean(hasWalletSession)}
+              balance={
+                state?.accounts[wallet]
+                  ? money(state.accounts[wallet].cash)
+                  : undefined
+              }
+              providers={providers}
+              selected={selected}
+              busy={waiting || busy}
+              onSelect={setChoice}
+              onConnect={() =>
+                void act(() =>
+                  connectWallet(
+                    selected === 'legacy'
+                      ? { legacy: true }
+                      : { uuid: selected },
+                  ),
+                )
+              }
+              onSwitch={() => void act(switchNetwork)}
+              onDisconnect={() => void act(disconnectWallet)}
+            />
+          </>
+        )}
       </nav>
-      {viewingAnother ? (
+      {DEMO_MODE !== 'simulated' && viewingAnother ? (
         <div
           className="page"
           role="status"
@@ -151,7 +217,7 @@ export function Nav() {
           ) : null}
         </div>
       ) : null}
-      {hashes.length ? (
+      {DEMO_MODE !== 'simulated' && hashes.length ? (
         <details className={styles.drawer}>
           <summary>Transactions ({hashes.length})</summary>
           <ol className={styles.list}>

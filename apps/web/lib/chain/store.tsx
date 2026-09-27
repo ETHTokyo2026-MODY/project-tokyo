@@ -1,6 +1,12 @@
 'use client';
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { parseUnits } from 'viem';
+import {
+  DEMO_MODE,
+  readDemoAccount,
+  writeDemoAccount,
+  type DemoAccountId,
+} from '../demo/mode';
 import type { DemoState } from '../demo/types';
 import {
   normalizeAssetId,
@@ -39,14 +45,21 @@ const initial: Snapshot = {
   ready: false,
   state: null,
   today: '',
-  wallet: '',
-  hasWalletSession: false,
+  wallet: DEMO_MODE === 'simulated' ? 'host' : '',
+  hasWalletSession: DEMO_MODE === 'simulated',
   busy: false,
   error: '',
   progress: '',
   hashes: [],
 };
-let snapshot = initial;
+let snapshot =
+  DEMO_MODE === 'simulated'
+    ? {
+        ...initial,
+        wallet: typeof window === 'undefined' ? 'host' : readDemoAccount(),
+        hasWalletSession: true,
+      }
+    : initial;
 const listeners = new Set<() => void>();
 let discovery: ReturnType<typeof createWalletDiscovery> | undefined;
 let session: WalletSession | undefined;
@@ -142,7 +155,51 @@ function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
   }));
 }
 
+async function refreshDemo(): Promise<void> {
+  const revision = ++generation;
+  try {
+    const response = await fetch('/api/demo/state', { cache: 'no-store' });
+    const value = (await response.json()) as {
+      state?: DemoState;
+      today?: string;
+      error?: string;
+    };
+    if (revision !== generation) return;
+    if (!response.ok || !value.state) {
+      emit({
+        ready: false,
+        error: value.error ?? 'Could not load simulated state',
+      });
+      return;
+    }
+    emit({
+      ready: true,
+      state: value.state,
+      today: value.today ?? '',
+      wallet: readDemoAccount(),
+      hasWalletSession: true,
+      error: '',
+    });
+  } catch (error) {
+    if (revision === generation)
+      emit({
+        ready: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Could not load simulated state',
+      });
+  }
+}
+
+export function setDemoAccount(id: DemoAccountId) {
+  if (DEMO_MODE !== 'simulated') return;
+  writeDemoAccount(id);
+  emit({ wallet: id });
+}
+
 export async function refreshChain(): Promise<void> {
+  if (DEMO_MODE === 'simulated') return refreshDemo();
   const revision = ++generation;
   try {
     const ens = await loadEnsAssets().catch(
@@ -193,6 +250,7 @@ export async function refreshChain(): Promise<void> {
   }
 }
 export async function connectWallet(selection: WalletSelection): Promise<void> {
+  if (DEMO_MODE === 'simulated') return;
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   discovery ??= createWalletDiscovery();
   discovery.refresh();
@@ -227,15 +285,18 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
   }
 }
 export function walletChoices() {
+  if (DEMO_MODE === 'simulated') return [];
   discovery ??= createWalletDiscovery();
   return discovery.list();
 }
 export function subscribeWalletChoices(listener: () => void) {
+  if (DEMO_MODE === 'simulated') return () => {};
   discovery ??= createWalletDiscovery();
   return discovery.subscribe(listener);
 }
 
 export async function switchNetwork() {
+  if (DEMO_MODE === 'simulated') return;
   if (!session) throw new Error('Connect a wallet first');
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   emit({ busy: true });
@@ -247,6 +308,7 @@ export async function switchNetwork() {
   }
 }
 export async function disconnectWallet(): Promise<void> {
+  if (DEMO_MODE === 'simulated') return;
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   const previous = session;
   if (!previous) return;
@@ -451,10 +513,61 @@ export async function sendConfirmed(
   }
   return asset;
 }
+async function dispatchDemo(
+  name: string,
+  body: Record<string, unknown>,
+): Promise<ActionResult> {
+  if (snapshot.busy)
+    return { ok: false, error: 'An action is already in progress' };
+  emit({ busy: true, error: '', progress: '' });
+  try {
+    const response = await fetch('/api/demo/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        body: { ...body, account: snapshot.wallet },
+      }),
+      cache: 'no-store',
+    });
+    const value = (await response.json()) as ActionResult & {
+      state?: DemoState;
+      today?: string;
+      asset?: string;
+      message?: string;
+    };
+    if (!response.ok || !value.ok) {
+      const error = value.ok === false ? value.error : 'Action failed';
+      emit({ error, progress: '' });
+      return { ok: false, error };
+    }
+    emit({
+      ready: true,
+      state: value.state ?? snapshot.state,
+      today: value.today ?? snapshot.today,
+      error: '',
+      progress: value.message ?? '',
+    });
+    return {
+      ok: true,
+      version: value.state?.version ?? snapshot.state?.version ?? 0,
+      asset: value.asset,
+      message: value.message,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Action failed';
+    emit({ error: message, progress: '' });
+    return { ok: false, error: message };
+  } finally {
+    emit({ busy: false });
+  }
+}
+
 export async function dispatch(
   name: string,
   body: Record<string, unknown> = {},
 ): Promise<ActionResult> {
+  if (DEMO_MODE === 'simulated') return dispatchDemo(name, body);
   const requested =
     typeof window === 'undefined'
       ? null
@@ -593,6 +706,15 @@ export async function dispatch(
   }
 }
 export async function loadCurve(asset: string, date: string) {
+  if (DEMO_MODE === 'simulated') {
+    const day = snapshot.state?.assets
+      .find((item) => item.id === asset)
+      ?.days.find((item) => item.date === date);
+    return {
+      min: day?.curve?.min ?? 1,
+      points: day?.curve?.points ?? [{ date, price: day?.price ?? 1 }],
+    };
+  }
   const result = await api<{
     minimum: string;
     points: { day: number; price: string }[];
@@ -605,8 +727,60 @@ export async function loadCurve(asset: string, date: string) {
     })),
   };
 }
+async function resetDemo(): Promise<ActionResult> {
+  try {
+    const response = await fetch('/api/demo/reset', {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const value = (await response.json()) as ActionResult & {
+      state?: DemoState;
+      today?: string;
+      error?: string;
+    };
+    if (!response.ok || !value.ok) {
+      return {
+        ok: false,
+        error: value.ok === false ? value.error : 'Reset failed',
+      };
+    }
+    emit({
+      ready: true,
+      state: value.state ?? null,
+      today: value.today ?? '',
+      error: '',
+      progress: 'Demo reset',
+    });
+    return {
+      ok: true,
+      version: value.state?.version ?? 0,
+      message: 'Demo reset',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Reset failed',
+    };
+  }
+}
+
 export function ChainProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
+    if (DEMO_MODE === 'simulated') {
+      emit({ wallet: readDemoAccount(), hasWalletSession: true });
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const poll = async () => {
+        if (!snapshot.busy) await refreshDemo();
+        if (!stopped) timer = setTimeout(poll, 1500);
+      };
+      void poll();
+      return () => {
+        stopped = true;
+        clearTimeout(timer);
+        generation++;
+      };
+    }
     discovery ??= createWalletDiscovery();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -632,9 +806,12 @@ export function useChainStore() {
   return {
     ...state,
     dispatch,
-    reset: async (): Promise<ActionResult> => ({
-      ok: false,
-      error: 'Onchain state cannot be reset',
-    }),
+    reset:
+      DEMO_MODE === 'simulated'
+        ? resetDemo
+        : async (): Promise<ActionResult> => ({
+            ok: false,
+            error: 'Onchain state cannot be reset',
+          }),
   };
 }

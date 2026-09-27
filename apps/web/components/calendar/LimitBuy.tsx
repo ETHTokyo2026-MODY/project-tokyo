@@ -4,6 +4,7 @@ import { useId, useState } from 'react';
 import { money, shortDate } from '@/lib/demo/format';
 import { parseWETH, useChainStore } from '@/lib/chain/store';
 import { parseUSDC, usdText } from '@/lib/chain/model';
+import { DEMO_MODE } from '@/lib/demo/mode';
 
 type Props = {
   ask: number;
@@ -84,17 +85,21 @@ function LimitForm({
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      <label htmlFor={`${id}-funding`}>Pay with</label>
-      <select
-        id={`${id}-funding`}
-        value={funding}
-        disabled={busy}
-        onChange={(e) => setFunding(e.target.value)}
-      >
-        <option value="usdc">Wallet USDC</option>
-        <option value="weth">WETH</option>
-      </select>
-      {funding === 'weth' ? (
+      {DEMO_MODE === 'real' ? (
+        <>
+          <label htmlFor={`${id}-funding`}>Pay with</label>
+          <select
+            id={`${id}-funding`}
+            value={funding}
+            disabled={busy}
+            onChange={(e) => setFunding(e.target.value)}
+          >
+            <option value="usdc">Wallet USDC</option>
+            <option value="weth">WETH</option>
+          </select>
+        </>
+      ) : null}
+      {DEMO_MODE === 'real' && funding === 'weth' ? (
         <>
           <label htmlFor={`${id}-weth`}>Exact WETH to spend</label>
           <input

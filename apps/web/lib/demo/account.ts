@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { viewedAccount } from '../chain/model';
 import { useChainStore } from '../chain/store';
+import { DEMO_MODE } from './mode';
 
 export function linkTo(
   path: string,
@@ -14,6 +15,7 @@ export function linkTo(
 
 export function useAccount(): string {
   const { wallet, state } = useChainStore();
+  if (DEMO_MODE === 'simulated') return wallet;
   return viewedAccount(
     useSearchParams().get('account'),
     wallet,
