@@ -1,6 +1,12 @@
 'use client';
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { parseUnits } from 'viem';
+import {
+  readDemoAccount,
+  writeDemoAccount,
+  type DemoAccountId,
+} from '../demo/accounts';
+import { parseMode, readMode, writeAppMode, type AppMode } from '../demo/mode';
 import type { DemoState } from '../demo/types';
 import {
   normalizeAssetId,
@@ -25,6 +31,7 @@ export type ActionResult =
   | { ok: true; version: number; asset?: string; message?: string }
   | { ok: false; error: string };
 type Snapshot = {
+  mode: AppMode;
   ready: boolean;
   state: DemoState | null;
   today: string;
@@ -36,17 +43,21 @@ type Snapshot = {
   hashes: string[];
 };
 const initial: Snapshot = {
+  mode: 'simulated',
   ready: false,
   state: null,
   today: '',
-  wallet: '',
-  hasWalletSession: false,
+  wallet: 'host',
+  hasWalletSession: true,
   busy: false,
   error: '',
   progress: '',
   hashes: [],
 };
-let snapshot = initial;
+let snapshot: Snapshot = {
+  ...initial,
+  wallet: typeof window === 'undefined' ? 'host' : readDemoAccount(),
+};
 const listeners = new Set<() => void>();
 let discovery: ReturnType<typeof createWalletDiscovery> | undefined;
 let session: WalletSession | undefined;
@@ -57,6 +68,7 @@ const emit = (patch: Partial<Snapshot>) => {
   snapshot = { ...snapshot, ...patch };
   for (const listener of listeners) listener();
 };
+const simulated = () => snapshot.mode === 'simulated';
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => {
@@ -142,7 +154,85 @@ function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
   }));
 }
 
+async function refreshDemo(): Promise<void> {
+  const revision = ++generation;
+  try {
+    const response = await fetch('/api/demo/state', { cache: 'no-store' });
+    const value = (await response.json()) as {
+      state?: DemoState;
+      today?: string;
+      error?: string;
+    };
+    if (revision !== generation) return;
+    if (!response.ok || !value.state) {
+      emit({
+        ready: false,
+        error: value.error ?? 'Could not load simulated state',
+      });
+      return;
+    }
+    emit({
+      mode: readMode(value.state),
+      ready: true,
+      state: value.state,
+      today: value.today ?? '',
+      wallet: readDemoAccount(),
+      hasWalletSession: true,
+      error: '',
+    });
+  } catch (error) {
+    if (revision === generation)
+      emit({
+        ready: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Could not load simulated state',
+      });
+  }
+}
+
+export function setDemoAccount(id: DemoAccountId) {
+  if (!simulated()) return;
+  writeDemoAccount(id);
+  emit({ wallet: id });
+}
+
+export async function setAppMode(mode: AppMode): Promise<void> {
+  const next = parseMode(mode);
+  const result = await writeAppMode(next);
+  if (result.mode === 'simulated') {
+    emit({
+      mode: 'simulated',
+      ready: true,
+      state: (result.state as DemoState | null) ?? snapshot.state,
+      wallet: readDemoAccount(),
+      hasWalletSession: true,
+      error: '',
+      progress: '',
+    });
+    return;
+  }
+  emit({
+    mode: 'demo',
+    wallet: session ? snapshot.wallet : '',
+    hasWalletSession: Boolean(session),
+    ready: false,
+    state: null,
+    error: '',
+    progress: '',
+  });
+  void refreshChainOnly().then(() => {
+    if (snapshot.mode === 'demo') emit({ mode: 'demo' });
+  });
+}
+
 export async function refreshChain(): Promise<void> {
+  if (simulated()) return refreshDemo();
+  return refreshChainOnly();
+}
+
+async function refreshChainOnly(): Promise<void> {
   const revision = ++generation;
   try {
     const ens = await loadEnsAssets().catch(
@@ -193,6 +283,7 @@ export async function refreshChain(): Promise<void> {
   }
 }
 export async function connectWallet(selection: WalletSelection): Promise<void> {
+  if (simulated()) return;
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   discovery ??= createWalletDiscovery();
   discovery.refresh();
@@ -227,15 +318,18 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
   }
 }
 export function walletChoices() {
+  if (simulated()) return [];
   discovery ??= createWalletDiscovery();
   return discovery.list();
 }
 export function subscribeWalletChoices(listener: () => void) {
+  if (simulated()) return () => {};
   discovery ??= createWalletDiscovery();
   return discovery.subscribe(listener);
 }
 
 export async function switchNetwork() {
+  if (simulated()) return;
   if (!session) throw new Error('Connect a wallet first');
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   emit({ busy: true });
@@ -247,6 +341,7 @@ export async function switchNetwork() {
   }
 }
 export async function disconnectWallet(): Promise<void> {
+  if (simulated()) return;
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   const previous = session;
   if (!previous) return;
@@ -451,10 +546,61 @@ export async function sendConfirmed(
   }
   return asset;
 }
+async function dispatchDemo(
+  name: string,
+  body: Record<string, unknown>,
+): Promise<ActionResult> {
+  if (snapshot.busy)
+    return { ok: false, error: 'An action is already in progress' };
+  emit({ busy: true, error: '', progress: '' });
+  try {
+    const response = await fetch('/api/demo/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        body: { ...body, account: snapshot.wallet },
+      }),
+      cache: 'no-store',
+    });
+    const value = (await response.json()) as ActionResult & {
+      state?: DemoState;
+      today?: string;
+      asset?: string;
+      message?: string;
+    };
+    if (!response.ok || !value.ok) {
+      const error = value.ok === false ? value.error : 'Action failed';
+      emit({ error, progress: '' });
+      return { ok: false, error };
+    }
+    emit({
+      ready: true,
+      state: value.state ?? snapshot.state,
+      today: value.today ?? snapshot.today,
+      error: '',
+      progress: value.message ?? '',
+    });
+    return {
+      ok: true,
+      version: value.state?.version ?? snapshot.state?.version ?? 0,
+      asset: value.asset,
+      message: value.message,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Action failed';
+    emit({ error: message, progress: '' });
+    return { ok: false, error: message };
+  } finally {
+    emit({ busy: false });
+  }
+}
+
 export async function dispatch(
   name: string,
   body: Record<string, unknown> = {},
 ): Promise<ActionResult> {
+  if (simulated()) return dispatchDemo(name, body);
   const requested =
     typeof window === 'undefined'
       ? null
@@ -593,6 +739,15 @@ export async function dispatch(
   }
 }
 export async function loadCurve(asset: string, date: string) {
+  if (simulated()) {
+    const day = snapshot.state?.assets
+      .find((item) => item.id === asset)
+      ?.days.find((item) => item.date === date);
+    return {
+      min: day?.curve?.min ?? 1,
+      points: day?.curve?.points ?? [{ date, price: day?.price ?? 1 }],
+    };
+  }
   const result = await api<{
     minimum: string;
     points: { day: number; price: string }[];
@@ -605,14 +760,97 @@ export async function loadCurve(asset: string, date: string) {
     })),
   };
 }
+async function resetDemo(): Promise<ActionResult> {
+  try {
+    const response = await fetch('/api/demo/reset', {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const value = (await response.json()) as ActionResult & {
+      state?: DemoState;
+      today?: string;
+      error?: string;
+    };
+    if (!response.ok || !value.ok) {
+      return {
+        ok: false,
+        error: value.ok === false ? value.error : 'Reset failed',
+      };
+    }
+    emit({
+      mode: readMode(value.state),
+      ready: true,
+      state: value.state ?? null,
+      today: value.today ?? '',
+      wallet: readDemoAccount(),
+      hasWalletSession: true,
+      error: '',
+      progress: 'Demo reset',
+    });
+    return {
+      ok: true,
+      version: value.state?.version ?? 0,
+      message: 'Demo reset',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Reset failed',
+    };
+  }
+}
+
 export function ChainProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
-    discovery ??= createWalletDiscovery();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    let lastChain = 0;
     const poll = async () => {
-      if (!snapshot.busy) await refreshChain();
-      if (!stopped) timer = setTimeout(poll, 8000);
+      if (snapshot.busy) {
+        if (!stopped) timer = setTimeout(poll, 1500);
+        return;
+      }
+      const response = await fetch('/api/demo/state', { cache: 'no-store' });
+      const value = (await response.json()) as {
+        state?: DemoState;
+        today?: string;
+        error?: string;
+      };
+      if (stopped) return;
+      const mode = readMode(value.state);
+      if (mode === 'simulated') {
+        if (value.state) {
+          emit({
+            mode,
+            ready: true,
+            state: value.state,
+            today: value.today ?? '',
+            wallet: readDemoAccount(),
+            hasWalletSession: true,
+            error: '',
+          });
+        }
+      } else {
+        if (snapshot.mode !== 'demo') {
+          emit({
+            mode: 'demo',
+            wallet: session ? snapshot.wallet : '',
+            hasWalletSession: Boolean(session),
+            ready: false,
+            state: null,
+            error: '',
+          });
+        }
+        discovery ??= createWalletDiscovery();
+        if (Date.now() - lastChain > 8000 || !snapshot.ready) {
+          lastChain = Date.now();
+          await refreshChainOnly();
+          emit({ mode: 'demo' });
+        } else {
+          emit({ mode: 'demo' });
+        }
+      }
+      if (!stopped) timer = setTimeout(poll, 1500);
     };
     void poll();
     return () => {
@@ -632,9 +870,6 @@ export function useChainStore() {
   return {
     ...state,
     dispatch,
-    reset: async (): Promise<ActionResult> => ({
-      ok: false,
-      error: 'Onchain state cannot be reset',
-    }),
+    reset: resetDemo,
   };
 }

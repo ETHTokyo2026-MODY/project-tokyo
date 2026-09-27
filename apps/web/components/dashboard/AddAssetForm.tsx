@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChainStore } from '@/lib/chain/store';
+import { isSimulated } from '@/lib/demo/mode';
 
 const DEFAULTS = {
   car: {
@@ -34,7 +35,7 @@ const DEFAULTS = {
 type Kind = keyof typeof DEFAULTS;
 
 export function AddAssetForm({ account }: { account: string }) {
-  const { busy: walletBusy } = useChainStore();
+  const { busy: walletBusy, dispatch, mode } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
@@ -85,6 +86,27 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
+              if (isSimulated({ mode })) {
+                const out = await dispatch('create-asset', {
+                  account,
+                  type,
+                  title,
+                  location,
+                  prices: { monWed, thuSat, sun },
+                  min: min === '' ? null : min,
+                  sellingPrice,
+                });
+                if (!out.ok) {
+                  setErr(out.error);
+                  return;
+                }
+                if (out.asset) {
+                  router.push(
+                    `/calendar?asset=${encodeURIComponent(out.asset)}&account=${encodeURIComponent(account)}`,
+                  );
+                }
+                return;
+              }
               const ensLabel =
                 label.trim().toLowerCase() ||
                 title
@@ -155,20 +177,22 @@ export function AddAssetForm({ account }: { account: string }) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
-            <label htmlFor="add-label">
-              ENS label
-              <input
-                id="add-label"
-                name="label"
-                maxLength={32}
-                placeholder="demo-room"
-                value={label}
-                onChange={(e) => setLabel(e.target.value.toLowerCase())}
-              />
-              <span className="note">
-                Becomes {label || 'label'}.projecttokyo.eth
-              </span>
-            </label>
+            {!isSimulated({ mode }) ? (
+              <label htmlFor="add-label">
+                ENS label
+                <input
+                  id="add-label"
+                  name="label"
+                  maxLength={32}
+                  placeholder="demo-room"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value.toLowerCase())}
+                />
+                <span className="note">
+                  Becomes {label || 'label'}.projecttokyo.eth
+                </span>
+              </label>
+            ) : null}
             <label htmlFor="add-location">
               Location
               <input

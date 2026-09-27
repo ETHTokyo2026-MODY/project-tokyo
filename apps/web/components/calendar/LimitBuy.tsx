@@ -4,6 +4,7 @@ import { useId, useState } from 'react';
 import { money, shortDate } from '@/lib/demo/format';
 import { parseWETH, useChainStore } from '@/lib/chain/store';
 import { parseUSDC, usdText } from '@/lib/chain/model';
+import { isSimulated } from '@/lib/demo/mode';
 
 type Props = {
   ask: number;
@@ -42,7 +43,7 @@ function LimitForm({
   onAct,
   discount,
 }: Props) {
-  const { state } = useChainStore();
+  const { state, mode } = useChainStore();
   const id = useId();
   const mine = (state?.bids ?? []).filter(
     (b) =>
@@ -84,17 +85,21 @@ function LimitForm({
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      <label htmlFor={`${id}-funding`}>Pay with</label>
-      <select
-        id={`${id}-funding`}
-        value={funding}
-        disabled={busy}
-        onChange={(e) => setFunding(e.target.value)}
-      >
-        <option value="usdc">Wallet USDC</option>
-        <option value="weth">WETH</option>
-      </select>
-      {funding === 'weth' ? (
+      {!isSimulated({ mode }) ? (
+        <>
+          <label htmlFor={`${id}-funding`}>Pay with</label>
+          <select
+            id={`${id}-funding`}
+            value={funding}
+            disabled={busy}
+            onChange={(e) => setFunding(e.target.value)}
+          >
+            <option value="usdc">Wallet USDC</option>
+            <option value="weth">WETH</option>
+          </select>
+        </>
+      ) : null}
+      {!isSimulated({ mode }) && funding === 'weth' ? (
         <>
           <label htmlFor={`${id}-weth`}>Exact WETH to spend</label>
           <input
