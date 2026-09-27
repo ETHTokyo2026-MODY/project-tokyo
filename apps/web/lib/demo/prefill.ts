@@ -52,26 +52,7 @@ export function buildPrefillState(today: string, now: string): DemoState {
     }
   }
 
-  // create-asset lists every future day; keep only Oct 1–3 at $60.
-  state = run(
-    state,
-    'unlist',
-    { account: 'host', asset, date: today, to: last },
-    ctx,
-  );
-  state = run(
-    state,
-    'list',
-    {
-      account: 'host',
-      asset,
-      date: PREFILL_DATES[0],
-      to: PREFILL_DATES[2],
-      price: 60,
-    },
-    ctx,
-  );
-
+  // create-asset lists every future host day at $100, for sale at $60.
   state = run(
     state,
     'buy',
