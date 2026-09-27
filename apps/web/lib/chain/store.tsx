@@ -222,8 +222,9 @@ export async function setAppMode(mode: AppMode): Promise<void> {
     error: '',
     progress: '',
   });
-  await refreshChainOnly();
-  emit({ mode: 'demo' });
+  void refreshChainOnly().then(() => {
+    if (snapshot.mode === 'demo') emit({ mode: 'demo' });
+  });
 }
 
 export async function refreshChain(): Promise<void> {

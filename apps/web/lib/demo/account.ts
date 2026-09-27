@@ -24,10 +24,7 @@ export function linkTo(
 
 export function useAccount(): string {
   const { wallet, state, mode } = useChainStore();
+  const requested = useSearchParams().get('account');
   if (mode === 'simulated') return wallet;
-  return viewedAccount(
-    useSearchParams().get('account'),
-    wallet,
-    state?.accounts,
-  );
+  return viewedAccount(requested, wallet, state?.accounts);
 }
