@@ -23,7 +23,14 @@ test('reads rotate among endpoints and fail over without exposing API keys', asy
       url.includes('a.invalid') &&
       body.method !== 'eth_chainId'
     )
-      throw new Error('endpoint down');
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32600, message: 'Log range exceeds provider limit' },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
     return Response.json({
       jsonrpc: '2.0',
       id: body.id,

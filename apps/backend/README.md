@@ -108,6 +108,8 @@ contract addresses come from the checked-in deployment manifest. Optional server
   in DigitalOcean or encrypt it in `apps/web/.env.production` with dotenvx.
   Public reads from the day and ENS APIs rotate across the configured URLs;
   wallet writes use the first URL. Do not use `NEXT_PUBLIC_` for RPC keys.
+  The checked-in encrypted Sepolia file currently supplies Infura, Alchemy,
+  and Tenderly URLs when the production dotenvx key is available.
 - `DAY_APP_ORIGIN`: the exact public origin, without a trailing slash. By default
   this is the request origin; set it if the reverse proxy rewrites the public URL.
 
