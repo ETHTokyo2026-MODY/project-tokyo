@@ -1,6 +1,6 @@
 import { getAddress } from 'viem';
 
-const BATCH = 500;
+const BATCH = 2000;
 const READY_LAG = 5;
 const hash = (value) => {
   if (typeof value !== 'string' || !/^0x[0-9a-f]{64}$/i.test(value))

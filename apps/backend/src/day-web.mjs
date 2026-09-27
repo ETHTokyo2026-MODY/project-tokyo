@@ -1,5 +1,6 @@
 import deployment from '../../../contracts/deployments/sepolia.json' with { type: 'json' };
 import { sepolia } from 'viem/chains';
+import { unlinkSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createPublicClient, defineChain, getAddress, http } from 'viem';
 import { normalize } from './day-config.mjs';
@@ -42,7 +43,7 @@ export async function createDayWeb(env = process.env) {
   const client = createPublicClient({
     chain,
     cacheTime: 0,
-    transport: http(rpc.href, { timeout: 5000, retryCount: 1 }),
+    transport: http(rpc.href, { timeout: 20_000, retryCount: 2 }),
   });
   if ((await client.getChainId()) !== config.chainId)
     throw new Error('Wrong runtime chain');
@@ -69,8 +70,11 @@ export async function createDayWeb(env = process.env) {
     ) !== 6
   )
     throw new Error('Runtime contracts differ from deployment configuration');
-  const db = new DatabaseSync(':memory:');
-  try {
+  const dbPath =
+    env.DAY_DB ||
+    (env.DAY_CONFIG_JSON ? ':memory:' : '/tmp/daytrader-event-index.sqlite');
+  const openIndex = (path) => {
+    const db = new DatabaseSync(path);
     const events = (abi) => abi.filter((item) => item.type === 'event');
     const index = new EventIndex(db, client, {
       ...config,
@@ -86,14 +90,28 @@ export async function createDayWeb(env = process.env) {
         usdc: config.usdc,
       },
     });
+    return { db, index };
+  };
+  let opened;
+  try {
+    opened = openIndex(dbPath);
+  } catch {
+    try {
+      if (dbPath !== ':memory:') unlinkSync(dbPath);
+    } catch {
+      /* First process or ephemeral path. */
+    }
+    opened = openIndex(dbPath);
+  }
+  try {
     return createDayHandler({
       client,
       config,
-      index,
-      syncIndex: boundedIndexSync(index),
+      index: opened.index,
+      syncIndex: boundedIndexSync(opened.index),
     });
   } catch (error) {
-    db.close();
+    opened.db.close();
     throw error;
   }
 }
@@ -112,7 +130,10 @@ export function lazyDayWeb(create = createDayWeb) {
   };
 }
 /** Coalesce slow reads across polls and retain a completed result for the next poll. */
-export function createDayWebHandler(liveHandler = lazyDayWeb(), waitMs = 8000) {
+export function createDayWebHandler(
+  liveHandler = lazyDayWeb(),
+  waitMs = 25000,
+) {
   const reads = new Map();
   return async (request) => {
     const url = new URL(request.url);

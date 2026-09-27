@@ -34,7 +34,7 @@ const DEFAULTS = {
 type Kind = keyof typeof DEFAULTS;
 
 export function AddAssetForm({ account }: { account: string }) {
-  const { busy: walletBusy } = useChainStore();
+  const { busy: walletBusy, dispatch } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
@@ -85,38 +85,24 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
-              const ensLabel =
-                label.trim().toLowerCase() ||
-                title
-                  .trim()
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, '-')
-                  .replace(/^-|-$/g, '')
-                  .slice(0, 32);
-              if (!ensLabel) {
-                setErr('Enter an ENS label');
-                return;
-              }
-              setProgress('creating days…');
-              const res = await fetch('/api/ens/create', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  label: ensLabel,
-                  title,
-                  kind: type,
-                  location,
-                }),
+              setProgress('Creating asset onchain…');
+              const out = await dispatch('create-asset', {
+                title,
+                type,
+                location,
+                prices: { monWed, thuSat, sun },
+                min: min === '' ? null : min,
+                sellingPrice,
               });
-              const value = await res.json();
-              if (!res.ok || !value.asset) {
-                setErr(value.error ?? 'ENS create failed');
+              if (!out.ok) {
+                setErr(out.error);
                 return;
               }
-              setProgress('');
-              router.push(
-                `/calendar?asset=${encodeURIComponent(String(value.asset))}&account=${encodeURIComponent(account)}`,
-              );
+              if (out.asset) {
+                router.push(
+                  `/calendar?asset=${encodeURIComponent(out.asset)}&account=${encodeURIComponent(account)}`,
+                );
+              }
             } finally {
               setBusy(false);
               setProgress('');

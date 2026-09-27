@@ -32,6 +32,7 @@ export const ENS = {
   dayTokenImplementation: '0x80532e9D46505399dD6E95B1b0eb30B9f6f2FB90',
   names: '0xCdA3f99339E979384a1Da958B02041E76F23510c',
   assetRegistry: '0x00C55E0DB52B53125F9150C11DDb9532Fe65E42F',
+  demoLabel: 'demo-room',
 } as const;
 
 export type Address = `0x${string}`;

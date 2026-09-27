@@ -40,14 +40,10 @@ export async function readDayAsset(client, { factory, asset, blockNumber }) {
   ]);
   if (endDayExclusive - startDay !== 365)
     throw new Error('Unexpected calendar horizon');
-  const days = [];
-  // RPC read batches do not limit the size of an authorized purchase.
-  for (let start = startDay; start < endDayExclusive; start += 64) {
-    const end = Math.min(start + 64, endDayExclusive);
-    const states = await read('rangeState', [start, end]);
-    if (states.length !== end - start) throw new Error('Incomplete calendar');
-    days.push(...states.map((state, i) => ({ day: start + i, ...state })));
-  }
+  const states = await read('rangeState', [startDay, endDayExclusive]);
+  if (states.length !== endDayExclusive - startDay)
+    throw new Error('Incomplete calendar');
+  const days = states.map((state, i) => ({ day: startDay + i, ...state }));
   const after = await client.getBlock({ blockNumber: at });
   if (after?.hash !== block.hash)
     throw new Error('Calendar changed during reorg');

@@ -21,6 +21,14 @@ import {
   type WalletSession,
   type FundingTypedData,
 } from './wallet';
+import {
+  createGeneratedWallet,
+  GeneratedWalletSession,
+  listSavedWallets,
+  persistWallet,
+  readSessionWallet,
+  type SavedWallet,
+} from './generated-wallet';
 export type ActionResult =
   | { ok: true; version: number; asset?: string; message?: string }
   | { ok: false; error: string };
@@ -34,6 +42,8 @@ type Snapshot = {
   error: string;
   progress: string;
   hashes: string[];
+  eth: string;
+  generated: boolean;
 };
 const initial: Snapshot = {
   ready: false,
@@ -45,11 +55,39 @@ const initial: Snapshot = {
   error: '',
   progress: '',
   hashes: [],
+  eth: '',
+  generated: false,
+};
+type EnsAssetPayload = {
+  assets: {
+    label: string;
+    name: string;
+    rentalAsset: string;
+    host: string;
+    title: string;
+    kind: string;
+    location: string;
+    startDay: number;
+    endDayExclusive: number;
+    days: {
+      day: number;
+      date: string;
+      token: string;
+      owner: string;
+      deployed: boolean;
+      listed: boolean;
+      booked: boolean;
+      listedPrice: string;
+      sellingPrice: string;
+    }[];
+  }[];
 };
 let snapshot = initial;
 const listeners = new Set<() => void>();
 let discovery: ReturnType<typeof createWalletDiscovery> | undefined;
-let session: WalletSession | undefined;
+type ActiveSession = WalletSession | GeneratedWalletSession;
+let session: ActiveSession | undefined;
+let ensCache: { at: number; assets: EnsAssetPayload['assets'] } | undefined;
 let unsubscribeSession: (() => void) | undefined;
 let walletRefresh: Promise<void> = Promise.resolve();
 let generation = 0;
@@ -80,37 +118,19 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     );
   return value;
 }
-type EnsAssetPayload = {
-  assets: {
-    label: string;
-    name: string;
-    rentalAsset: string;
-    host: string;
-    title: string;
-    kind: string;
-    location: string;
-    startDay: number;
-    endDayExclusive: number;
-    days: {
-      day: number;
-      date: string;
-      token: string;
-      owner: string;
-      deployed: boolean;
-      listed: boolean;
-      booked: boolean;
-      listedPrice: string;
-      sellingPrice: string;
-    }[];
-  }[];
-};
 
-async function loadEnsAssets() {
+async function loadEnsAssets(force = false) {
+  if (!force && ensCache && Date.now() - ensCache.at < 20_000)
+    return ensCache.assets;
   const response = await fetch('/api/ens/assets', { cache: 'no-store' });
   const value = (await response.json()) as EnsAssetPayload & { error?: string };
   if (!response.ok)
-    throw new Error(value.error ?? `ENS list failed (${response.status})`);
-  return (value.assets ?? []).filter((a) => !a.label.startsWith('testasset'));
+    throw new Error(value.error ?? `Asset list failed (${response.status})`);
+  const assets = (value.assets ?? []).filter(
+    (a) => !a.label.startsWith('testasset'),
+  );
+  ensCache = { at: Date.now(), assets };
+  return assets;
 }
 
 function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
@@ -142,24 +162,112 @@ function ensCalendars(assets: EnsAssetPayload['assets']): ChainCalendar[] {
   }));
 }
 
-export async function refreshChain(): Promise<void> {
+function tokyoToday() {
+  return Math.floor((Date.now() / 1000 + 32400) / 86400);
+}
+
+function formatEth(wei?: string) {
+  if (wei == null || wei === '') return '';
+  try {
+    const n = BigInt(wei);
+    const unit = BigInt('1000000000000000000');
+    const whole = n / unit;
+    const frac = (n % unit).toString().padStart(18, '0').slice(0, 4);
+    return `${whole}.${frac}`.replace(/\.0+$/, (m) =>
+      m === '.0000' ? '0' : m,
+    );
+  } catch {
+    return '';
+  }
+}
+
+async function readFaucetBalances(address: string) {
+  const response = await fetch(
+    `/api/faucet?address=${encodeURIComponent(address)}`,
+    { cache: 'no-store' },
+  );
+  const value = (await response.json()) as {
+    ethBalance?: string;
+    usdcBalance?: string;
+  };
+  if (!response.ok) return null;
+  return value;
+}
+
+function applySnapshot(
+  result: Partial<ChainSnapshot> & { calendars: ChainCalendar[] },
+  wallet: string,
+) {
+  const today = result.today ?? tokyoToday();
+  emit({
+    ready: true,
+    state: chainState(
+      {
+        ready: true,
+        today,
+        calendars: result.calendars,
+        bids: result.bids,
+        history: result.history,
+        usdcBalance: result.usdcBalance,
+        ethBalance: result.ethBalance,
+        blockNumber: result.blockNumber ?? '0',
+        blockHash: result.blockHash ?? '',
+      },
+      wallet,
+    ),
+    today: dayDate(today),
+    error: '',
+    eth: formatEth(result.ethBalance),
+  });
+}
+
+export async function refreshChain(forceEns = false): Promise<void> {
   const revision = ++generation;
   try {
-    const ens = await loadEnsAssets().catch(
-      () => [] as EnsAssetPayload['assets'],
-    );
-    const result = await api<ChainSnapshot>(
-      `state${snapshot.wallet ? `?account=${snapshot.wallet}` : ''}`,
-    );
+    const [ensResult, stateResult] = await Promise.allSettled([
+      loadEnsAssets(forceEns),
+      api<ChainSnapshot>(
+        `state${snapshot.wallet ? `?account=${snapshot.wallet}` : ''}`,
+      ),
+    ]);
     if (revision !== generation) return;
-    if (!result.ready) {
+    const ens =
+      ensResult.status === 'fulfilled'
+        ? ensResult.value
+        : (ensCache?.assets ?? []);
+    const result =
+      stateResult.status === 'fulfilled' ? stateResult.value : null;
+    const fromEns = ensCalendars(ens);
+    if (!result?.ready) {
+      if (snapshot.generated && snapshot.wallet && !result?.usdcBalance) {
+        const funded = await readFaucetBalances(snapshot.wallet).catch(
+          () => null,
+        );
+        if (funded && revision === generation) {
+          emit({ eth: formatEth(funded.ethBalance) });
+          if (fromEns.length) {
+            applySnapshot(
+              {
+                calendars: fromEns,
+                usdcBalance: funded.usdcBalance,
+                ethBalance: funded.ethBalance,
+              },
+              snapshot.wallet,
+            );
+            return;
+          }
+        }
+      }
+      if (fromEns.length) {
+        applySnapshot({ calendars: fromEns, ...result }, snapshot.wallet);
+        return;
+      }
       emit({
         ready: false,
-        error: 'The Sepolia index is catching up. Refresh shortly.',
+        error: 'Market data is still loading. Refresh shortly.',
       });
       return;
     }
-    const fromEns = ensCalendars(ens);
     const byAddr = new Map(fromEns.map((c) => [c.address.toLowerCase(), c]));
     const calendars = result.calendars.map((c) => {
       const extra = byAddr.get(c.address.toLowerCase());
@@ -175,20 +283,13 @@ export async function refreshChain(): Promise<void> {
     for (const c of fromEns) {
       if (!known.has(c.address.toLowerCase())) calendars.push(c);
     }
-    emit({
-      ready: true,
-      state: chainState({ ...result, calendars }, snapshot.wallet),
-      today: dayDate(result.today),
-      error: '',
-    });
+    applySnapshot({ ...result, calendars }, snapshot.wallet);
   } catch (error) {
     if (revision === generation)
       emit({
         ready: false,
         error:
-          error instanceof Error
-            ? error.message
-            : 'Could not load Sepolia state',
+          error instanceof Error ? error.message : 'Could not load market data',
       });
   }
 }
@@ -212,9 +313,10 @@ export async function connectWallet(selection: WalletSelection): Promise<void> {
         ready: false,
         state: null,
         today: '',
+        generated: false,
         error: account
           ? ''
-          : 'Wallet connection changed. Reconnect or select Sepolia.',
+          : 'Wallet connection changed. Reconnect or switch network.',
       });
       walletRefresh = refreshChain();
     });
@@ -240,7 +342,7 @@ export async function switchNetwork() {
   if (snapshot.busy) throw new Error('Wait for the current wallet action');
   emit({ busy: true });
   try {
-    await session.switchToSepolia();
+    await session.switchToSepolia?.();
     await walletRefresh;
   } finally {
     emit({ busy: false });
@@ -257,6 +359,8 @@ export async function disconnectWallet(): Promise<void> {
   emit({
     wallet: '',
     hasWalletSession: false,
+    generated: false,
+    eth: '',
     state: null,
     ready: false,
     today: '',
@@ -271,6 +375,115 @@ export async function disconnectWallet(): Promise<void> {
     emit({ busy: false });
   }
 }
+
+function attachSession(next: ActiveSession, generated: boolean) {
+  unsubscribeSession?.();
+  session?.dispose();
+  session = next;
+  unsubscribeSession = next.subscribe((account) => {
+    if (session !== next) return;
+    generation++;
+    emit({
+      wallet: account ?? '',
+      hasWalletSession: true,
+      generated,
+      ready: false,
+      state: null,
+      today: '',
+      error: account ? '' : 'Wallet session ended. Generate or connect again.',
+    });
+    walletRefresh = refreshChain();
+  });
+}
+
+export function savedGeneratedWallets(): SavedWallet[] {
+  return listSavedWallets();
+}
+
+export function restoreGeneratedWallet(): boolean {
+  const saved = readSessionWallet();
+  if (!saved) return false;
+  attachSession(new GeneratedWalletSession(saved), true);
+  emit({
+    wallet: saved.address,
+    hasWalletSession: true,
+    generated: true,
+  });
+  return true;
+}
+
+async function fundGeneratedWallet(address: string) {
+  const response = await fetch('/api/faucet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address }),
+    cache: 'no-store',
+  });
+  const value = (await response.json()) as {
+    error?: string;
+    ethBalance?: string;
+    usdcBalance?: string;
+  };
+  if (response.status === 503) {
+    emit({
+      error:
+        value.error ??
+        'Demo faucet is not configured. Set DEMO_FAUCET_PRIVATE_KEY.',
+    });
+    return;
+  }
+  if (!response.ok)
+    throw new Error(value.error ?? 'Could not fund the generated wallet');
+  if (value.ethBalance) emit({ eth: formatEth(value.ethBalance) });
+}
+
+export async function generateWallet(): Promise<void> {
+  if (snapshot.busy) throw new Error('Wait for the current wallet action');
+  emit({ busy: true, error: '', progress: 'Creating a demo wallet' });
+  try {
+    const wallet = createGeneratedWallet();
+    attachSession(new GeneratedWalletSession(wallet), true);
+    emit({
+      wallet: wallet.address,
+      hasWalletSession: true,
+      generated: true,
+      progress: 'Funding the new wallet',
+    });
+    await fundGeneratedWallet(wallet.address);
+    await refreshChain(true);
+    emit({ progress: snapshot.error ? '' : 'Wallet ready' });
+  } catch (error) {
+    emit({
+      error:
+        error instanceof Error ? error.message : 'Could not create a wallet',
+      progress: '',
+    });
+  } finally {
+    emit({ busy: false });
+  }
+}
+
+export async function selectGeneratedWallet(address: string): Promise<void> {
+  if (snapshot.busy) throw new Error('Wait for the current wallet action');
+  const saved = listSavedWallets().find(
+    (item) => item.address === address.toLowerCase(),
+  );
+  if (!saved) throw new Error('Saved wallet is unavailable');
+  persistWallet(saved);
+  emit({ busy: true, error: '', progress: 'Switching wallet' });
+  try {
+    attachSession(new GeneratedWalletSession(saved), true);
+    emit({
+      wallet: saved.address,
+      hasWalletSession: true,
+      generated: true,
+    });
+    await refreshChain(true);
+  } finally {
+    emit({ busy: false, progress: '' });
+  }
+}
+
 type Receipt = { status: 'pending' | 'success' | 'reverted'; asset?: string };
 export async function waitForReceipt(hash: string): Promise<Receipt> {
   const end = Date.now() + 180_000;
@@ -488,7 +701,7 @@ export async function dispatch(
       conversion?: { converter: string };
     }>('config');
     if (Number(config.chainId) !== 11155111)
-      throw new Error('Backend must use Sepolia');
+      throw new Error('Backend must use the DayTrader test network');
     const request = command(name, body);
     const result = await api<{
       transactions: PreparedTransaction[];
@@ -536,7 +749,8 @@ export async function dispatch(
       });
     }
 
-    await refreshChain();
+    ensCache = undefined;
+    await refreshChain(true);
     const message =
       name === 'create-asset'
         ? 'Asset created. Listing authorization required: publish each sale range from the calendar.'
@@ -546,7 +760,7 @@ export async function dispatch(
             ? 'Buy order published. Ownership changes only after an onchain fill.'
             : name === 'list'
               ? 'Sale published. Wallet tokens remain yours until filled.'
-              : 'Confirmed on Sepolia.';
+              : 'Confirmed onchain.';
     emit({ progress: message });
     return {
       ok: true,
@@ -608,11 +822,12 @@ export async function loadCurve(asset: string, date: string) {
 export function ChainProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     discovery ??= createWalletDiscovery();
+    restoreGeneratedWallet();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (!snapshot.busy) await refreshChain();
-      if (!stopped) timer = setTimeout(poll, 8000);
+      if (!stopped) timer = setTimeout(poll, 4000);
     };
     void poll();
     return () => {

@@ -242,15 +242,18 @@ export function createDayHandler({
           );
         const account = url.searchParams.get('account');
         const wallet = account ? getAddress(account) : null;
-        const usdcBalance = wallet
-          ? await client.readContract({
-              address: config.usdc,
-              abi: dayTokenAbi,
-              functionName: 'balanceOf',
-              args: [wallet],
-              blockNumber,
-            })
-          : null;
+        const [usdcBalance, ethBalance] = wallet
+          ? await Promise.all([
+              client.readContract({
+                address: config.usdc,
+                abi: dayTokenAbi,
+                functionName: 'balanceOf',
+                args: [wallet],
+                blockNumber,
+              }),
+              client.getBalance({ address: wallet, blockNumber }),
+            ])
+          : [null, null];
         const block = await client.getBlock({ blockNumber });
         const calendarBounds = new Map(
           calendars.map((calendar) => [
@@ -356,6 +359,7 @@ export function createDayHandler({
           history,
           wallet,
           usdcBalance,
+          ethBalance,
           revenue: 'External booking reports are not funded USDC payouts.',
         });
       }

@@ -61,9 +61,27 @@ export function ensDayNameOf(label: string, day: number) {
   return `${dateLabel(day)}.${label}.projecttokyo.eth`;
 }
 
+const ENS_LIST_TTL_MS = 20_000;
+let ensListCache:
+  { at: number; includeTest: boolean; assets: EnsListedAsset[] } | undefined;
+
 export async function listEnsAssets(includeTest = false) {
+  if (
+    ensListCache &&
+    ensListCache.includeTest === includeTest &&
+    Date.now() - ensListCache.at < ENS_LIST_TTL_MS
+  ) {
+    return ensListCache.assets;
+  }
   const c = clients();
-  const labels = await listAssets(c, ENS.assetRegistry, BigInt(0), includeTest);
+  const known = ENS.demoLabel ? [ENS.demoLabel] : [];
+  let scanned: string[] = [];
+  try {
+    scanned = await listAssets(c, ENS.assetRegistry, BigInt(0), includeTest);
+  } catch {
+    /* Known demo labels still render if log discovery is slow. */
+  }
+  const labels = [...new Set([...known, ...scanned])];
   const out: EnsListedAsset[] = [];
   for (const label of labels) {
     const rentalAsset = await rentalAssetOf(c, ENS.names, label);
@@ -119,6 +137,7 @@ export async function listEnsAssets(includeTest = false) {
       }),
     });
   }
+  ensListCache = { at: Date.now(), includeTest, assets: out };
   return out;
 }
 

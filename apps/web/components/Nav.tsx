@@ -69,7 +69,7 @@ export function Nav() {
       <nav id="nav" aria-label="Main">
         <span className="brand">
           DayTrader
-          <small>Sepolia · test USDC</small>
+          <small>Testnet · USDC</small>
         </span>
         <div className="nav-links">
           {TABS.map((tab) => (

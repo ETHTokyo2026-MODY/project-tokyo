@@ -71,6 +71,7 @@ export type ChainSnapshot = {
   calendars: ChainCalendar[];
   wallet?: string;
   usdcBalance?: string;
+  ethBalance?: string;
   blockNumber: string;
   blockHash: string;
   bids?: {
