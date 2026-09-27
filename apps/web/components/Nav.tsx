@@ -39,6 +39,7 @@ export function Nav() {
     hashes,
     hasWalletSession,
     reset,
+    prefill,
     mode,
   } = useChainStore();
   const pathname = usePathname();
@@ -113,6 +114,17 @@ export function Nav() {
             }
           >
             Reset demo
+          </button>
+          <button
+            type="button"
+            disabled={busy || waiting}
+            onClick={() =>
+              void act(async () => {
+                await prefill();
+              })
+            }
+          >
+            Prefill demo
           </button>
           <ModeToggle
             mode={mode}

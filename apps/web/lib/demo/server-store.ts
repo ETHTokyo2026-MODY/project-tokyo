@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { applyAction, UserError } from './actions';
 import { todayTokyo } from './dates';
 import { parseMode, writeMode } from './mode';
+import { buildPrefillState } from './prefill';
 import { emptyState } from './seed';
 import type { DemoState } from './types';
 
@@ -78,6 +79,14 @@ export function readDemoState(): Promise<DemoState> {
 export function resetDemoState(): Promise<DemoState> {
   return exclusive(() => {
     const next = emptyState(todayTokyo());
+    save(next);
+    return structuredClone(next);
+  });
+}
+
+export function prefillDemoState(): Promise<DemoState> {
+  return exclusive(() => {
+    const next = buildPrefillState(todayTokyo(), new Date().toISOString());
     save(next);
     return structuredClone(next);
   });

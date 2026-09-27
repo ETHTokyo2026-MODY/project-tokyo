@@ -800,6 +800,46 @@ async function resetDemo(): Promise<ActionResult> {
   }
 }
 
+async function prefillDemo(): Promise<ActionResult> {
+  try {
+    const response = await fetch('/api/demo/prefill', {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const value = (await response.json()) as ActionResult & {
+      state?: DemoState;
+      today?: string;
+      error?: string;
+    };
+    if (!response.ok || !value.ok) {
+      return {
+        ok: false,
+        error: value.ok === false ? value.error : 'Prefill failed',
+      };
+    }
+    emit({
+      mode: readMode(value.state),
+      ready: true,
+      state: value.state ?? null,
+      today: value.today ?? '',
+      wallet: readDemoAccount(),
+      hasWalletSession: true,
+      error: '',
+      progress: 'Demo prefilled',
+    });
+    return {
+      ok: true,
+      version: value.state?.version ?? 0,
+      message: 'Demo prefilled',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Prefill failed',
+    };
+  }
+}
+
 export function ChainProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let stopped = false;
@@ -871,5 +911,6 @@ export function useChainStore() {
     ...state,
     dispatch,
     reset: resetDemo,
+    prefill: prefillDemo,
   };
 }
