@@ -53,7 +53,8 @@ function chainClients() {
   const url =
     process.env.DAY_RPC_URL ??
     (config.chainId === sepolia.id
-      ? (sepolia.rpcUrls.default.http[0] as string)
+      ? (process.env.SEPOLIA_RPC_URL ??
+        'https://ethereum-sepolia-rpc.publicnode.com')
       : null);
   if (!url) throw new Error('DAY_RPC_URL is required for the demo faucet');
   const chain = defineChain({
