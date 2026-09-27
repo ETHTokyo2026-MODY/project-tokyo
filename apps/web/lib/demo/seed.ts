@@ -3,7 +3,8 @@ import {
   DEMO_ACCOUNT_LABELS,
   DEMO_START_CASH,
   type DemoAccountId,
-} from './mode';
+} from './accounts';
+import { DEFAULT_APP_MODE } from './mode';
 import type { Asset, AssetType, Day, DemoState } from './types';
 
 export const TYPES: AssetType[] = ['car', 'airbnb', 'hotel room'];
@@ -33,6 +34,7 @@ export function emptyState(today = todayTokyo()): DemoState {
     },
   } satisfies DemoState['accounts'];
   return {
+    mode: DEFAULT_APP_MODE,
     seededOn: today,
     curveDay: today,
     version: 0,

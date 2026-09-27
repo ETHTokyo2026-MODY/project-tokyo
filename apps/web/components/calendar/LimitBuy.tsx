@@ -4,7 +4,7 @@ import { useId, useState } from 'react';
 import { money, shortDate } from '@/lib/demo/format';
 import { parseWETH, useChainStore } from '@/lib/chain/store';
 import { parseUSDC, usdText } from '@/lib/chain/model';
-import { DEMO_MODE } from '@/lib/demo/mode';
+import { isSimulated } from '@/lib/demo/mode';
 
 type Props = {
   ask: number;
@@ -43,7 +43,7 @@ function LimitForm({
   onAct,
   discount,
 }: Props) {
-  const { state } = useChainStore();
+  const { state, mode } = useChainStore();
   const id = useId();
   const mine = (state?.bids ?? []).filter(
     (b) =>
@@ -85,7 +85,7 @@ function LimitForm({
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      {DEMO_MODE === 'real' ? (
+      {!isSimulated({ mode }) ? (
         <>
           <label htmlFor={`${id}-funding`}>Pay with</label>
           <select
@@ -99,7 +99,7 @@ function LimitForm({
           </select>
         </>
       ) : null}
-      {DEMO_MODE === 'real' && funding === 'weth' ? (
+      {!isSimulated({ mode }) && funding === 'weth' ? (
         <>
           <label htmlFor={`${id}-weth`}>Exact WETH to spend</label>
           <input

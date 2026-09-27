@@ -3,7 +3,16 @@
 import { useSearchParams } from 'next/navigation';
 import { viewedAccount } from '../chain/model';
 import { useChainStore } from '../chain/store';
-import { DEMO_MODE } from './mode';
+
+export {
+  DEMO_ACCOUNT_IDS,
+  DEMO_ACCOUNT_LABELS,
+  DEMO_START_CASH,
+  isDemoAccountId,
+  readDemoAccount,
+  writeDemoAccount,
+  type DemoAccountId,
+} from './accounts';
 
 export function linkTo(
   path: string,
@@ -14,8 +23,8 @@ export function linkTo(
 }
 
 export function useAccount(): string {
-  const { wallet, state } = useChainStore();
-  if (DEMO_MODE === 'simulated') return wallet;
+  const { wallet, state, mode } = useChainStore();
+  if (mode === 'simulated') return wallet;
   return viewedAccount(
     useSearchParams().get('account'),
     wallet,

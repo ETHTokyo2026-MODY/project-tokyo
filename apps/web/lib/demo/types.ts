@@ -89,6 +89,8 @@ export type Asset = {
 };
 
 export type DemoState = {
+  /** Runtime switch: simulated file store vs onchain Demo path. */
+  mode?: 'simulated' | 'demo';
   historyReady?: boolean;
   chain?: boolean;
   bids?: {

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChainStore } from '@/lib/chain/store';
-import { DEMO_MODE } from '@/lib/demo/mode';
+import { isSimulated } from '@/lib/demo/mode';
 
 const DEFAULTS = {
   car: {
@@ -35,7 +35,7 @@ const DEFAULTS = {
 type Kind = keyof typeof DEFAULTS;
 
 export function AddAssetForm({ account }: { account: string }) {
-  const { busy: walletBusy, dispatch } = useChainStore();
+  const { busy: walletBusy, dispatch, mode } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
@@ -86,7 +86,7 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
-              if (DEMO_MODE === 'simulated') {
+              if (isSimulated({ mode })) {
                 const out = await dispatch('create-asset', {
                   account,
                   type,
@@ -177,7 +177,7 @@ export function AddAssetForm({ account }: { account: string }) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
-            {DEMO_MODE === 'real' ? (
+            {!isSimulated({ mode }) ? (
               <label htmlFor="add-label">
                 ENS label
                 <input

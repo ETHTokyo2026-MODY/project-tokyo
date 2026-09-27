@@ -119,6 +119,29 @@
     margin-left: 0;
   }
 
+  #nav .mode-toggle {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1f2937;
+  }
+
+  #nav .mode-toggle button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #d1d5db;
+  }
+
+  #nav .mode-toggle button.on {
+    background: #fff;
+    color: #111827;
+  }
+
   #nav .who select {
     max-width: min(240px, 54vw);
     text-overflow: ellipsis;

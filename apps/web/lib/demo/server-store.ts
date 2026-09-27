@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { applyAction, UserError } from './actions';
 import { todayTokyo } from './dates';
+import { parseMode, writeMode } from './mode';
 import { emptyState } from './seed';
 import type { DemoState } from './types';
 
@@ -55,7 +56,7 @@ function load(): DemoState {
     const parsed: unknown = JSON.parse(
       readFileSync(/*turbopackIgnore: true*/ demoStatePath(), 'utf8'),
     );
-    if (isDemoState(parsed)) return parsed;
+    if (isDemoState(parsed)) return writeMode(parsed, parseMode(parsed.mode));
   } catch {
     // missing or unreadable file → empty
   }
@@ -87,12 +88,24 @@ export function dispatchDemoAction(
   body: Record<string, unknown>,
 ): Promise<{ state: DemoState; out: Record<string, unknown> }> {
   return exclusive(() => {
+    if (name === 'set-mode') {
+      const current = load();
+      const state = {
+        ...writeMode(current, parseMode(body.mode)),
+        version: current.version + 1,
+      };
+      save(state);
+      return { state: structuredClone(state), out: {} };
+    }
     const today = todayTokyo();
     const now = new Date().toISOString();
     try {
-      const { state, out } = applyAction(load(), name, body, { today, now });
-      save(state);
-      return { state: structuredClone(state), out };
+      const current = load();
+      const { state, out } = applyAction(current, name, body, { today, now });
+      const next =
+        name === 'reset' ? state : writeMode(state, parseMode(current.mode));
+      save(next);
+      return { state: structuredClone(next), out };
     } catch (error) {
       if (error instanceof UserError) throw error;
       throw error;

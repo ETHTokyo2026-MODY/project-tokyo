@@ -8,7 +8,7 @@ import { Screener } from '@/components/dashboard/Screener';
 import { EnsName } from '@/components/EnsName';
 import { TypeBadge } from '@/components/TypeBadge';
 import { linkTo, useAccount } from '@/lib/demo/account';
-import { DEMO_MODE } from '@/lib/demo/mode';
+import { isSimulated } from '@/lib/demo/mode';
 import { usdText } from '@/lib/chain/model';
 import { money, shortDate, signed } from '@/lib/demo/format';
 import { summaries } from '@/lib/demo/summaries';
@@ -20,7 +20,7 @@ import './add.css';
 const TITLE = 'Dashboard · DayTrader';
 
 export default function DashboardPage() {
-  const { ready, state, today, dispatch, busy, wallet } = useChainStore();
+  const { ready, state, today, dispatch, busy, wallet, mode } = useChainStore();
   const accountId = useAccount();
   const readOnly = accountId !== wallet;
 
@@ -73,7 +73,7 @@ export default function DashboardPage() {
   return (
     <main className="page">
       <h1>Dashboard</h1>
-      {!readOnly && (DEMO_MODE === 'real' || accountId === 'host') ? (
+      {!readOnly && (!isSimulated({ mode }) || accountId === 'host') ? (
         <AddAssetForm account={accountId} />
       ) : null}
       <div className="scroll-x">
