@@ -407,7 +407,7 @@ const actions: Record<string, ActionFn> = {
       body.sellingPrice === undefined ||
       body.sellingPrice === null ||
       body.sellingPrice === ''
-        ? Math.round(lowest * 0.6) || 1
+        ? DEFAULT_SELLING_PRICE
         : checkPrice(body.sellingPrice);
     if (
       state.assets.filter((a) => a.custom && a.provider === account).length >=
@@ -461,6 +461,9 @@ const actions: Record<string, ActionFn> = {
     Object.assign(state, emptyState(ctx.today));
   },
 };
+
+/** Simulated demo: every new host day is listed at $100 and for sale at $60. */
+export const DEFAULT_SELLING_PRICE = 60;
 
 export function applyAction(
   state: DemoState,
