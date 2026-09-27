@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChainStore } from '@/lib/chain/store';
+import { isSimulated } from '@/lib/demo/mode';
+
 
 const DEFAULTS = {
   car: {
@@ -34,12 +36,11 @@ const DEFAULTS = {
 type Kind = keyof typeof DEFAULTS;
 
 export function AddAssetForm({ account }: { account: string }) {
-  const { busy: walletBusy, dispatch } = useChainStore();
+  const { busy: walletBusy, dispatch, mode } = useChainStore();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
   const [title, setTitle] = useState('');
-  const [label, setLabel] = useState('');
   const [location, setLocation] = useState('');
   const [progress, setProgress] = useState('');
   const [monWed, setMonWed] = useState(String(DEFAULTS.car.monWed));
@@ -85,8 +86,13 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
-              setProgress('Creating asset onchain…');
+              setProgress(
+                isSimulated({ mode })
+                  ? 'Creating asset…'
+                  : 'Creating asset onchain…',
+              );
               const out = await dispatch('create-asset', {
+                account,
                 title,
                 type,
                 location,
@@ -140,20 +146,6 @@ export function AddAssetForm({ account }: { account: string }) {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
-            </label>
-            <label htmlFor="add-label">
-              ENS label
-              <input
-                id="add-label"
-                name="label"
-                maxLength={32}
-                placeholder="demo-room"
-                value={label}
-                onChange={(e) => setLabel(e.target.value.toLowerCase())}
-              />
-              <span className="note">
-                Becomes {label || 'label'}.projecttokyo.eth
-              </span>
             </label>
             <label htmlFor="add-location">
               Location

@@ -4,15 +4,20 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { linkTo, useAccount } from '@/lib/demo/account';
+import { DEMO_ACCOUNT_IDS, DEMO_ACCOUNT_LABELS } from '@/lib/demo/accounts';
+import { APP_MODE_LABELS } from '@/lib/demo/mode';
 import {
   connectWallet,
   disconnectWallet,
   refreshChain,
+  setAppMode,
+  setDemoAccount,
   switchNetwork,
   useChainStore,
   walletChoices,
   subscribeWalletChoices,
 } from '@/lib/chain/store';
+import { ModeToggle } from './ModeToggle';
 import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
 import styles from './TransactionDrawer.module.css';
@@ -25,8 +30,18 @@ const TABS = [
 ];
 export function Nav() {
   const account = useAccount();
-  const { state, wallet, busy, error, progress, hashes, hasWalletSession } =
-    useChainStore();
+  const {
+    state,
+    wallet,
+    busy,
+    error,
+    progress,
+    hashes,
+    hasWalletSession,
+    reset,
+    prefill,
+    mode,
+  } = useChainStore();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,11 +52,12 @@ export function Nav() {
   const [waiting, setWaiting] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
+    if (mode === 'simulated') return;
     const update = () => setProviders(walletChoices());
     const unsubscribe = subscribeWalletChoices(update);
     update();
     return unsubscribe;
-  }, []);
+  }, [mode]);
   async function act(fn: () => Promise<void>) {
     setWaiting(true);
     setMessage('');
@@ -69,7 +85,11 @@ export function Nav() {
       <nav id="nav" aria-label="Main">
         <span className="brand">
           DayTrader
-          <small>Testnet · USDC</small>
+          <small>
+            {mode === 'simulated'
+              ? APP_MODE_LABELS.simulated
+              : 'Testnet · USDC'}
+          </small>
         </span>
         <div className="nav-links">
           {TABS.map((tab) => (
@@ -83,55 +103,118 @@ export function Nav() {
             </Link>
           ))}
         </div>
-        <label className="who" htmlFor="persona">
-          Viewing as
-          <select
-            id="persona"
-            value={account}
-            onChange={(event) => choosePersona(event.target.value)}
-            disabled={!personas.length}
+        <div className="nav-end">
+          <button
+            type="button"
+            disabled={busy || waiting}
+            onClick={() =>
+              void act(async () => {
+                await reset();
+              })
+            }
           >
-            {!account ? <option value="">Choose a persona</option> : null}
-            {personas.map(([id, persona]) => (
-              <option key={id} value={id}>
-                {persona.role} · {persona.name}
-                {id === wallet ? ' (your wallet)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          disabled={busy || waiting}
-          onClick={() => void act(refreshChain)}
-          aria-label="Refresh data"
-        >
-          Refresh
-        </button>
-        <WalletMenu
-          account={wallet}
-          hasSession={Boolean(hasWalletSession)}
-          balance={
-            state?.accounts[wallet]
-              ? money(state.accounts[wallet].cash)
-              : undefined
-          }
-          providers={providers}
-          selected={selected}
-          busy={waiting || busy}
-          onSelect={setChoice}
-          onConnect={() =>
-            void act(() =>
-              connectWallet(
-                selected === 'legacy' ? { legacy: true } : { uuid: selected },
-              ),
-            )
-          }
-          onSwitch={() => void act(switchNetwork)}
-          onDisconnect={() => void act(disconnectWallet)}
-        />
+            Reset demo
+          </button>
+          <button
+            type="button"
+            disabled={busy || waiting}
+            onClick={() =>
+              void act(async () => {
+                await prefill();
+              })
+            }
+          >
+            Prefill demo
+          </button>
+          <ModeToggle
+            mode={mode}
+            disabled={busy || waiting}
+            onChange={(next) => void act(() => setAppMode(next))}
+          />
+          {mode === 'simulated' ? (
+            <label className="who" htmlFor="persona">
+              Viewing as
+              <select
+                id="persona"
+                value={account}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (
+                    next === 'host' ||
+                    next === 'traderA' ||
+                    next === 'traderB'
+                  ) {
+                    setDemoAccount(next);
+                  }
+                  choosePersona(next);
+                }}
+              >
+                {DEMO_ACCOUNT_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {DEMO_ACCOUNT_LABELS[id]}
+                    {state?.accounts[id]
+                      ? ` · ${money(state.accounts[id].cash)} USDC`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <>
+              <label className="who" htmlFor="persona">
+                Viewing as
+                <select
+                  id="persona"
+                  value={account}
+                  onChange={(event) => choosePersona(event.target.value)}
+                  disabled={!personas.length}
+                >
+                  {!account ? <option value="">Choose a persona</option> : null}
+                  {personas.map(([id, persona]) => (
+                    <option key={id} value={id}>
+                      {persona.role} · {persona.name}
+                      {id === wallet ? ' (your wallet)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={busy || waiting}
+                onClick={() => void act(refreshChain)}
+                aria-label="Refresh data"
+              >
+                Refresh
+              </button>
+              <WalletMenu
+                account={wallet}
+                hasSession={Boolean(hasWalletSession)}
+                balance={
+                  state?.accounts[wallet]
+                    ? money(state.accounts[wallet].cash)
+                    : undefined
+                }
+                providers={providers}
+                selected={selected}
+                busy={waiting || busy}
+                onSelect={setChoice}
+                onConnect={() =>
+                  void act(() =>
+                    connectWallet(
+                      selected === 'legacy'
+                        ? { legacy: true }
+                        : { uuid: selected },
+                    ),
+                  )
+                }
+                onSwitch={() => void act(switchNetwork)}
+                onDisconnect={() => void act(disconnectWallet)}
+              />
+            </>
+          )}
+        </div>
       </nav>
-      {viewingAnother ? (
+      {mode !== 'simulated' && viewingAnother ? (
         <div
           className="page"
           role="status"
@@ -151,7 +234,7 @@ export function Nav() {
           ) : null}
         </div>
       ) : null}
-      {hashes.length ? (
+      {mode !== 'simulated' && hashes.length ? (
         <details className={styles.drawer}>
           <summary>Transactions ({hashes.length})</summary>
           <ol className={styles.list}>
