@@ -520,16 +520,16 @@ async function fundGeneratedWallet(address: string) {
     ethBalance?: string;
     usdcBalance?: string;
   };
-  if (response.status === 503) {
+  if (!response.ok) {
     emit({
       error:
         value.error ??
-        'Demo faucet is not configured. Set DEMO_FAUCET_PRIVATE_KEY.',
+        (response.status === 503
+          ? 'Demo faucet is not configured. Set DEMO_FAUCET_PRIVATE_KEY.'
+          : 'Could not fund the generated wallet'),
     });
     return;
   }
-  if (!response.ok)
-    throw new Error(value.error ?? 'Could not fund the generated wallet');
   if (value.ethBalance) emit({ eth: formatEth(value.ethBalance) });
 }
 
