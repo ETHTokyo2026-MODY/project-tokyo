@@ -85,6 +85,15 @@ export type ChainSnapshot = {
   }[];
 };
 
+export function viewedAccount(
+  requested: string | null,
+  wallet: string,
+  accounts?: DemoState['accounts'],
+): string {
+  const id = requested?.toLowerCase() ?? '';
+  return id && accounts?.[id] ? id : wallet;
+}
+
 export function chainState(snapshot: ChainSnapshot, wallet: string): DemoState {
   const accounts: DemoState['accounts'] = {};
   const addAccount = (id: string) => {

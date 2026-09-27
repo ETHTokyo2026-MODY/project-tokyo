@@ -7,6 +7,7 @@ import {
   parseUSDC,
   rangeQuote,
   usdText,
+  viewedAccount,
   type ChainSnapshot,
 } from './model';
 
@@ -189,4 +190,11 @@ it('maps only canonical settlement history with exact prices and unknown sellers
   ]);
   expect(mapped.assets[0].days[1].settlements).toEqual([]);
   expect(chainState(snapshot, trader).historyReady).toBe(false);
+});
+
+it('resolves a known public persona without changing the connected wallet', () => {
+  const accounts = chainState(snapshot, trader).accounts;
+  expect(viewedAccount(host.toUpperCase(), trader, accounts)).toBe(host);
+  expect(viewedAccount('0xunknown', trader, accounts)).toBe(trader);
+  expect(viewedAccount(null, trader, accounts)).toBe(trader);
 });

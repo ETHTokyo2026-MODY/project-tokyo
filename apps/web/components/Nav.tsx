@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { linkTo, useAccount } from '@/lib/demo/account';
 import {
   connectWallet,
@@ -25,9 +25,11 @@ const TABS = [
 ];
 export function Nav() {
   const account = useAccount();
-  const { state, busy, error, progress, hashes, hasWalletSession } =
+  const { state, wallet, busy, error, progress, hashes, hasWalletSession } =
     useChainStore();
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [providers, setProviders] = useState<ReturnType<typeof walletChoices>>(
     [],
   );
@@ -52,6 +54,16 @@ export function Nav() {
     }
   }
   const selected = choice || providers[0]?.uuid || '';
+  const personas = Object.entries(state?.accounts ?? {}).filter(([id]) => id);
+  const viewingAnother = Boolean(account && account !== wallet);
+  function choosePersona(next: string) {
+    const query = new URLSearchParams(searchParams.toString());
+    if (next === wallet) query.delete('account');
+    else query.set('account', next);
+    router.push(`${pathname}${query.size ? `?${query}` : ''}`, {
+      scroll: false,
+    });
+  }
   return (
     <>
       <nav id="nav" aria-label="Main">
@@ -71,6 +83,23 @@ export function Nav() {
             </Link>
           ))}
         </div>
+        <label className="who" htmlFor="persona">
+          Viewing as
+          <select
+            id="persona"
+            value={account}
+            onChange={(event) => choosePersona(event.target.value)}
+            disabled={!personas.length}
+          >
+            {!account ? <option value="">Choose a persona</option> : null}
+            {personas.map(([id, persona]) => (
+              <option key={id} value={id}>
+                {persona.role} · {persona.name}
+                {id === wallet ? ' (your wallet)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           disabled={busy || waiting}
@@ -80,11 +109,11 @@ export function Nav() {
           Refresh
         </button>
         <WalletMenu
-          account={account}
+          account={wallet}
           hasSession={Boolean(hasWalletSession)}
           balance={
-            state?.accounts[account]
-              ? money(state.accounts[account].cash)
+            state?.accounts[wallet]
+              ? money(state.accounts[wallet].cash)
               : undefined
           }
           providers={providers}
@@ -102,6 +131,16 @@ export function Nav() {
           onDisconnect={() => void act(disconnectWallet)}
         />
       </nav>
+      {viewingAnother ? (
+        <div
+          className="page"
+          role="status"
+          style={{ paddingTop: 8, paddingBottom: 8 }}
+        >
+          Viewing public account activity. Connect that account’s wallet to
+          trade or manage assets.
+        </div>
+      ) : null}
       {progress || message || error ? (
         <div className="page" style={{ paddingTop: 8, paddingBottom: 8 }}>
           {progress ? <div role="status">{progress}</div> : null}

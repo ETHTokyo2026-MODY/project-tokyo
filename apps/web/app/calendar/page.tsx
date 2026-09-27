@@ -582,13 +582,13 @@ function AssetGrid({
   acct: Account | undefined;
   today: string;
 }) {
-  const { dispatch, busy: walletBusy, ready } = useChainStore();
+  const { dispatch, busy: walletBusy, ready, wallet } = useChainStore();
   const [anchor, setAnchor] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [localBusy, setBusy] = useState(false);
-  const busy = localBusy || walletBusy || !ready;
+  const busy = localBusy || walletBusy || !ready || account !== wallet;
   const [flash, setFlash] = useState({ text: '', token: 0 });
   const pending = useRef(false);
   const calRef = useRef<HTMLDivElement>(null);
@@ -840,7 +840,7 @@ function AssetGrid({
             <h2>{acct.name}</h2>
             <div className="kv">
               <div>Wallet USDC</div>
-              <div>{money(acct.cash)}</div>
+              <div>{account === wallet ? money(acct.cash) : 'Unavailable'}</div>
               <div>Profit / loss</div>
               <div className={pl > 0 ? 'pos' : pl < 0 ? 'neg' : ''}>
                 {asset.chain ? 'Unavailable' : signed(pl)}
@@ -848,7 +848,9 @@ function AssetGrid({
               <div>Booked public prices (unfunded)</div>
               <div>{money(lockedIn)}</div>
             </div>
-            {Number.isFinite(cheapest) && acct.cash < cheapest ? (
+            {account === wallet &&
+            Number.isFinite(cheapest) &&
+            acct.cash < cheapest ? (
               <div className="warn">
                 Not enough cash to buy any listed day (cheapest{' '}
                 {money(cheapest)}

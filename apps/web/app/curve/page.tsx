@@ -33,7 +33,7 @@ function Loading() {
 }
 
 function CurveInner() {
-  const { ready, state, today, dispatch, busy } = useChainStore();
+  const { ready, state, today, dispatch, busy, wallet } = useChainStore();
   const account = useAccount();
   const params = useSearchParams();
   const assetId = normalizeAssetId(params.get('asset') ?? '');
@@ -89,7 +89,12 @@ function CurveInner() {
   const past = dayDate < today;
   const booked = day?.status === 'booked';
   const editable = Boolean(
-    day && !past && !booked && !busy && day.owner === account,
+    day &&
+    !past &&
+    !booked &&
+    !busy &&
+    account === wallet &&
+    day.owner === account,
   );
 
   const commit = async (next: Curve) => {

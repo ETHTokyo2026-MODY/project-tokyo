@@ -1,5 +1,7 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
+import { viewedAccount } from '../chain/model';
 import { useChainStore } from '../chain/store';
 
 export function linkTo(
@@ -11,5 +13,10 @@ export function linkTo(
 }
 
 export function useAccount(): string {
-  return useChainStore().wallet;
+  const { wallet, state } = useChainStore();
+  return viewedAccount(
+    useSearchParams().get('account'),
+    wallet,
+    state?.accounts,
+  );
 }
