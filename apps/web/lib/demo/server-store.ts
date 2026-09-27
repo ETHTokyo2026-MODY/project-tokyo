@@ -52,7 +52,9 @@ function isDemoState(value: unknown): value is DemoState {
 
 function load(): DemoState {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(demoStatePath(), 'utf8'));
+    const parsed: unknown = JSON.parse(
+      readFileSync(/*turbopackIgnore: true*/ demoStatePath(), 'utf8'),
+    );
     if (isDemoState(parsed)) return parsed;
   } catch {
     // missing or unreadable file → empty
@@ -62,10 +64,10 @@ function load(): DemoState {
 
 function save(state: DemoState) {
   const path = demoStatePath();
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state)}\n`);
-  renameSync(tmp, path);
+  writeFileSync(/*turbopackIgnore: true*/ tmp, `${JSON.stringify(state)}\n`);
+  renameSync(/*turbopackIgnore: true*/ tmp, path);
 }
 
 export function readDemoState(): Promise<DemoState> {
