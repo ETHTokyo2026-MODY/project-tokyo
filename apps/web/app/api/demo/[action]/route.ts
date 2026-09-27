@@ -14,7 +14,7 @@ const noStore = {
   'Cache-Control': 'no-store, no-cache, must-revalidate',
 };
 
-function payload(state: ReturnType<typeof readDemoState>) {
+function payload(state: Awaited<ReturnType<typeof readDemoState>>) {
   return { state, today: demoToday(), version: state.version };
 }
 
@@ -29,7 +29,7 @@ export async function GET(
       { status: 404, headers: noStore },
     );
   }
-  return Response.json(payload(readDemoState()), { headers: noStore });
+  return Response.json(payload(await readDemoState()), { headers: noStore });
 }
 
 export async function POST(
@@ -38,7 +38,7 @@ export async function POST(
 ) {
   const { action } = await context.params;
   if (action === 'reset') {
-    const state = resetDemoState();
+    const state = await resetDemoState();
     return Response.json({ ok: true, ...payload(state) }, { headers: noStore });
   }
   if (action !== 'action') {
@@ -67,7 +67,7 @@ export async function POST(
     );
   }
   try {
-    const { state, out } = dispatchDemoAction(name, body.body ?? {});
+    const { state, out } = await dispatchDemoAction(name, body.body ?? {});
     return Response.json(
       { ok: true, ...payload(state), ...out },
       { headers: noStore },

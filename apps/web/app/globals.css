@@ -98,6 +98,14 @@
     color: #111827;
   }
 
+  #nav .nav-end {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   #nav .who {
     margin-left: auto;
     display: flex;
@@ -105,6 +113,10 @@
     gap: 8px;
     font-size: 14px;
     color: #d1d5db;
+  }
+
+  #nav .nav-end .who {
+    margin-left: 0;
   }
 
   #nav .who select {
@@ -814,7 +826,10 @@
       padding: 12px;
     }
     #nav .brand {
-      flex-basis: 100%;
+      flex-basis: auto;
+    }
+    #nav .nav-end {
+      margin-left: auto;
     }
     .nav-links {
       flex: 1 0 100%;

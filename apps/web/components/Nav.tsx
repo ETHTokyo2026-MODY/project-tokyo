@@ -103,7 +103,18 @@ export function Nav() {
           ))}
         </div>
         {DEMO_MODE === 'simulated' ? (
-          <>
+          <div className="nav-end">
+            <button
+              type="button"
+              disabled={busy || waiting}
+              onClick={() =>
+                void act(async () => {
+                  await reset();
+                })
+              }
+            >
+              Reset demo
+            </button>
             <label className="who" htmlFor="persona">
               Viewing as
               <select
@@ -131,18 +142,7 @@ export function Nav() {
                 ))}
               </select>
             </label>
-            <button
-              type="button"
-              disabled={busy || waiting}
-              onClick={() =>
-                void act(async () => {
-                  await reset();
-                })
-              }
-            >
-              Reset demo
-            </button>
-          </>
+          </div>
         ) : (
           <>
             <label className="who" htmlFor="persona">
