@@ -15,6 +15,7 @@ import {
 } from '@/lib/chain/store';
 import { WalletMenu } from './WalletMenu';
 import { money } from '@/lib/demo/format';
+import { demoPersonas } from '@/lib/chain/personas';
 import styles from './TransactionDrawer.module.css';
 
 const TABS = [
@@ -54,7 +55,6 @@ export function Nav() {
     }
   }
   const selected = choice || providers[0]?.uuid || '';
-  const personas = Object.entries(state?.accounts ?? {}).filter(([id]) => id);
   const viewingAnother = Boolean(account && account !== wallet);
   function choosePersona(next: string) {
     const query = new URLSearchParams(searchParams.toString());
@@ -87,15 +87,13 @@ export function Nav() {
           Viewing as
           <select
             id="persona"
-            value={account}
+            value={demoPersonas.some((persona) => persona.address === account) ? account : ''}
             onChange={(event) => choosePersona(event.target.value)}
-            disabled={!personas.length}
           >
-            {!account ? <option value="">Choose a persona</option> : null}
-            {personas.map(([id, persona]) => (
-              <option key={id} value={id}>
-                {persona.role} · {persona.name}
-                {id === wallet ? ' (your wallet)' : ''}
+            <option value="" hidden>Choose a role</option>
+            {demoPersonas.map((persona) => (
+              <option key={persona.address} value={persona.address}>
+                {persona.label}
               </option>
             ))}
           </select>

@@ -1,5 +1,6 @@
 import type { Asset, AssetType, DemoState } from '../demo/types';
 import { dayNum } from '../demo/dates';
+import { demoPersonas } from './personas';
 
 export function parseUSDC(value: unknown): string {
   const text = String(value ?? '').trim();
@@ -106,6 +107,11 @@ export function chainState(snapshot: ChainSnapshot, wallet: string): DemoState {
   };
   addAccount(wallet);
   accounts[wallet].cash = Number(usdText(snapshot.usdcBalance ?? '0'));
+  for (const persona of demoPersonas) {
+    addAccount(persona.address);
+    accounts[persona.address].name = persona.label;
+    accounts[persona.address].role = persona.label === 'Host' ? 'Host' : 'Trader';
+  }
   const assets: Asset[] = snapshot.calendars.map((calendar) => {
     let meta: { title?: string; type?: AssetType; location?: string } = {};
     try {

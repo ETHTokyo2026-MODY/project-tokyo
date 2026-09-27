@@ -10,6 +10,7 @@ import {
   viewedAccount,
   type ChainSnapshot,
 } from './model';
+import { demoPersonas } from './personas';
 
 const host = `0x${'11'.repeat(20)}`,
   trader = `0x${'22'.repeat(20)}`;
@@ -59,6 +60,18 @@ const snapshot: ChainSnapshot = {
   ],
 };
 describe('chain UI mapping (unit)', () => {
+  it('keeps the three public demo roles available before their first trade', () => {
+    const accounts = chainState({ ...snapshot, calendars: [] }, '').accounts;
+    expect(demoPersonas.map(({ label }) => label)).toEqual([
+      'Host',
+      'Trader A',
+      'Trader B',
+    ]);
+    for (const persona of demoPersonas) {
+      expect(accounts[persona.address].name).toBe(persona.label);
+      expect(viewedAccount(persona.address, '', accounts)).toBe(persona.address);
+    }
+  });
   it('preserves six-decimal amounts without binary floating-point conversion', () => {
     for (const [value, raw] of [
       ['0', '0'],
