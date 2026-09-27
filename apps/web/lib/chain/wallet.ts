@@ -81,7 +81,9 @@ function assertSepolia(chain: unknown): void {
     !/^0x[0-9a-f]+$/i.test(chain) ||
     BigInt(chain) !== BigInt(SEPOLIA_CHAIN_ID)
   ) {
-    throw new Error('Select Sepolia in the wallet before sending');
+    throw new Error(
+      'Select the DayTrader test network in the wallet before sending',
+    );
   }
 }
 
@@ -440,7 +442,7 @@ export class WalletSession {
     this.assertOpen();
     if (this.changed)
       throw new Error(
-        'Wallet account or network changed; reconnect or select Sepolia again',
+        'Wallet account or network changed; reconnect or switch network again',
       );
   }
 

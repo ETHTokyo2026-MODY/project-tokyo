@@ -88,7 +88,7 @@ export function Nav() {
           <small>
             {mode === 'simulated'
               ? APP_MODE_LABELS.simulated
-              : 'Sepolia · test USDC'}
+              : 'Testnet · USDC'}
           </small>
         </span>
         <div className="nav-links">

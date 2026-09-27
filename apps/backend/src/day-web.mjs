@@ -1,16 +1,27 @@
 import deployment from '../../../contracts/deployments/sepolia.json' with { type: 'json' };
 import { sepolia } from 'viem/chains';
+import { unlinkSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createPublicClient, defineChain, getAddress, http } from 'viem';
 import { normalize } from './day-config.mjs';
 import { EventIndex } from './event-index.mjs';
 import { createDayHandler } from './day-server.mjs';
+import { readDayAsset } from './day-catalog.mjs';
 import {
   dayFactoryAbi,
   dayRouterAbi,
   dayTokenAbi,
   officialAquaAbi,
+  tokyoDay,
 } from './day-protocol.mjs';
+
+const PUBLIC_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
+
+function rpcUrl(env = process.env, chainId = sepolia.id) {
+  if (env.DAY_RPC_URL) return env.DAY_RPC_URL;
+  if (chainId === sepolia.id) return env.SEPOLIA_RPC_URL || PUBLIC_RPC;
+  return sepolia.rpcUrls.default.http[0];
+}
 
 /** Public deployment metadata is available without contacting an RPC provider. */
 export function dayWebConfig(env = process.env) {
@@ -19,7 +30,67 @@ export function dayWebConfig(env = process.env) {
   );
   if (env.DAY_BOOKING_REPORTER)
     config.bookingReporter = getAddress(env.DAY_BOOKING_REPORTER);
+  if (!env.DAY_CONFIG_JSON && deployment.ens?.demoAsset)
+    config.demoAsset = getAddress(deployment.ens.demoAsset);
   return config;
+}
+
+async function previewDayState(request, env = process.env) {
+  const config = dayWebConfig(env);
+  if (!config.demoAsset) return null;
+  if (!env.DAY_RPC_URL && config.chainId !== sepolia.id) return null;
+  const rpc = new URL(rpcUrl(env, config.chainId));
+  if (!['https:', 'http:'].includes(rpc.protocol)) return null;
+  const client = createPublicClient({
+    chain: defineChain({
+      id: config.chainId,
+      name: 'DayTrader chain',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: { default: { http: [rpc.href] } },
+    }),
+    transport: http(rpc.href, { timeout: 12_000, retryCount: 1 }),
+  });
+  const block = await client.getBlock();
+  const calendar = await readDayAsset(client, {
+    factory: config.factory,
+    asset: config.demoAsset,
+    blockNumber: block.number,
+  });
+  const rawAccount = new URL(request.url).searchParams.get('account');
+  const wallet = rawAccount ? getAddress(rawAccount) : null;
+  const [usdcBalance, ethBalance] = wallet
+    ? await Promise.all([
+        client.readContract({
+          address: config.usdc,
+          abi: dayTokenAbi,
+          functionName: 'balanceOf',
+          args: [wallet],
+          blockNumber: block.number,
+        }),
+        client.getBalance({ address: wallet, blockNumber: block.number }),
+      ])
+    : [null, null];
+  return Response.json(
+    JSON.parse(
+      JSON.stringify(
+        {
+          ready: true,
+          indexing: true,
+          chainId: config.chainId,
+          blockNumber: block.number,
+          blockHash: block.hash,
+          today: tokyoDay(block.timestamp),
+          calendars: [calendar],
+          bids: [],
+          history: [],
+          wallet,
+          usdcBalance,
+          ethBalance,
+        },
+        (_, value) => (typeof value === 'bigint' ? value.toString() : value),
+      ),
+    ),
+  );
 }
 
 /**
@@ -30,7 +101,7 @@ export async function createDayWeb(env = process.env) {
   const config = dayWebConfig(env);
   if (!env.DAY_RPC_URL && config.chainId !== sepolia.id)
     throw new Error('A custom chain requires DAY_RPC_URL');
-  const rpc = new URL(env.DAY_RPC_URL ?? sepolia.rpcUrls.default.http[0]);
+  const rpc = new URL(rpcUrl(env, config.chainId));
   if (!['https:', 'http:'].includes(rpc.protocol))
     throw new Error('Invalid RPC protocol');
   const chain = defineChain({
@@ -42,7 +113,7 @@ export async function createDayWeb(env = process.env) {
   const client = createPublicClient({
     chain,
     cacheTime: 0,
-    transport: http(rpc.href, { timeout: 5000, retryCount: 1 }),
+    transport: http(rpc.href, { timeout: 20_000, retryCount: 2 }),
   });
   if ((await client.getChainId()) !== config.chainId)
     throw new Error('Wrong runtime chain');
@@ -69,8 +140,11 @@ export async function createDayWeb(env = process.env) {
     ) !== 6
   )
     throw new Error('Runtime contracts differ from deployment configuration');
-  const db = new DatabaseSync(':memory:');
-  try {
+  const dbPath =
+    env.DAY_DB ||
+    (env.DAY_CONFIG_JSON ? ':memory:' : '/tmp/daytrader-event-index.sqlite');
+  const openIndex = (path) => {
+    const db = new DatabaseSync(path);
     const events = (abi) => abi.filter((item) => item.type === 'event');
     const index = new EventIndex(db, client, {
       ...config,
@@ -86,14 +160,28 @@ export async function createDayWeb(env = process.env) {
         usdc: config.usdc,
       },
     });
+    return { db, index };
+  };
+  let opened;
+  try {
+    opened = openIndex(dbPath);
+  } catch {
+    try {
+      if (dbPath !== ':memory:') unlinkSync(dbPath);
+    } catch {
+      /* First process or ephemeral path. */
+    }
+    opened = openIndex(dbPath);
+  }
+  try {
     return createDayHandler({
       client,
       config,
-      index,
-      syncIndex: boundedIndexSync(index),
+      index: opened.index,
+      syncIndex: boundedIndexSync(opened.index),
     });
   } catch (error) {
-    db.close();
+    opened.db.close();
     throw error;
   }
 }
@@ -112,8 +200,12 @@ export function lazyDayWeb(create = createDayWeb) {
   };
 }
 /** Coalesce slow reads across polls and retain a completed result for the next poll. */
-export function createDayWebHandler(liveHandler = lazyDayWeb(), waitMs = 8000) {
+export function createDayWebHandler(
+  liveHandler = lazyDayWeb(),
+  waitMs = 25000,
+) {
   const reads = new Map();
+  const lastGood = new Map();
   return async (request) => {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/config')
@@ -124,6 +216,36 @@ export function createDayWebHandler(liveHandler = lazyDayWeb(), waitMs = 8000) {
       })(request);
     if (request.method !== 'GET' || url.pathname !== '/state')
       return withinDeadline(liveHandler(request), waitMs);
+    if (waitMs >= 8000) {
+      const key = url.pathname + url.search;
+      const cached = lastGood.get(key);
+      if (cached && Date.now() - cached.at < 8000)
+        return Response.json(cached.body);
+      const preview = await previewDayState(request).catch(() => null);
+      if (!reads.has(key) && reads.size < 32) {
+        const job = liveHandler(request).then(
+          (response) => ({ response }),
+          (error) => ({ error }),
+        );
+        reads.set(key, job);
+        void job.then(async (result) => {
+          try {
+            if (result.response?.ok) {
+              const body = await result.response.json();
+              if (body?.ready) lastGood.set(key, { at: Date.now(), body });
+            }
+          } catch {
+            /* Keep serving the preview calendar. */
+          }
+          const timer = setTimeout(() => {
+            if (reads.get(key) === job) reads.delete(key);
+          }, 30000);
+          timer.unref?.();
+        });
+      }
+      if (cached) return Response.json(cached.body);
+      if (preview) return preview;
+    }
     const key = url.pathname + url.search;
     let job = reads.get(key);
     if (!job) {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useChainStore } from '@/lib/chain/store';
 import { isSimulated } from '@/lib/demo/mode';
 
+
 const DEFAULTS = {
   car: {
     monWed: 100,
@@ -40,7 +41,6 @@ export function AddAssetForm({ account }: { account: string }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Kind>('car');
   const [title, setTitle] = useState('');
-  const [label, setLabel] = useState('');
   const [location, setLocation] = useState('');
   const [progress, setProgress] = useState('');
   const [monWed, setMonWed] = useState(String(DEFAULTS.car.monWed));
@@ -86,59 +86,29 @@ export function AddAssetForm({ account }: { account: string }) {
             setErr('');
             setBusy(true);
             try {
-              if (isSimulated({ mode })) {
-                const out = await dispatch('create-asset', {
-                  account,
-                  type,
-                  title,
-                  location,
-                  prices: { monWed, thuSat, sun },
-                  min: min === '' ? null : min,
-                  sellingPrice,
-                });
-                if (!out.ok) {
-                  setErr(out.error);
-                  return;
-                }
-                if (out.asset) {
-                  router.push(
-                    `/calendar?asset=${encodeURIComponent(out.asset)}&account=${encodeURIComponent(account)}`,
-                  );
-                }
-                return;
-              }
-              const ensLabel =
-                label.trim().toLowerCase() ||
-                title
-                  .trim()
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, '-')
-                  .replace(/^-|-$/g, '')
-                  .slice(0, 32);
-              if (!ensLabel) {
-                setErr('Enter an ENS label');
-                return;
-              }
-              setProgress('creating days…');
-              const res = await fetch('/api/ens/create', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  label: ensLabel,
-                  title,
-                  kind: type,
-                  location,
-                }),
-              });
-              const value = await res.json();
-              if (!res.ok || !value.asset) {
-                setErr(value.error ?? 'ENS create failed');
-                return;
-              }
-              setProgress('');
-              router.push(
-                `/calendar?asset=${encodeURIComponent(String(value.asset))}&account=${encodeURIComponent(account)}`,
+              setProgress(
+                isSimulated({ mode })
+                  ? 'Creating asset…'
+                  : 'Creating asset onchain…',
               );
+              const out = await dispatch('create-asset', {
+                account,
+                title,
+                type,
+                location,
+                prices: { monWed, thuSat, sun },
+                min: min === '' ? null : min,
+                sellingPrice,
+              });
+              if (!out.ok) {
+                setErr(out.error);
+                return;
+              }
+              if (out.asset) {
+                router.push(
+                  `/calendar?asset=${encodeURIComponent(out.asset)}&account=${encodeURIComponent(account)}`,
+                );
+              }
             } finally {
               setBusy(false);
               setProgress('');
@@ -177,22 +147,6 @@ export function AddAssetForm({ account }: { account: string }) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
-            {!isSimulated({ mode }) ? (
-              <label htmlFor="add-label">
-                ENS label
-                <input
-                  id="add-label"
-                  name="label"
-                  maxLength={32}
-                  placeholder="demo-room"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value.toLowerCase())}
-                />
-                <span className="note">
-                  Becomes {label || 'label'}.projecttokyo.eth
-                </span>
-              </label>
-            ) : null}
             <label htmlFor="add-location">
               Location
               <input

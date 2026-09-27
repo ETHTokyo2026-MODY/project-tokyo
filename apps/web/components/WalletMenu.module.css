@@ -119,6 +119,19 @@
   margin-top: 12px;
   border-top: 1px solid #e2e8f0;
 }
+.extension {
+  margin-top: 14px;
+  font-size: 13px;
+}
+.extension > summary {
+  cursor: pointer;
+  color: #64748b;
+  font-weight: 600;
+}
+.panel .secondary {
+  width: 100%;
+  margin-top: 8px;
+}
 
 @media (max-width: 760px) {
   .panel {

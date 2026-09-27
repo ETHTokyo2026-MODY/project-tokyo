@@ -210,11 +210,55 @@ export function createDayHandler({
         return reply(200, { minimum, points });
       }
       if (req.method === 'GET' && url.pathname === '/state') {
-        if ((await syncIndex()) === false)
+        const indexed =
+          (await syncIndex()) !== false && (await index.readiness()).ready;
+        if (!indexed) {
+          if (config.demoAsset && client?.readContract && client?.getBlock) {
+            try {
+              const block = await client.getBlock();
+              const calendar = await readDayAsset(client, {
+                factory: config.factory,
+                asset: config.demoAsset,
+                blockNumber: block.number,
+              });
+              const account = url.searchParams.get('account');
+              const wallet = account ? getAddress(account) : null;
+              const [usdcBalance, ethBalance] = wallet
+                ? await Promise.all([
+                    client.readContract({
+                      address: config.usdc,
+                      abi: dayTokenAbi,
+                      functionName: 'balanceOf',
+                      args: [wallet],
+                      blockNumber: block.number,
+                    }),
+                    client.getBalance({
+                      address: wallet,
+                      blockNumber: block.number,
+                    }),
+                  ])
+                : [null, null];
+              return reply(200, {
+                ready: true,
+                indexing: true,
+                chainId: config.chainId,
+                blockNumber: block.number,
+                blockHash: block.hash,
+                today: tokyoDay(block.timestamp),
+                calendars: [calendar],
+                bids: [],
+                history: [],
+                wallet,
+                usdcBalance,
+                ethBalance,
+              });
+            } catch {
+              /* Indexing status is still a valid response. */
+            }
+          }
           return reply(200, { ready: false, indexing: true });
+        }
         const readiness = await index.readiness();
-        if (!readiness.ready)
-          return reply(200, { ready: false, indexing: true });
         const blockNumber = BigInt(readiness.tip.number);
         const reorgVersion = index.reorgVersion;
         const assets = new Set();
@@ -242,15 +286,18 @@ export function createDayHandler({
           );
         const account = url.searchParams.get('account');
         const wallet = account ? getAddress(account) : null;
-        const usdcBalance = wallet
-          ? await client.readContract({
-              address: config.usdc,
-              abi: dayTokenAbi,
-              functionName: 'balanceOf',
-              args: [wallet],
-              blockNumber,
-            })
-          : null;
+        const [usdcBalance, ethBalance] = wallet
+          ? await Promise.all([
+              client.readContract({
+                address: config.usdc,
+                abi: dayTokenAbi,
+                functionName: 'balanceOf',
+                args: [wallet],
+                blockNumber,
+              }),
+              client.getBalance({ address: wallet, blockNumber }),
+            ])
+          : [null, null];
         const block = await client.getBlock({ blockNumber });
         const calendarBounds = new Map(
           calendars.map((calendar) => [
@@ -356,6 +403,7 @@ export function createDayHandler({
           history,
           wallet,
           usdcBalance,
+          ethBalance,
           revenue: 'External booking reports are not funded USDC payouts.',
         });
       }

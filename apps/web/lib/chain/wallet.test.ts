@@ -265,7 +265,7 @@ describe('native wallet session (unit)', () => {
     p.chain = '0x1';
     const session = new WalletSession(p);
     await session.connect();
-    await expect(session.sendBatch([tx])).rejects.toThrow('Sepolia');
+    await expect(session.sendBatch([tx])).rejects.toThrow('test network');
     expect(
       p.request.mock.calls.some(
         ([r]) => r.method === 'wallet_switchEthereumChain',

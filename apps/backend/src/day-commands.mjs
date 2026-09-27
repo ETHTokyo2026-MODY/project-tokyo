@@ -17,6 +17,7 @@ import {
   dayFactoryAbi,
   dayRouterAbi,
   dayTokenAbi,
+  decodeDayPublication,
   hashDayStrategy,
   officialAquaAbi,
   shipDayStrategy,
@@ -334,6 +335,30 @@ export async function prepareDayAction(
     };
     await publish('bid', strategy, usdc, strategy.maxTotal);
     result.strategy = strategy;
+    if (
+      (action === 'buy' || action === 'publish-bid') &&
+      typeof client.getLogs === 'function' &&
+      Number.isSafeInteger(config.startBlock)
+    ) {
+      try {
+        await appendImmediateSettle({
+          client,
+          read,
+          config,
+          router,
+          aqua,
+          asset,
+          start,
+          stop,
+          states,
+          strategy,
+          transactions,
+          toBlock: block.number,
+        });
+      } catch {
+        /* A resting bid is still valid if no current ask can be settled. */
+      }
+    }
     if (action === 'prepare-conversion') {
       const route = await conversionRoute(read, config);
       const maxInput = uint(body.maxInput, 256, 'Exact WETH input');
@@ -520,4 +545,80 @@ export async function prepareDayAction(
     );
   }
   return finish();
+}
+
+async function appendImmediateSettle({
+  client,
+  read,
+  config,
+  router,
+  aqua,
+  asset,
+  start,
+  stop,
+  states,
+  strategy,
+  transactions,
+  toBlock,
+}) {
+  if (states.some((state) => !state.deployed || !state.listed)) return;
+  const shipped = officialAquaAbi.find((item) => item.name === 'Shipped');
+  const logs = await client.getLogs({
+    address: aqua,
+    event: shipped,
+    fromBlock: BigInt(config.startBlock),
+    toBlock,
+  });
+  const asksByDay = new Map();
+  for (const log of logs) {
+    let publication;
+    try {
+      publication = decodeDayPublication(log.args, config);
+    } catch {
+      continue;
+    }
+    if (publication.kind !== 'ask') continue;
+    const day = Number(publication.strategy.day);
+    const group = asksByDay.get(day) ?? [];
+    group.push(publication);
+    asksByDay.set(day, group);
+  }
+  const version = await read(asset, dayAssetAbi, 'discountVersion');
+  const asks = [];
+  const programs = [];
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i];
+    const day = start + i;
+    let selected;
+    for (const candidate of asksByDay.get(day) ?? []) {
+      const a = candidate.strategy;
+      if (
+        !same(a.app, router) ||
+        !same(a.asset, asset) ||
+        !same(a.seller, state.owner) ||
+        BigInt(a.saleNonce) !== BigInt(state.saleNonce) ||
+        BigInt(a.discountVersion) !== BigInt(version)
+      )
+        continue;
+      const [remaining, count] = await read(
+        aqua,
+        officialAquaAbi,
+        'rawBalances',
+        [a.seller, router, candidate.hash, state.token],
+      );
+      if (BigInt(remaining) >= 1n && Number(count) > 0 && Number(count) < 255) {
+        selected = a;
+        break;
+      }
+    }
+    if (!selected) return;
+    asks.push(selected);
+    programs.push(
+      await read(router, dayRouterAbi, 'program', [asset, day, stop - start]),
+    );
+  }
+  if (asks.length !== states.length) return;
+  transactions.push(
+    tx(router, dayRouterAbi, 'settle', [strategy, asks, programs]),
+  );
 }

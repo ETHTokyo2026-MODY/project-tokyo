@@ -13,6 +13,7 @@ import {
   connectWallet,
   disconnectWallet,
   refreshChain,
+  setAppMode,
   switchNetwork,
   useChainStore,
 } from './store';
@@ -20,6 +21,12 @@ import {
 const account = `0x${'11'.repeat(20)}`;
 const other = `0x${'22'.repeat(20)}`;
 const response = (url?: string) => {
+  if (url && String(url).includes('/api/demo/')) {
+    return {
+      ok: true,
+      json: async () => ({ ok: true, state: { mode: 'demo' } }),
+    };
+  }
   if (url && String(url).includes('/api/ens/')) {
     return { ok: true, json: async () => ({ assets: [] }) };
   }
@@ -75,6 +82,7 @@ it('invalidates pending reads immediately on wallet change and refreshes after e
   mocks.select.mockReturnValue(next);
   const fetcher = vi.fn(async (url: string) => response(url));
   vi.stubGlobal('fetch', fetcher);
+  await setAppMode('demo');
   await connectWallet({ legacy: true });
   expect(useChainStore()).toMatchObject({
     wallet: account,
@@ -127,6 +135,7 @@ it('unsubscribes before replacing the session and disconnect clears its identity
     'fetch',
     vi.fn(async (url: string) => response(url)),
   );
+  await setAppMode('demo');
   await connectWallet({ legacy: true });
   first.dispose.mockImplementation(() => {
     expect(first.listeners.size).toBe(0);

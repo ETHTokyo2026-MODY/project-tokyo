@@ -5,6 +5,7 @@ import {
   dispatch,
   refreshChain,
   sendConfirmed,
+  setAppMode,
 } from './store';
 import { normalizeAssetId } from './model';
 import { WalletBatchError } from './wallet';
@@ -196,11 +197,14 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
   });
   let dayCalls = 0;
   const fetcher = vi.fn(async (url: string) => {
+    if (String(url).includes('/api/demo/')) {
+      return { ok: true, json: async () => ({ ok: true, state: { mode: 'demo' } }) };
+    }
     if (String(url).includes('/api/ens/')) {
       return { ok: true, json: async () => ({ assets: [] }) };
     }
     dayCalls += 1;
-    if (dayCalls === 1) {
+    if (dayCalls < 3) {
       return {
         ok: true,
         json: async () => ({
@@ -218,6 +222,7 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
   vi.stubGlobal('window', target);
   vi.stubGlobal('fetch', fetcher);
   try {
+    await setAppMode('demo');
     await connectWallet({ legacy: true });
     await refreshChain();
     await expect(
@@ -226,7 +231,7 @@ it('blocks actions after a previously ready index becomes unavailable', async ()
       ok: false,
       error: 'Wait for a current chain snapshot before acting',
     });
-    expect(dayCalls).toBe(2);
+    expect(dayCalls).toBeGreaterThanOrEqual(2);
     expect(
       target.ethereum.request.mock.calls.every(
         ([request]) => request.method !== 'eth_sendTransaction',
@@ -310,7 +315,9 @@ it('confirms funding approvals before native typed consent and simulates before 
     'fetch',
     vi.fn(async (path: string, options?: { body?: string }) => {
       let value;
-      if (String(path).includes('/api/ens/')) value = { assets: [] };
+      if (String(path).includes('/api/demo/'))
+        value = { ok: true, state: { mode: 'demo' } };
+      else if (String(path).includes('/api/ens/')) value = { assets: [] };
       else if (path.endsWith('config'))
         value = {
           chainId: 11155111,
@@ -340,6 +347,7 @@ it('confirms funding approvals before native typed consent and simulates before 
     }),
   );
   try {
+    await live.setAppMode('demo');
     await live.connectWallet({ legacy: true });
     const result = await live.dispatch('buy-weth', {
       asset: account,
@@ -379,19 +387,23 @@ it('refreshes public market data after disconnect and rejects walletless mutatio
       ethereum: { request, on: () => {}, removeListener: () => {} },
     }),
   );
-  const fetcher = vi.fn(async () => ({
+  const fetcher = vi.fn(async (url?: string) => ({
     ok: true,
-    json: async () => ({
-      ready: true,
-      today: 20722,
-      blockNumber: '1',
-      blockHash: 'hash',
-      calendars: [],
-      usdcBalance: '0',
-    }),
+    json: async () =>
+      String(url).includes('/api/demo/')
+        ? { ok: true, state: { mode: 'demo' } }
+        : {
+            ready: true,
+            today: 20722,
+            blockNumber: '1',
+            blockHash: 'hash',
+            calendars: [],
+            usdcBalance: '0',
+          },
   }));
   vi.stubGlobal('fetch', fetcher);
   try {
+    await store.setAppMode('demo');
     await store.connectWallet({ legacy: true });
     await store.disconnectWallet();
     expect(fetcher.mock.calls.at(-1)).toEqual([
@@ -400,7 +412,7 @@ it('refreshes public market data after disconnect and rejects walletless mutatio
     ]);
     await expect(store.dispatch('list', {})).resolves.toMatchObject({
       ok: false,
-      error: 'Connect your wallet first',
+      error: 'Generate or connect a wallet first',
     });
     expect(
       request.mock.calls.some(

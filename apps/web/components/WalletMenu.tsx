@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import {
+  generateWallet,
+  savedGeneratedWallets,
+  selectGeneratedWallet,
+  useChainStore,
+} from '@/lib/chain/store';
 import styles from './WalletMenu.module.css';
 
 type Props = {
@@ -17,9 +23,13 @@ type Props = {
 };
 
 export function WalletMenu(props: Props) {
+  const { eth, generated } = useChainStore();
   const root = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const [copied, setCopied] = useState('');
+  const [saved, setSaved] = useState(() =>
+    typeof window === 'undefined' ? [] : savedGeneratedWallets(),
+  );
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
       if (
@@ -42,6 +52,9 @@ export function WalletMenu(props: Props) {
       document.removeEventListener('keydown', escape);
     };
   }, []);
+  function refreshSaved() {
+    setSaved(savedGeneratedWallets());
+  }
   async function copyAddress() {
     try {
       await navigator.clipboard.writeText(props.account);
@@ -54,7 +67,10 @@ export function WalletMenu(props: Props) {
     <details
       className={styles.root}
       ref={root}
-      onToggle={() => setCopied('')}
+      onToggle={() => {
+        setCopied('');
+        refreshSaved();
+      }}
       onBlur={(event) => {
         if (
           event.relatedTarget instanceof Node &&
@@ -75,26 +91,31 @@ export function WalletMenu(props: Props) {
         />
         {props.account
           ? `${props.account.slice(0, 6)}…${props.account.slice(-4)}`
-          : 'Connect wallet'}
+          : 'Generate wallet'}
         <span className={styles.chevron} aria-hidden="true">
           ⌄
         </span>
       </summary>
       <section className={styles.panel} aria-label="Wallet connection">
         <strong>
-          {props.account ? 'Connected wallet' : 'Wallet connection'}
+          {props.account
+            ? generated
+              ? 'Generated wallet'
+              : 'Connected wallet'
+            : 'Demo wallet'}
         </strong>
         <p className={styles.status}>
           {props.account
-            ? 'Sepolia · test network'
-            : 'Browse freely. Connect to trade or manage assets.'}
+            ? 'DayTrader testnet · signs in this window'
+            : 'Create a fresh wallet in this window. No browser extension required.'}
         </p>
         {props.account ? (
           <>
             <p className={styles.address}>{props.account}</p>
-            {props.balance !== undefined ? (
-              <p className={styles.balance}>{props.balance} USDC</p>
-            ) : null}
+            <p className={styles.balance}>
+              {eth ? `${eth} ETH` : 'ETH …'}
+              {props.balance !== undefined ? ` · ${props.balance} USDC` : ''}
+            </p>
             <div className={styles.actions}>
               <button type="button" onClick={() => void copyAddress()}>
                 Copy address
@@ -112,47 +133,89 @@ export function WalletMenu(props: Props) {
             </span>
           </>
         ) : null}
-        {props.hasSession && !props.account ? (
-          <p className={styles.status}>
-            Reconnect your wallet or switch to Sepolia to sign transactions.
-          </p>
-        ) : null}
-        <label className={styles.provider}>
-          Wallet provider
-          <select
-            aria-label="Wallet provider"
-            value={props.selected}
-            disabled={props.busy}
-            onChange={(event) => props.onSelect(event.target.value)}
-          >
-            <option value="" disabled>
-              Select extension
-            </option>
-            {props.providers.map((provider) => (
-              <option key={provider.uuid} value={provider.uuid}>
-                {provider.name} ({provider.rdns})
-              </option>
-            ))}
-            <option value="legacy">Injected wallet (legacy)</option>
-          </select>
-        </label>
         <button
           className={styles.connect}
           type="button"
-          disabled={!props.selected || props.busy}
-          onClick={props.onConnect}
+          disabled={props.busy}
+          onClick={() => {
+            void generateWallet().then(refreshSaved);
+          }}
         >
-          {props.account ? 'Reconnect' : 'Connect wallet'}
+          {props.account ? 'Generate another wallet' : 'Generate wallet'}
         </button>
+        {saved.length ? (
+          <label className={styles.provider}>
+            Saved wallets
+            <select
+              aria-label="Saved generated wallets"
+              value={generated ? props.account : ''}
+              disabled={props.busy}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!next) return;
+                void selectGeneratedWallet(next).then(refreshSaved);
+              }}
+            >
+              <option value="" disabled>
+                Use a wallet from this browser
+              </option>
+              {saved.map((wallet, index) => (
+                <option key={wallet.address} value={wallet.address}>
+                  {index === 0 ? 'Latest · ' : ''}
+                  {wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {props.hasSession && !props.account ? (
+          <p className={styles.status}>
+            Reconnect your wallet or generate a new one to sign transactions.
+          </p>
+        ) : null}
+        <details className={styles.extension}>
+          <summary>Use a browser extension</summary>
+          <label className={styles.provider}>
+            Wallet provider
+            <select
+              aria-label="Wallet provider"
+              value={props.selected}
+              disabled={props.busy}
+              onChange={(event) => props.onSelect(event.target.value)}
+            >
+              <option value="" disabled>
+                Select extension
+              </option>
+              {props.providers.map((provider) => (
+                <option key={provider.uuid} value={provider.uuid}>
+                  {provider.name} ({provider.rdns})
+                </option>
+              ))}
+              <option value="legacy">Injected wallet (legacy)</option>
+            </select>
+          </label>
+          <button
+            className={styles.secondary}
+            type="button"
+            disabled={!props.selected || props.busy}
+            onClick={props.onConnect}
+          >
+            {props.account && !generated ? 'Reconnect' : 'Connect wallet'}
+          </button>
+          {props.hasSession && !generated ? (
+            <div className={styles.session}>
+              <button
+                type="button"
+                disabled={props.busy}
+                onClick={props.onSwitch}
+              >
+                Switch network
+              </button>
+            </div>
+          ) : null}
+        </details>
         {props.hasSession ? (
           <div className={styles.session}>
-            <button
-              type="button"
-              disabled={props.busy}
-              onClick={props.onSwitch}
-            >
-              Switch to Sepolia
-            </button>
             <button
               type="button"
               disabled={props.busy}
